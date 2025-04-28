@@ -7,8 +7,8 @@ import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
 import Image from "next/image";
 
 export default function Home() {
-  const particlesInit = async (engine: Engine) => {
-    await loadSlim(engine);
+  const particlesInit = async (engine: unknown) => {
+    await loadSlim(engine as any);
   };
 
   return (
@@ -36,7 +36,7 @@ export default function Home() {
       <Particles
         className="absolute inset-0 z-0"
         init={particlesInit}
-        options={{
+        options={{y
           background: { color: "transparent" },
           particles: {
             color: { value: "#ffffff" },
