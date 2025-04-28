@@ -3,12 +3,11 @@
 import Particles from "react-tsparticles";
 import { loadSlim } from "@tsparticles/slim";
 import Image from 'next/image';
-import type { Engine } from "tsparticles-engine";
 
 export default function Home() {
-    const particlesInit = async (engine: any) => {
-      await loadSlim(engine);
-    };
+  const particlesInit = async (engine: unknown) => {
+    await loadSlim(engine as any);
+  };
 
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
