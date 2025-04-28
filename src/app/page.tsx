@@ -2,34 +2,35 @@
 
 import Particles from "react-tsparticles";
 import { loadSlim } from '@tsparticles/slim';
+import type { Engine } from "@tsparticles/engine";
 import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
 import Image from "next/image";
 
 export default function Home() {
-  const particlesInit = async (engine: unknown) => {
-    await loadSlim(engine as any);
+  const particlesInit = async (engine: Engine) => {
+    await loadSlim(engine);
   };
 
   return (
-    <div className="relative min-h-screen font-sans overflow-hidden bg-black">
-      {/* Background Video */}
-      <video
-        src="/background.mp4"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          zIndex: -1,
-        }}
-        autoPlay
-        muted
-        loop
-        playsInline
-      />
-
+    <>
+      <div className="relative min-h-screen font-sans overflow-hidden bg-black">
+        {/* Background Video */}
+        <video
+          src="/background.mp4"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            zIndex: -1,
+          }}
+          autoPlay
+          muted
+          loop
+          playsInline
+        />
 
       {/* Particles */}
       <Particles
