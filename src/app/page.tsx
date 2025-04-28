@@ -1,7 +1,7 @@
 'use client';
 
-import Particles from "react-tsparticles";
 import { loadSlim } from "@tsparticles/slim";
+import Particles from "react-tsparticles";
 import Image from 'next/image';
 
 export default function Home() {
