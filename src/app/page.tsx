@@ -2,7 +2,6 @@
 
 import Particles from "react-tsparticles";
 import { loadSlim } from '@tsparticles/slim';
-import type { Engine } from "@tsparticles/engine"; // <-- ADD THIS
 import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
 import Image from "next/image";
 
@@ -13,7 +12,6 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
-
       {/* Background Video */}
       <video
         src="/background.mp4"
@@ -31,6 +29,7 @@ export default function Home() {
         loop
         playsInline
       />
+
 
       {/* Particles */}
       <Particles
