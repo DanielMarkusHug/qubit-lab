@@ -7,7 +7,7 @@ import Image from "next/image";
 import type { Engine } from "@tsparticles/engine";
 
 export default function Home() {
-  const particlesInit = async (engine: Engine) => {
+  const particlesInit = async (engine: any) => {
     await loadSlim(engine);
   };
 
