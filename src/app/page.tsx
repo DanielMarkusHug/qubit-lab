@@ -121,26 +121,36 @@ export default function Home() {
       {/* YouTube Videos */}
       <section className="max-w-6xl mx-auto px-6 pb-20 flex flex-col gap-12 relative z-10">
       {/* Video 1 */}
-      <div className="flex flex-col md:flex-row items-center gap-8">
-        <div className="relative w-full md:w-1/2 group">
-          <div className="overflow-hidden rounded-2xl transition-transform duration-300 group-hover:scale-105 ring-2 ring-transparent group-hover:ring-cyan-400">
-            <iframe
-              src="https://www.youtube.com/embed/_88ECktcxSg"
-              title="Part 1 - My First Quantum Program"
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="absolute top-0 left-0 w-full h-full rounded-2xl"
-            ></iframe>
+
+        
+        <section className="max-w-6xl mx-auto px-6 pb-20 flex flex-col gap-12 relative z-10">
+        {["_88ECktcxSg", "8vYwq1jUYNI", "cCKH1soP4yI", "iHhmEkdoerM"].map((videoId, index) => (
+          <div key={videoId} className="flex flex-col md:flex-row items-center gap-8">
+            <div className="relative w-full md:w-1/2 group">
+              <div className="overflow-hidden rounded-2xl transition-transform duration-300 group-hover:scale-105 ring-2 ring-transparent group-hover:ring-cyan-400">
+                <div className="relative pb-[56.25%]"> {/* 16:9 Aspect Ratio */}
+                  <iframe
+                    src="https://www.youtube.com/embed/_88ECktcxSg"
+                    title="Part 1 - My First Quantum Program"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="absolute top-0 left-0 w-full h-full rounded-2xl"
+                  ></iframe>
+                </div>
+              </div>
+            </div>
+            <div className="text-gray-200 md:w-1/2">
+              <h3 className="text-2xl font-bold mb-2">Video 1: Why Quantum Computing Matters</h3>
+              <p className="text-lg leading-relaxed">
+                🌟 Quantum computing is making headlines everywhere — but is it hype or the next big thing?
+                In this video, we go beyond the buzzwords to understand how quantum computers work, how they could disrupt industries like finance, AI, and cryptography, and what programming a quantum computer really looks like. No PhD needed — just curiosity and a bit of Python. Let’s get started!
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="text-gray-200 md:w-1/2">
-          <h3 className="text-2xl font-bold mb-2">Video 1: Why Quantum Computing Matters</h3>
-          <p className="text-lg leading-relaxed">
-            🌟 Quantum computing is making headlines everywhere — but is it hype or the next big thing?
-            In this video, we go beyond the buzzwords to understand how quantum computers work, how they could disrupt industries like finance, AI, and cryptography, and what programming a quantum computer really looks like. No PhD needed — just curiosity and a bit of Python. Let’s get started!
-          </p>
-        </div>
+        ))}
+        
+       
       </div>
 
       {/* Repeat for Video 2 */}
