@@ -6,8 +6,9 @@ import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
 import Image from "next/image";
 
 export default function Home() {
-  const particlesInit = async (engine: unknown) => {
-    await loadSlim(engine as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const particlesInit = async (engine: any) => {
+    await loadSlim(engine);
   };
 
   return (
