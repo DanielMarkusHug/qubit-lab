@@ -2,13 +2,12 @@
 
 import Particles from "react-tsparticles";
 import { loadSlim } from '@tsparticles/slim';
-import type { Engine } from "@tsparticles/engine";
 import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
 import Image from "next/image";
 
 export default function Home() {
-  const particlesInit = async (engine: Engine) => {
-    await loadSlim(engine);
+  const particlesInit = async (engine: unknown) => {
+    await loadSlim(engine as any);
   };
 
   return (
