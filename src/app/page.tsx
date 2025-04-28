@@ -125,14 +125,12 @@ export default function Home() {
         <div className="relative w-full md:w-1/2 group">
           <div className="overflow-hidden rounded-2xl transition-transform duration-300 group-hover:scale-105 ring-2 ring-transparent group-hover:ring-cyan-400">
             <iframe
-              width="100%"
-              height="315"
               src="https://www.youtube.com/embed/_88ECktcxSg"
               title="Part 1 - My First Quantum Program"
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
-              className="w-full h-full rounded-2xl"
+              className="absolute top-0 left-0 w-full h-full rounded-2xl"
             ></iframe>
           </div>
         </div>
