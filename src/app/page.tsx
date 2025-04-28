@@ -1,15 +1,15 @@
 'use client';
 
 import Particles from "react-tsparticles";
-import { loadFull } from "tsparticles";
+import { loadFull } from "@tsparticles/engine";
 import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
 import Image from 'next/image';
 import type { Engine } from "tsparticles-engine";
 
 export default function Home() {
-  const particlesInit = async (engine: Engine) => {
-    await loadFull(engine);
-  };
+  const particlesInit = async (engine: any) => {
+      await loadFull(engine);
+    };
 
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
