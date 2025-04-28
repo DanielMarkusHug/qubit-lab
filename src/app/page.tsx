@@ -1,14 +1,13 @@
 'use client';
 
 import Particles from "react-tsparticles";
-import { loadFull } from "@tsparticles/engine";
-import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
+import { loadSlim } from "@tsparticles/slim";
 import Image from 'next/image';
 import type { Engine } from "tsparticles-engine";
 
 export default function Home() {
-  const particlesInit = async (engine: any) => {
-      await loadFull(engine);
+    const particlesInit = async (engine: any) => {
+      await loadSlim(engine);
     };
 
   return (
