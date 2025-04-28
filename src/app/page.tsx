@@ -12,37 +12,37 @@ export default function Home() {
   };
 
   return (
-    <>
-      <div className="relative min-h-screen font-sans overflow-hidden bg-black">
-        {/* Background Video */}
-        <video
-          src="/background.mp4"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            zIndex: -1,
-          }}
-          autoPlay
-          muted
-          loop
-          playsInline
-        />
-
+    <div className="relative min-h-screen font-sans overflow-hidden bg-black">
+      {/* Background Video */}
+      <video
+        src="/background.mp4"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          zIndex: -1,
+        }}
+        autoPlay
+        muted
+        loop
+        playsInline
+      />
       {/* Particles */}
       <Particles
         className="absolute inset-0 z-0"
         init={particlesInit}
-        options={{y
+        options={{
           background: { color: "transparent" },
           particles: {
             color: { value: "#ffffff" },
             links: { enable: true, color: "#ffffff" },
             move: { enable: true, speed: 1 },
-            number: { value: 60 },
+            number: { value: 50 },
+            opacity: { value: 0.5 },
+            shape: { type: "circle" },
             size: { value: { min: 1, max: 3 } },
           },
         }}
