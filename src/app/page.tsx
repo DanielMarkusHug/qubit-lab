@@ -73,8 +73,8 @@ export default function Home() {
           <Image
             src="/logo.png"
             alt="Qubit Lab Logo"
-            width={200}
-            height={200}
+            width={240}
+            height={240}
             className="rounded-full"
           />
         </div>
@@ -89,7 +89,7 @@ export default function Home() {
           <h2 className="text-2xl text-gray-200">
             Unlock the secrets of quantum computing with clear, practical lessons.
           </h2>
-          <div className="flex gap-4">
+          <div className="flex gap-4 leading-relaxed">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Watch Videos</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
@@ -153,7 +153,7 @@ export default function Home() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-2xl font-semibold mb-2 text-cyan-300">{title}</h3>
+      <h3 className="text-2xl font-semibold mb-2 text-cyan-600">{title}</h3>
       <p className="text-lg text-gray-300 leading-relaxed">{children}</p>
     </div>
   );
@@ -165,7 +165,7 @@ function SocialCard({ icon, title, link, buttonText, comingSoon }: { icon: React
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
-        <a href={link} target="_blank" rel="noopener noreferrer" className="px-6 py-3 mt-4 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition">
+        <a href={link} target="_blank" rel="noopener noreferrer" className="px-6 py-3 mt-4 blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition">
           {buttonText}
         </a>
       ) : (
