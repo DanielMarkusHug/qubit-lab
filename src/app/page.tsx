@@ -140,6 +140,22 @@ export default function Home() {
         </div>
       </section>
 
+      <Giscus
+        id="comments"
+        repo="DanielMarkusHug/qubit-lab-comments"
+        repoId="R_kgDOOh8qEA"
+        category="General"
+        categoryId="DIC_kwDOOh8qEM4Cpmp3"
+        mapping="pathname"
+        reactionsEnabled="1"
+        emitMetadata="0"
+        inputPosition="bottom"
+        theme="transparent_dark"
+        lang="en"
+        loading="lazy"
+      />
+
+      
       <main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-2 relative z-10">
         <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab YouTube Channel" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
         <SocialCard icon={<FaLinkedin className="text-5xl text-blue-600 mb-4" />} title="LinkedIn Profile" link="https://linkedin.com/in/danielhug" buttonText="Connect on LinkedIn" />
@@ -154,20 +170,6 @@ export default function Home() {
   );
 }
 
-<Giscus
-  id="comments"
-  repo="DanielMarkusHug/qubit-lab-comments"
-  repoId="your-repo-id"
-  category="General"
-  categoryId="your-category-id"
-  mapping="pathname"
-  reactionsEnabled="1"
-  emitMetadata="0"
-  inputPosition="bottom"
-  theme="transparent_dark"
-  lang="en"
-  loading="lazy"
-/>
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
