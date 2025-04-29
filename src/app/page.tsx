@@ -113,7 +113,8 @@ export default function Home() {
           Participants will learn how quantum computers store and process information, how to design simple quantum circuits in Python using Qiskit, and how fundamental phenomena like superposition and interference are applied to computation. The goal is to build not only an understanding of what quantum computing is, but also how it works — preparing for deeper exploration into the field.
         </Section>
 
-        <Section title="Begin the journey toward a new way of thinking about computing.">
+        <Section title="Begin the journey toward a new way of thinking about computing...">
+        ...it's not trivial, but you can do it!
         </Section>
 
 <div className="pt-6">
