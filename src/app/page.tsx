@@ -73,8 +73,8 @@ export default function Home() {
           <Image
             src="/logo.png"
             alt="Qubit Lab Logo"
-            width={240}
-            height={240}
+            width={280}
+            height={280}
             className="rounded-full"
           />
         </div>
@@ -89,14 +89,14 @@ export default function Home() {
           <h2 className="text-2xl text-gray-200">
             Unlock the secrets of quantum computing with clear, practical lessons.
           </h2>
-          <div className="flex gap-4 mt-8">
+          <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Watch Videos</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
         </div>
       </header>
 
-      <section className="max-w-4xl mx-auto px-6 py-20 space-y-12 text-gray-200 relative z-10">
+      <section className="max-w-4xl mx-auto px-6 py-20 space-y-10 text-gray-200 relative z-10">
         <Section title="Who is this for?">
           No advanced math or physics background is required. With basic Python skills and a healthy dose of curiosity, anyone can start learning quantum computing. This series is ideal for finance professionals, tech enthusiasts, students, and anyone interested in the future of computing.
         </Section>
@@ -109,7 +109,7 @@ export default function Home() {
           Participants will learn how quantum computers store and process information, how to design simple quantum circuits in Python using Qiskit, and how fundamental phenomena like superposition and interference are applied to computation. The goal is to build not only an understanding of what quantum computing is, but also how it works — preparing for deeper exploration into the field.
         </Section>
 
-        <div className="text-center pt-10">
+        <div className="text-center pt-8">
           <p className="text-xl font-bold text-cyan-400">Begin the journey toward a new way of thinking about computing.</p>
         </div>
       </section>
@@ -153,7 +153,7 @@ export default function Home() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-2xl font-semibold mb-2 text-cyan-300">{title}</h3>
+      <h3 className="text-2xl font-semibold mb-2 text-blue-300">{title}</h3>
       <p className="text-lg text-gray-300 leading-relaxed">{children}</p>
     </div>
   );
