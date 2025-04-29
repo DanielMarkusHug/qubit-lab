@@ -96,8 +96,8 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="max-w-4xl mx-auto px-6 py-20 space-y-10 text-gray-200 relative z-10">
-        <h2 className="text-4xl font-bold mb-4">
+      <section className="max-w-4xl mx-auto px-6 py-20 space-y-12 text-gray-200 relative z-10">
+        <h2 className="text-4xl font-bold mb-6">
           Quantum Computing. Straight Talk.
         </h2>
         <Section title="Who is this for?">
@@ -176,7 +176,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-slate-200 to-cyan-100 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-slate-200 to-amber-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
@@ -184,7 +184,7 @@ function SocialCard({
           href={link}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-6 py-3 mt-4 bg-indigo-500 text-white rounded-xl font-semibold hover:bg-indigo-600 transition"
+          className="px-6 py-3 mt-4 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition"
         >
           {buttonText}
         </a>
