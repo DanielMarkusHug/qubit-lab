@@ -23,7 +23,7 @@ export default function Home() {
       id: "8vYwq1jUYNI",
       title: "Video 2: How Quantum Computers Think",
       description:
-        "🧠 Welcome back! Before we code, we need to understand how quantum computers think. We dive into the four cornerstones: qubits, superposition, measurement, entanglement, and quantum gates. You'll see how quantum magic like interference and reversibility makes these machines so unique — and why programming them is a whole new ballgame."
+        "🧠 Before we code, we need to understand how quantum computers think. We dive into the four cornerstones: qubits, superposition, measurement, entanglement, and quantum gates. You'll see how quantum magic like interference and reversibility makes these machines so unique — and why programming them is a whole new ballgame."
     },
     {
       id: "cCKH1soP4yI",
@@ -97,6 +97,9 @@ export default function Home() {
       </header>
 
       <section className="max-w-4xl mx-auto px-6 py-20 space-y-10 text-gray-200 relative z-10">
+        <h2 className="text-4xl font-bold mb-4">
+          Quantum Computing. Straight Talk.
+        </h2>
         <Section title="Who is this for?">
           No advanced math or physics background is required. With basic Python skills and a healthy dose of curiosity, anyone can start learning quantum computing. This series is ideal for finance professionals, tech enthusiasts, students, and anyone interested in the future of computing.
         </Section>
@@ -109,7 +112,7 @@ export default function Home() {
           Participants will learn how quantum computers store and process information, how to design simple quantum circuits in Python using Qiskit, and how fundamental phenomena like superposition and interference are applied to computation. The goal is to build not only an understanding of what quantum computing is, but also how it works — preparing for deeper exploration into the field.
         </Section>
 
-        <div className="text-center pt-8">
+        <div className="text-center pt-6">
           <p className="text-xl font-bold text-cyan-400">Begin the journey toward a new way of thinking about computing.</p>
         </div>
       </section>
@@ -181,7 +184,7 @@ function SocialCard({
           href={link}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-6 py-3 mt-4 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-900 transition"
+          className="px-6 py-3 mt-4 bg-indigo-500 text-white rounded-xl font-semibold hover:bg-indigo-600 transition"
         >
           {buttonText}
         </a>
