@@ -68,23 +68,31 @@ export default function Home() {
         }}
       />
 
-      <header className="flex flex-col items-center text-center max-w-4xl mx-auto px-6 pt-32 space-y-8 relative z-10">
-        <Image
-          src="/logo.png"
-          alt="Qubit Lab Logo"
-          width={200}
-          height={200}
-          className="rounded-full"
-        />
-        <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
-          Qubit Lab
-        </h1>
-        <h2 className="text-2xl text-gray-200">
-          Unlock the secrets of quantum computing with clear, practical lessons.
-        </h2>
-        <div className="flex gap-4">
-          <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Watch Videos</Link>
-          <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
+<header className="flex flex-col md:flex-row items-center md:items-start max-w-6xl mx-auto px-6 pt-32 relative z-10 gap-8 mb-24">
+        <div className="flex-shrink-0">
+          <Image
+            src="/logo.png"
+            alt="Qubit Lab Logo"
+            width={200}
+            height={200}
+            className="rounded-full"
+          />
+        </div>
+
+        <div className="flex flex-col text-left">
+          <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
+            Qubit Lab
+          </h1>
+          <h2 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500 mb-10">
+            Quantum Computing. Demystified.
+          </h2>
+          <h2 className="text-2xl text-gray-200">
+            Unlock the secrets of quantum computing with clear, practical lessons.
+          </h2>
+          <div className="flex gap-4">
+            <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Watch Videos</Link>
+            <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
+          </div>
         </div>
       </header>
 
