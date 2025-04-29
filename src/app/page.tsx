@@ -118,7 +118,7 @@ export default function Home() {
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Video Series</h2>
         <div className="grid gap-12 md:grid-cols-2">
           {videos.map(video => (
-            <div key={video.id} className="bg-blue-200 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+            <div key={video.id} className="bg-gradient-to-br from-amber-100 to-yellow-50 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
               <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
                 <iframe
                   src={`https://www.youtube.com/embed/${video.id}`}
@@ -161,7 +161,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function SocialCard({ icon, title, link, buttonText, comingSoon }: { icon: React.ReactNode; title: string; link?: string; buttonText?: string; comingSoon?: boolean }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-cyan-500 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-slate-200 to-cyan-100 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
