@@ -140,22 +140,27 @@ export default function Home() {
         </div>
       </section>
 
-      <Giscus
-        id="comments"
-        repo="DanielMarkusHug/qubit-lab-comments"
-        repoId="R_kgDOOh8qEA"
-        category="General"
-        categoryId="DIC_kwDOOh8qEM4Cpmp3"
-        mapping="pathname"
-        reactionsEnabled="1"
-        emitMetadata="0"
-        inputPosition="bottom"
-        theme="transparent_dark"
-        lang="en"
-        loading="lazy"
-      />
 
-      
+      <div className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
+        <div className="bg-gradient-to-br from-slate-100 to-blue-50 rounded-2xl p-6 shadow-2xl hover:scale-[1.01] transition">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4 text-center">Comments & Questions</h2>
+          <Giscus
+            id="comments"
+            repo="DanielMarkusHug/qubit-lab-comments"
+            repoId="R_kgDOOh8qEA"
+            category="General"
+            categoryId="DIC_kwDOOh8qEM4Cpmp3"
+            mapping="pathname"
+            reactionsEnabled="1"
+            emitMetadata="0"
+            inputPosition="bottom"
+            theme="light"  // light = matches video tile background
+            lang="en"
+            loading="lazy"
+          />
+        </div>
+      </div>
+
       <main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-2 relative z-10">
         <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab YouTube Channel" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
         <SocialCard icon={<FaLinkedin className="text-5xl text-blue-600 mb-4" />} title="LinkedIn Profile" link="https://linkedin.com/in/danielhug" buttonText="Connect on LinkedIn" />
@@ -194,7 +199,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-cyan-200 to-blue-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-cyan-300 to-blue-400 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
