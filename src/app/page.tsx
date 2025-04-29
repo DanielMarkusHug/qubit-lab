@@ -114,7 +114,7 @@ export default function Home() {
         </Section>
 
         <Section title="Begin the journey toward a new way of thinking about computing...">
-        ...it's not trivial, but you can do it!
+        ...it is not trivial, but you can do it!
         </Section>
 
 <div className="pt-6">
