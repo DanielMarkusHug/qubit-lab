@@ -113,8 +113,11 @@ export default function Home() {
           Participants will learn how quantum computers store and process information, how to design simple quantum circuits in Python using Qiskit, and how fundamental phenomena like superposition and interference are applied to computation. The goal is to build not only an understanding of what quantum computing is, but also how it works — preparing for deeper exploration into the field.
         </Section>
 
-        <div className="pt-6">
-          <p className="text-xl font-bold text-cyan-400">Begin the journey toward a new way of thinking about computing.</p>
+        <Section title="Begin the journey toward a new way of thinking about computing.">
+        </Section>
+
+<div className="pt-6">
+          <p className="text-xl font-bold text-cyan-400"></p>
         </div>
       </section>
 
@@ -122,7 +125,7 @@ export default function Home() {
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Video Series</h2>
         <div className="grid gap-12 md:grid-cols-2">
           {videos.map(video => (
-            <div key={video.id} className="bg-gradient-to-br from-slate-100 to-blue-50 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+            <div key={video.id} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
               <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
                 <iframe
                   src={`https://www.youtube.com/embed/${video.id}`}
@@ -199,7 +202,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-amber-200 to-amber-400 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-blue-100 to-blue-300 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
