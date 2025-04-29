@@ -114,63 +114,97 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="videos" className="max-w-6xl mx-auto px-6 pb-20 space-y-12 relative z-10">
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Video Series</h2>
-        <div className="grid gap-12 md:grid-cols-2">
-          {videos.map(video => (
-            <div key={video.id} className="bg-gradient-to-br from-amber-100 to-yellow-50 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
-              <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
-                <iframe
-                  src={`https://www.youtube.com/embed/${video.id}`}
-                  title={video.title}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="absolute top-0 left-0 w-full h-full"
-                ></iframe>
+      {/* YouTube Videos */}
+      <section id="videos" className="max-w-6xl mx-auto px-6 pb-20 flex flex-col gap-12 relative z-10">
+        {videos.map((video) => (
+          <div key={video.id} className="flex flex-col md:flex-row items-center gap-8">
+            <div className="relative w-full md:w-1/2 group">
+              <div className="overflow-hidden rounded-2xl transition-transform duration-300 group-hover:scale-105 ring-2 ring-transparent group-hover:ring-cyan-400">
+                <div className="relative pb-[56.25%]"> {/* 16:9 Aspect Ratio */}
+                  <iframe
+                    src={`https://www.youtube.com/embed/${video.id}`}
+                    title={video.title}
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="absolute top-0 left-0 w-full h-full rounded-2xl"
+                  ></iframe>
+                </div>
               </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
-              <p className="text-gray-700">{video.description}</p>
             </div>
-          ))}
-        </div>
+            <div className="text-gray-200 md:w-1/2">
+              <h3 className="text-2xl font-bold mb-2">{video.title}</h3>
+              <p className="text-lg leading-relaxed">{video.description}</p>
+            </div>
+          </div>
+        ))}
       </section>
 
+      {/* Social Links Cards */}
       <main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-2 relative z-10">
-        <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab YouTube Channel" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
-        <SocialCard icon={<FaLinkedin className="text-5xl text-blue-600 mb-4" />} title="LinkedIn Profile" link="https://linkedin.com/in/danielhug" buttonText="Connect on LinkedIn" />
-        <SocialCard icon={<FaAddressCard className="text-5xl text-indigo-500 mb-4" />} title="HiHello Profile" link="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6" buttonText="Visit HiHello" />
-        <SocialCard icon={<FaGithub className="text-5xl text-gray-700 mb-4" />} title="GitHub Repository" comingSoon />
+
+        {/* YouTube Card */}
+        <div className="rounded-2xl p-8 shadow-2xl bg-blue-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+          <FaYoutube className="text-5xl text-red-500 mb-4" />
+          <h2 className="text-2xl font-bold mb-2 text-gray-900">Qubit Lab YouTube Channel</h2>
+          <p className="text-gray-900 mb-6">All the videos, explained clearly.</p>
+          <a
+            href="https://www.youtube.com/@qubit-lab"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition"
+          >
+            Watch Videos
+          </a>
+        </div>
+
+        {/* LinkedIn Card */}
+        <div className="rounded-2xl p-8 shadow-2xl bg-blue-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+          <FaLinkedin className="text-5xl text-blue-600 mb-4" />
+          <h2 className="text-2xl font-bold mb-2 text-gray-900">LinkedIn Profile</h2>
+          <p className="text-gray-900 mb-6">Stay in touch and connect professionally.</p>
+          <a
+            href="https://linkedin.com/in/danielhug"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition"
+          >
+            Connect on LinkedIn
+          </a>
+        </div>
+
+        {/* HiHello Card */}
+        <div className="rounded-2xl p-8 shadow-2xl bg-blue-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+          <FaAddressCard className="text-5xl text-indigo-500 mb-4" />
+          <h2 className="text-2xl font-bold mb-2 text-gray-900">HiHello Profile</h2>
+          <p className="text-gray-900 mb-6">Find all my links and contact info at one place.</p>
+          <a
+            href="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-3 bg-indigo-500 text-white rounded-xl font-semibold hover:bg-indigo-600 transition"
+          >
+            Visit HiHello
+          </a>
+        </div>
+
+        {/* GitHub Card */}
+        <div className="rounded-2xl p-8 shadow-2xl bg-blue-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+          <FaGithub className="text-5xl text-gray-700 mb-4" />
+          <h2 className="text-2xl font-bold mb-2 text-gray-900">GitHub Repository</h2>
+          <p className="text-gray-900 mb-6">Soon: all Jupyter notebooks and quantum demos!</p>
+          <span className="px-6 py-3 bg-gray-600 text-white rounded-xl font-semibold">
+            Coming Soon
+          </span>
+        </div>
+
       </main>
 
+      {/* Footer */}
       <footer className="text-center text-gray-400 text-sm pb-10 relative z-10">
-        &copy; 2025 Qubit Lab. Demystifying Quantum Computing.
+        &copy; 2025 Qubit Lab. All rights reserved.
       </footer>
-    </div>
-  );
-}
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h3 className="text-2xl font-semibold mb-2 text-blue-300">{title}</h3>
-      <p className="text-lg text-gray-300 leading-relaxed">{children}</p>
-    </div>
-  );
-}
-
-function SocialCard({ icon, title, link, buttonText, comingSoon }: { icon: React.ReactNode; title: string; link?: string; buttonText?: string; comingSoon?: boolean }) {
-  return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-slate-200 to-cyan-100 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
-      {icon}
-      <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
-      {!comingSoon ? (
-        <a href={link} target="_blank" rel="noopener noreferrer" className="px-6 py-3 mt-4 blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition">
-          {buttonText}
-        </a>
-      ) : (
-        <span className="px-6 py-3 mt-4 bg-gray-600 text-white rounded-xl font-semibold">Coming Soon</span>
-      )}
     </div>
   );
 }
