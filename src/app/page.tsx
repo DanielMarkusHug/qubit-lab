@@ -156,7 +156,7 @@ export default function Home() {
 
 <Giscus
   id="comments"
-  repo="your-github-username/qubit-lab-comments"
+  repo="DanielMarkusHug/qubit-lab-comments"
   repoId="your-repo-id"
   category="General"
   categoryId="your-category-id"
@@ -192,7 +192,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-slate-200 to-amber-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-cyan-200 to-blue-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
