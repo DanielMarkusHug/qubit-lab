@@ -5,6 +5,7 @@ import { loadSlim } from '@tsparticles/slim';
 import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
 import Image from "next/image";
 import Link from "next/link";
+import Giscus from '@giscus/react';
 
 export default function Home() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -152,6 +153,21 @@ export default function Home() {
     </div>
   );
 }
+
+<Giscus
+  id="comments"
+  repo="your-github-username/qubit-lab-comments"
+  repoId="your-repo-id"
+  category="General"
+  categoryId="your-category-id"
+  mapping="pathname"
+  reactionsEnabled="1"
+  emitMetadata="0"
+  inputPosition="bottom"
+  theme="transparent_dark"
+  lang="en"
+  loading="lazy"
+/>
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
