@@ -89,7 +89,7 @@ export default function Home() {
           <h2 className="text-2xl text-gray-200">
             Unlock the secrets of quantum computing with clear, practical lessons.
           </h2>
-          <div className="flex gap-4 leading-relaxed">
+          <div className="flex gap-4 mt-8">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Watch Videos</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
@@ -153,7 +153,7 @@ export default function Home() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-2xl font-semibold mb-2 text-cyan-600">{title}</h3>
+      <h3 className="text-2xl font-semibold mb-2 text-cyan-300">{title}</h3>
       <p className="text-lg text-gray-300 leading-relaxed">{children}</p>
     </div>
   );
@@ -161,7 +161,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function SocialCard({ icon, title, link, buttonText, comingSoon }: { icon: React.ReactNode; title: string; link?: string; buttonText?: string; comingSoon?: boolean }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-blue-200 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-cyan-500 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
