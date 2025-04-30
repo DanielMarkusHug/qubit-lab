@@ -91,34 +91,7 @@ const quantumResources = [
   },
 ];
 
-export default function QuantumResourcesSection() {
-  return (
-    <section className="px-4 py-12 max-w-5xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6">Quantum Computing Resources</h2>
-      {quantumResources.map((group) => (
-        <div key={group.category} className="mb-10">
-          <h3 className="text-xl font-semibold mb-4">{group.category}</h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {group.resources.map((resource) => (
-              <a
-                key={resource.url}
-                href={resource.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white"
-              >
-                <h4 className="text-lg font-semibold text-blue-600 hover:underline">
-                  {resource.name}
-                </h4>
-                <p className="text-gray-700 mt-1 text-sm">{resource.description}</p>
-              </a>
-            ))}
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-}
+
 
 export default function Home() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -315,7 +288,7 @@ export default function Home() {
         <QuantumResourcesSection />
       </section>
 
-      <main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-2 relative z-10">
+<main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-2 relative z-10">
         <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab on YouTube" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
         <SocialCard icon={<FaLinkedin className="text-5xl text-blue-600 mb-4" />} title="LinkedIn Profile" link="https://linkedin.com/in/danielhug" buttonText="Connect on LinkedIn" />
         <SocialCard icon={<FaAddressCard className="text-5xl text-indigo-500 mb-4" />} title="HiHello Profile" link="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6" buttonText="Visit HiHello" />
@@ -371,5 +344,35 @@ function SocialCard({
         </span>
       )}
     </div>
+  );
+}
+
+
+function QuantumResourcesSection() {
+  return (
+    <section className="px-4 py-12 max-w-5xl mx-auto">
+      <h2 className="text-3xl font-bold mb-6">Quantum Computing Resources</h2>
+      {quantumResources.map((group) => (
+        <div key={group.category} className="mb-10">
+          <h3 className="text-xl font-semibold mb-4">{group.category}</h3>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {group.resources.map((resource) => (
+              <a
+                key={resource.url}
+                href={resource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white"
+              >
+                <h4 className="text-lg font-semibold text-blue-600 hover:underline">
+                  {resource.name}
+                </h4>
+                <p className="text-gray-700 mt-1 text-sm">{resource.description}</p>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
