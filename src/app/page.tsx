@@ -196,7 +196,6 @@ export default function Home() {
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
             <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Next Step Videos</Link>
-            <Link href="#quirk" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quirk</Link>
             <Link href="#comments" className="px-6 py-3 bg-cyan-800 text-white rounded-full font-semibold hover:bg-cyan-900 transition">Feedback</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
@@ -306,6 +305,44 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="px-4 py-12 max-w-5xl mx-auto">
+        <div className="rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white">
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Quantum Computing Videos on Youtube</h2>
+          <p className="text-gray-700 text-sm mb-4">
+            Watch our latest video on quantum computing and explore the full channel for more educational content.
+          </p>
+
+          {/* Embedded latest video */}
+          <div className="aspect-video w-full rounded overflow-hidden border">
+            <iframe
+              src="https://www.youtube.com/embed/@qubit-lab"
+              title="Latest YouTube Video"
+              className="w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              loading="lazy"
+            />
+          </div>
+
+          {/* Channel button */}
+          <div className="mt-4 text-center">
+            <a
+              href="https://www.youtube.com/channel/UCdeefNCz0jEk4R4X1Ndk4Kw"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded hover:bg-red-700 transition"
+            >
+              Visit My YouTube Channel
+            </a>
+          </div>
+        </div>
+      </section>
+
+
+      <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
+        <QuantumResourcesSection />
+      </section>
+
       <section id="comments" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <div className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
           <div className="bg-gradient-to-br from-cyan-400 to-blue-600 rounded-2xl p-6 shadow-2xl hover:scale-[1.01] transition">
@@ -328,9 +365,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
-        <QuantumResourcesSection />
-      </section>
 
 <main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-4 relative z-10">
         <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab on YouTube" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
@@ -398,7 +432,7 @@ function QuantumResourcesSection() {
       <h2 className="text-3xl font-bold mb-6">Quantum Computing Resources</h2>
       {quantumResources.map((group) => (
         <div key={group.category} className="mb-10">
-          <h3 className="text-xl font-semibold mb-4">{group.category}</h3>
+          <h3 className="text-xl text-gray-200 font-semibold mb-4">{group.category}</h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {group.resources.map((resource) => (
               <a
