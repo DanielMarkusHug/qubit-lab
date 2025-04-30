@@ -303,21 +303,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="px-4 py-12 max-w-6xl mx-auto">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">Trending Quantum Computing Videos</h2>
-        <div className="rounded-xl overflow-hidden border shadow bg-white aspect-video">
-          <iframe
-            src="https://www.youtube.com/embed?listType=search&list=quantum+computing"
-            title="Trending Quantum Computing Videos"
-            className="w-full h-full"
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            loading="lazy"
-          />
-        </div>
-      </section>
-
       <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <QuantumResourcesSection />
       </section>
