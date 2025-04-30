@@ -94,10 +94,12 @@ export default function Home() {
             Quantum Computing. Demystified.
           </h2>
           <h2 className="text-2xl text-gray-200">
-            Unlock the secrets of quantum computing with clear, practical lessons.
+            Unlock the secrets of quantum computing step by step.
           </h2>
           <div className="flex gap-4 mt-10">
-            <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Watch Videos</Link>
+            <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
+            <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Next Step Videos</Link>
+            <Link href="#videos" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quirk</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
         </div>
