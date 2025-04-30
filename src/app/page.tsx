@@ -443,6 +443,11 @@ function QuantumResourcesSection() {
 function LatestQuantumVideos() {
   const [videos, setVideos] = useState([]);
 
+  interface YouTubeVideo {
+    id: { videoId: string };
+    snippet: { title: string };
+  }
+  
   useEffect(() => {
     async function fetchVideos() {
       const res = await fetch('/api/youtube');
@@ -454,7 +459,7 @@ function LatestQuantumVideos() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10">
-      {videos.map((video: any) => (
+      {videos.map((video: YouTubeVideo) => (
         <div key={video.id.videoId} className="flex flex-col items-center bg-blue-100 p-4 rounded-xl shadow-lg">
           <iframe
             width="100%"
