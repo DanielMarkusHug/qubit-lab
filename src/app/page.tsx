@@ -13,7 +13,7 @@ export default function Home() {
     await loadSlim(engine);
   };
 
-  const videos = [
+  const videos_intro = [
     {
       id: "_88ECktcxSg",
       title: "Video 1: Why Quantum Computing Matters",
@@ -31,7 +31,11 @@ export default function Home() {
       title: "Video 3: Our First Quantum Program",
       description:
         "🎲 Time to roll the dice — literally! We build our very first quantum circuit: a real eight-sided die powered by quantum randomness. Using Python and Qiskit, we'll create and run a simple but powerful “Hello, Quantum World!” program. Your first step into real quantum coding starts here — and it's easier than you think."
-    },
+    }
+  ];
+
+  const videos_deepdive = [
+
     {
       id: "iHhmEkdoerM",
       title: "Video 4: Mastering Quantum Gates",
@@ -39,6 +43,8 @@ export default function Home() {
         "🔧 Ready to build your quantum toolbox? Now that you've seen your first circuit, it's time to learn how quantum gates really work. We revisit vectors and matrices from high school, uncover why quantum gates must be reversible, and explore key players like the X gate and Hadamard gate — with real Python examples to prove it. Understanding these simple tools is your gateway to mastering real quantum algorithms!"
     }
   ];
+
+
 
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
@@ -123,9 +129,9 @@ export default function Home() {
       </section>
 
       <section id="videos" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Video Series</h2>
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Introduction - My First Quantum Circuit</h2>
         <div className="grid gap-12 md:grid-cols-2">
-          {videos.map(video => (
+          {videos_intro.map(video => (
             <div key={video.id} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
               <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
                 <iframe
@@ -144,6 +150,27 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="videos_deepdive" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Deep Dives - The Next Step</h2>
+        <div className="grid gap-12 md:grid-cols-2">
+          {videos_deepdive.map(video => (
+            <div key={video.id} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+              <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
+                <iframe
+                  src={`https://www.youtube.com/embed/${video.id}`}
+                  title={video.title}
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="absolute top-0 left-0 w-full h-full"
+                ></iframe>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+              <p className="text-gray-700">{video.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <div className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
         <div className="bg-gradient-to-br from-cyan-200 to-blue-400 rounded-2xl p-6 shadow-2xl hover:scale-[1.01] transition">
@@ -166,7 +193,7 @@ export default function Home() {
       </div>
 
       <main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-2 relative z-10">
-        <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab YouTube Channel" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
+        <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab on YouTube" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
         <SocialCard icon={<FaLinkedin className="text-5xl text-blue-600 mb-4" />} title="LinkedIn Profile" link="https://linkedin.com/in/danielhug" buttonText="Connect on LinkedIn" />
         <SocialCard icon={<FaAddressCard className="text-5xl text-indigo-500 mb-4" />} title="HiHello Profile" link="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6" buttonText="Visit HiHello" />
         <SocialCard icon={<FaGithub className="text-5xl text-gray-700 mb-4" />} title="GitHub Repository" comingSoon />
@@ -203,7 +230,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-blue-100 to-blue-300 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-blue-200 to-blue-400 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
