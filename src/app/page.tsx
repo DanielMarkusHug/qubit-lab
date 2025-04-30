@@ -7,7 +7,6 @@ import Image from "next/image";
 import Link from "next/link";
 import Giscus from '@giscus/react';
 import React from "react";
-import { useEffect, useState } from 'react';
 
 const quantumResources = [
   {
