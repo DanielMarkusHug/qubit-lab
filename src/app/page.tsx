@@ -320,7 +320,7 @@ export default function Home() {
       </section>
 
       <section id="ytfeed" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
-        LatestQuantumVideos()
+        <LatestQuantumVideos />
       </section>
  
 
