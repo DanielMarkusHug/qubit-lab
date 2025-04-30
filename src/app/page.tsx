@@ -8,8 +8,6 @@ import Link from "next/link";
 import Giscus from '@giscus/react';
 import React from "react";
 
-import React from "react";
-
 const quantumResources = [
   {
     category: "Educational Resources",
@@ -102,35 +100,6 @@ const quantumResources = [
     ],
   },
 ];
-
-export default function QuantumResourcesSection() {
-  return (
-    <section className="px-4 py-12 max-w-5xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6">Quantum Computing Resources</h2>
-      {quantumResources.map((group) => (
-        <div key={group.category} className="mb-10">
-          <h3 className="text-xl font-semibold mb-4">{group.category}</h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {group.resources.map((resource) => (
-              <a
-                key={resource.url}
-                href={resource.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white"
-              >
-                <h4 className="text-lg font-semibold text-blue-600 hover:underline">
-                  {resource.name}
-                </h4>
-                <p className="text-gray-700 mt-1 text-sm">{resource.description}</p>
-              </a>
-            ))}
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-}
 
 
 
