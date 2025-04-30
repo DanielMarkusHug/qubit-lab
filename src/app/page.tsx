@@ -305,36 +305,18 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="px-4 py-12 max-w-5xl mx-auto">
-        <div className="rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white">
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Quantum Computing Videos on Youtube</h2>
-          <p className="text-gray-700 text-sm mb-4">
-            Watch our latest video on quantum computing and explore the full channel for more educational content.
-          </p>
-
-          {/* Embedded latest video */}
-          <div className="aspect-video w-full rounded overflow-hidden border">
-            <iframe
-              src="https://www.youtube.com/embed/@qubit-lab"
-              title="Latest YouTube Video"
-              className="w-full h-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              loading="lazy"
-            />
-          </div>
-
-          {/* Channel button */}
-          <div className="mt-4 text-center">
-            <a
-              href="https://www.youtube.com/channel/UCdeefNCz0jEk4R4X1Ndk4Kw"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-2 px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded hover:bg-red-700 transition"
-            >
-              Visit My YouTube Channel
-            </a>
-          </div>
+      <section className="px-4 py-12 max-w-6xl mx-auto">
+        <h2 className="text-2xl font-bold text-gray-800 mb-6">Trending Quantum Computing Videos</h2>
+        <div className="rounded-xl overflow-hidden border shadow bg-white aspect-video">
+          <iframe
+            src="https://www.youtube.com/embed?listType=search&list=quantum+computing"
+            title="Trending Quantum Computing Videos"
+            className="w-full h-full"
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            loading="lazy"
+          />
         </div>
       </section>
 
