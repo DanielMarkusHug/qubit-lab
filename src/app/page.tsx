@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import Giscus from '@giscus/react';
 import React from "react";
+import { useEffect, useState } from 'react';
 
 const quantumResources = [
   {
@@ -195,8 +196,8 @@ export default function Home() {
           </h2>
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
-            <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Next Step Videos</Link>
-            <Link href="#comments" className="px-6 py-3 bg-cyan-800 text-white rounded-full font-semibold hover:bg-cyan-900 transition">Feedback</Link>
+           // <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Next Step Videos</Link>
+           // <Link href="#comments" className="px-6 py-3 bg-cyan-800 text-white rounded-full font-semibold hover:bg-cyan-900 transition">Feedback</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
         </div>
@@ -320,6 +321,10 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="ytfeed" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
+        LatestQuantumVideos()
+      </section>
+ 
 
       <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <QuantumResourcesSection />
@@ -411,7 +416,7 @@ function SocialCard({
 function QuantumResourcesSection() {
   return (
     <section className="px-4 py-12 max-w-5xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6">Quantum Computing Resources</h2>
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Quantum Computing Resources</h2>
       {quantumResources.map((group) => (
         <div key={group.category} className="mb-10">
           <h3 className="text-xl text-gray-200 font-semibold mb-4">{group.category}</h3>
@@ -434,5 +439,37 @@ function QuantumResourcesSection() {
         </div>
       ))}
     </section>
+  );
+}
+
+function LatestQuantumVideos() {
+  const [videos, setVideos] = useState([]);
+
+  useEffect(() => {
+    async function fetchVideos() {
+      const res = await fetch('/api/youtube');
+      const data = await res.json();
+      setVideos(data.items || []);
+    }
+    fetchVideos();
+  }, []);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10">
+      {videos.map((video: any) => (
+        <div key={video.id.videoId} className="flex flex-col items-center bg-blue-100 p-4 rounded-xl shadow-lg">
+          <iframe
+            width="100%"
+            height="215"
+            src={`https://www.youtube.com/embed/${video.id.videoId}`}
+            title={video.snippet.title}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          ></iframe>
+          <h3 className="text-center text-gray-900 mt-2 font-semibold">{video.snippet.title}</h3>
+        </div>
+      ))}
+    </div>
   );
 }
