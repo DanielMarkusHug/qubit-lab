@@ -406,7 +406,7 @@ function QuantumResourcesSection() {
                 href={resource.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white"
+                className="block rounded-2xl border border-gray-200 bg-gradient-to-br from-orange-100 to-orange-300 shadow hover:shadow-md transition-shadow p-4"
               >
                 <h4 className="text-lg font-semibold text-blue-600 hover:underline">
                   {resource.name}
