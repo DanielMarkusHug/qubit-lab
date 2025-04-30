@@ -272,7 +272,7 @@ export default function Home() {
             />
             <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center">
               <a
-                href="https://algassert.com/quirk"
+                href="https://algassert.com/quirk#circuit=%7B%22cols%22%3A%5B%5B%22H%22%2C%22H%22%2C%22H%22%5D%2C%5B%22Measure%22%5D%2C%5B1%2C%22Measure%22%5D%2C%5B1%2C1%2C%22Measure%22%5D%5D%7D"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-6 py-2 bg-white text-blue-700 font-semibold rounded hover:bg-blue-50 transition"
@@ -370,7 +370,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-cyan-400 to-blue-600 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-4 shadow-2xl bg-gradient-to-br from-blue-200 to-blue-400 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
