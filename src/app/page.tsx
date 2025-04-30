@@ -319,11 +319,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="ytfeed" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
-        <LatestQuantumVideos />
-      </section>
- 
-
       <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <QuantumResourcesSection />
       </section>
@@ -440,7 +435,7 @@ function QuantumResourcesSection() {
   );
 }
 
-function LatestQuantumVideos() {
+/*function LatestQuantumVideos() {
   const [videos, setVideos] = useState([]);
 
   interface YouTubeVideo {
@@ -475,4 +470,4 @@ function LatestQuantumVideos() {
       ))}
     </div>
   );
-}
+}*/
