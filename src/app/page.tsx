@@ -8,6 +8,8 @@ import Link from "next/link";
 import Giscus from '@giscus/react';
 import React from "react";
 
+import React from "react";
+
 const quantumResources = [
   {
     category: "Educational Resources",
@@ -46,6 +48,16 @@ const quantumResources = [
         name: "Quantum Composer (IBM)",
         url: "https://quantum-computing.ibm.com/composer",
         description: "Visual circuit builder and simulator.",
+      },
+      {
+        name: "Quirk",
+        url: "https://algassert.com/quirk",
+        description: "Interactive drag-and-drop quantum circuit simulator in the browser.",
+      },
+      {
+        name: "Quirk Documentation",
+        url: "https://algassert.com/quirk-doc/",
+        description: "Reference documentation for the Quirk simulator.",
       },
     ],
   },
@@ -90,6 +102,35 @@ const quantumResources = [
     ],
   },
 ];
+
+export default function QuantumResourcesSection() {
+  return (
+    <section className="px-4 py-12 max-w-5xl mx-auto">
+      <h2 className="text-3xl font-bold mb-6">Quantum Computing Resources</h2>
+      {quantumResources.map((group) => (
+        <div key={group.category} className="mb-10">
+          <h3 className="text-xl font-semibold mb-4">{group.category}</h3>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {group.resources.map((resource) => (
+              <a
+                key={resource.url}
+                href={resource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white"
+              >
+                <h4 className="text-lg font-semibold text-blue-600 hover:underline">
+                  {resource.name}
+                </h4>
+                <p className="text-gray-700 mt-1 text-sm">{resource.description}</p>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
 
 
 
@@ -186,7 +227,7 @@ export default function Home() {
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
             <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Next Step Videos</Link>
-            <Link href="#videos" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quirk</Link>
+            <Link href="#quirk" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quirk</Link>
             <Link href="#comments" className="px-6 py-3 bg-cyan-800 text-white rounded-full font-semibold hover:bg-cyan-900 transition">Feedback</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
@@ -240,6 +281,33 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="quirk" className="px-4 py-12 max-w-5xl mx-auto">
+        <div className="rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white">
+          <a
+            href="https://algassert.com/quirk"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <h2 className="text-xl font-semibold text-blue-600 hover:underline">
+              Quirk – Interactive Quantum Circuit Simulator
+            </h2>
+          </a>
+          <p className="text-gray-700 mt-2 text-sm">
+            Drag-and-drop quantum gates to simulate quantum circuits in real time. Built for learning and experimentation, right in your browser.
+          </p>
+
+          <div className="mt-4 aspect-video w-full border rounded overflow-hidden">
+            <iframe
+              src="https://algassert.com/quirk"
+              title="Quirk Quantum Simulator"
+              loading="lazy"
+              className="w-full h-full border-0"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      </section>
+
       <section id="videos_deepdive" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Deep Dives - The Next Step</h2>
         <div className="grid gap-12 md:grid-cols-2">
@@ -264,7 +332,7 @@ export default function Home() {
 
       <section id="comments" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <div className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
-          <div className="bg-gradient-to-br from-orange-400 to-orange-700 rounded-2xl p-6 shadow-2xl hover:scale-[1.01] transition">
+          <div className="bg-gradient-to-br from-cyan-400 to-blue-600 rounded-2xl p-6 shadow-2xl hover:scale-[1.01] transition">
             <h2 className="text-3xl font-bold text-gray-900 mb-4 text-center">What’s On Your Mind?</h2>
             <Giscus
               id="comments"
@@ -326,7 +394,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-blue-200 to-blue-400 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-orange-400 to-brown-600 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
