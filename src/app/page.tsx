@@ -262,17 +262,24 @@ export default function Home() {
             </h2>
           </a>
           <p className="text-gray-700 mt-2 text-sm">
-            Drag-and-drop quantum gates to simulate quantum circuits in real time. Built for learning and experimentation, right in your browser.
+            Drag-and-drop quantum gates to simulate circuits visually. Launch the live simulator in a new tab.
           </p>
-
-          <div className="mt-4 aspect-video w-full border rounded overflow-hidden">
-            <iframe
-              src="https://algassert.com/quirk"
-              title="Quirk Quantum Simulator"
-              loading="lazy"
-              className="w-full h-full border-0"
-              allowFullScreen
+          <div className="mt-4 relative aspect-video border rounded overflow-hidden">
+            <img
+              src="https://algassert.com/quirk/quirk-preview.png"
+              alt="Quirk Simulator Preview"
+              className="w-full h-full object-cover"
             />
+            <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center">
+              <a
+                href="https://algassert.com/quirk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-2 bg-white text-blue-700 font-semibold rounded hover:bg-blue-50 transition"
+              >
+                Open Simulator
+              </a>
+            </div>
           </div>
         </div>
       </section>
@@ -325,7 +332,7 @@ export default function Home() {
         <QuantumResourcesSection />
       </section>
 
-<main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-2 relative z-10">
+<main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-4 relative z-10">
         <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab on YouTube" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
         <SocialCard icon={<FaLinkedin className="text-5xl text-blue-600 mb-4" />} title="LinkedIn Profile" link="https://linkedin.com/in/danielhug" buttonText="Connect on LinkedIn" />
         <SocialCard icon={<FaAddressCard className="text-5xl text-indigo-500 mb-4" />} title="HiHello Profile" link="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6" buttonText="Visit HiHello" />
@@ -363,7 +370,7 @@ function SocialCard({
   comingSoon?: boolean;
 }) {
   return (
-    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-orange-400 to-brown-600 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+    <div className="rounded-2xl p-8 shadow-2xl bg-gradient-to-br from-cyan-400 to-blue-600 flex flex-col items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
       {icon}
       <h2 className="text-2xl font-bold mb-2 text-gray-900">{title}</h2>
       {!comingSoon ? (
