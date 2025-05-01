@@ -158,9 +158,9 @@ export default function Home() {
       title: "Video 6: Multi Qubit Systems",
       description:
         "( coming soon )"
-    }  ];
+    }  
+  ]
 
-  
 
 
   return (
