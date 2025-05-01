@@ -151,8 +151,19 @@ export default function Home() {
       title: "Video 4: Mastering Quantum Gates",
       description:
         "🔧 Ready to build your quantum toolbox? Now that you've seen your first circuit, it's time to learn how quantum gates really work. We revisit vectors and matrices from high school, uncover why quantum gates must be reversible, and explore key players like the X gate and Hadamard gate — with real Python examples to prove it. Understanding these simple tools is your gateway to mastering real quantum algorithms!"
-    }
-  ];
+    },
+    {
+      id: "xxxxx",
+      title: "Video 5: Quantum Interference",
+      description:
+        "( coming soon )"
+    },    
+    {
+      id: "xxxxx",
+      title: "Video 6: Multi Qubit Systems",
+      description:
+        "( coming soon )"
+    }  ];
 
   
 
