@@ -218,9 +218,10 @@ export default function Home() {
           <div className="flex gap-4 mt-4">
             <Link href="#resources" className="px-6 py-3 bg-blue-400 text-white rounded-full font-semibold hover:bg-blue-500 transition">Resources</Link>
             <Link href="#comments" className="px-6 py-3 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition">Feedback</Link>
-            <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>       
-         </div>
+          <div className="flex gap-4 mt-4">
+            <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
+          </div>          </div>
       </header>
 
       <section className="max-w-4xl mx-auto px-6 py-20 space-y-12 text-gray-200 relative z-10">
