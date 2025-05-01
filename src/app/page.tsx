@@ -2,7 +2,7 @@
 
 import Particles from "react-tsparticles";
 import { loadSlim } from '@tsparticles/slim';
-import { FaYoutube, FaLinkedin, FaAddressCard, FaGithub } from "react-icons/fa";
+import { FaYoutube, FaLinkedin, FaAddressCard } from "react-icons/fa";
 import Image from "next/image";
 import Link from "next/link";
 import Giscus from '@giscus/react';
