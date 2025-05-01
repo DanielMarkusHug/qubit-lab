@@ -10,43 +10,58 @@ import React from "react";
 
 const quantumResources = [
   {
-    category: "Educational Resources",
+    category: "General Quantum Computing",
     resources: [
       {
         name: "Quantum Country",
         url: "https://quantum.country/qcvc",
-        description: "Memory-aid for learning quantum computing concepts.",
-      },
-      {
-        name: "Qiskit Textbook",
-        url: "https://qiskit.org/textbook/preface.html",
-        description: "IBM’s interactive textbook for learning Qiskit.",
+        description: "A memory aid for learning quantum computing concepts through spaced repetition.",
       },
       {
         name: "Microsoft Quantum Learn",
         url: "https://learn.microsoft.com/en-us/training/paths/quantum-computing-fundamentals/",
-        description: "Modular course on quantum computing fundamentals.",
+        description: "Beginner-friendly learning path covering quantum fundamentals and Q# programming.",
       },
     ],
   },
   {
-    category: "Hands-on Programming",
+    category: "Qiskit Programming Resources (IBM)",
     resources: [
+      {
+        name: "Qiskit Textbook",
+        url: "https://qiskit.org/textbook/preface.html",
+        description: "IBM’s interactive textbook for learning quantum computing using Qiskit.",
+      },
       {
         name: "IBM Quantum Lab",
         url: "https://quantum-computing.ibm.com/",
-        description: "Run real quantum circuits using Qiskit online.",
-      },
-      {
-        name: "QuTiP",
-        url: "https://qutip.org/",
-        description: "Simulating quantum systems in Python.",
+        description: "Run real quantum circuits using Qiskit on IBM's cloud-based quantum computers.",
       },
       {
         name: "Quantum Composer (IBM)",
         url: "https://quantum-computing.ibm.com/composer",
-        description: "Visual circuit builder and simulator.",
+        description: "Visual circuit builder and simulator for designing quantum algorithms.",
       },
+    ],
+  },
+  {
+    category: "Cirq Programming Resources (Google)",
+    resources: [
+      {
+        name: "Cirq",
+        url: "https://quantumai.google/cirq",
+        description: "Google's Python framework for creating, editing, and invoking Noisy Intermediate Scale Quantum (NISQ) circuits.",
+      },
+      {
+        name: "Cirq Tutorials",
+        url: "https://quantumai.google/cirq/tutorials",
+        description: "A collection of tutorials to help you get started with Cirq.",
+      },
+    ],
+  },
+  {
+    category: "Quirk Simulator",
+    resources: [
       {
         name: "Quirk",
         url: "https://algassert.com/quirk",
@@ -60,32 +75,32 @@ const quantumResources = [
     ],
   },
   {
-    category: "Research and News",
+    category: "Python Programming for Quantum Computing",
     resources: [
       {
-        name: "Quantum Computing Report",
-        url: "https://quantumcomputingreport.com/",
-        description: "Industry news and analysis.",
+        name: "Python Basics for Qiskit Users",
+        url: "https://qiskit.org/learn/course/basics-of-python/",
+        description: "Qiskit's official Python refresher covering the essentials for quantum programming.",
       },
       {
-        name: "arXiv Quantum Physics",
-        url: "https://arxiv.org/archive/quant-ph",
-        description: "Preprints in quantum computing and physics.",
+        name: "Python Tutor (Visual Debugger)",
+        url: "https://pythontutor.com/",
+        description: "Step-by-step visual execution of Python code — great for understanding quantum algorithms.",
       },
       {
-        name: "Nature Quantum Information",
-        url: "https://www.nature.com/natquantuminf/",
-        description: "Peer-reviewed quantum research journal.",
-      },
+        name: "Real Python",
+        url: "https://realpython.com/",
+        description: "High-quality tutorials to build strong Python foundations for quantum circuit coding.",
+      }
     ],
-  },
-  {
-    category: "Community and Collaboration",
+  }
+    {
+    category: "Community & Collaboration",
     resources: [
       {
-        name: "StackExchange – Quantum",
+        name: "Quantum Computing Stack Exchange",
         url: "https://quantumcomputing.stackexchange.com/",
-        description: "Q&A platform for all quantum topics.",
+        description: "Q&A platform for engineers, scientists, and programmers interested in quantum computing.",
       },
       {
         name: "Qiskit Community",
@@ -100,7 +115,6 @@ const quantumResources = [
     ],
   },
 ];
-
 
 
 export default function Home() {
@@ -191,13 +205,18 @@ export default function Home() {
             Quantum Computing. Demystified.
           </h2>
           <h2 className="text-2xl text-gray-200">
-            Unlock the secrets of quantum computing step by step.
+            Unlock the secrets of quantum computing - step by step.
           </h2>
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
+            <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dive Videos</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
-        </div>
+          <div className="flex gap-4 mt-10">
+            <Link href="#resources" className="px-6 py-3 bg-cyan-550 text-white rounded-full font-semibold hover:bg-cyan-650 transition">Resources</Link>
+            <Link href="#comments" className="px-6 py-3 bg-cyan-650 text-white rounded-full font-semibold hover:bg-cyan-750 transition">Feedback</Link>
+            <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
+          </div>        </div>
       </header>
 
       <section className="max-w-4xl mx-auto px-6 py-20 space-y-12 text-gray-200 relative z-10">
@@ -247,39 +266,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="quirk" className="px-4 py-12 max-w-5xl mx-auto">
-        <div className="rounded-2xl border border-gray-200 shadow hover:shadow-md transition-shadow p-4 bg-white">
-          <a
-            href="https://algassert.com/quirk"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <h2 className="text-xl font-semibold text-blue-600 hover:underline">
-              Quirk – Interactive Quantum Circuit Simulator
-            </h2>
-          </a>
-          <p className="text-gray-700 mt-2 text-sm">
-            Drag-and-drop quantum gates to simulate circuits visually. Launch the live simulator in a new tab.
-          </p>
-          <div className="mt-4 relative aspect-video border rounded overflow-hidden">
-            <img
-              src="https://algassert.com/quirk/quirk-preview.png"
-              alt="Quirk Simulator Preview"
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center">
-              <a
-                href="https://algassert.com/quirk#circuit=%7B%22cols%22%3A%5B%5B%22H%22%2C%22H%22%2C%22H%22%5D%2C%5B%22Measure%22%5D%2C%5B1%2C%22Measure%22%5D%2C%5B1%2C1%2C%22Measure%22%5D%5D%7D"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-6 py-2 bg-white text-blue-700 font-semibold rounded hover:bg-blue-50 transition"
-              >
-                Open Simulator
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section id="videos_deepdive" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Deep Dives - The Next Step</h2>
