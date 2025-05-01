@@ -325,19 +325,30 @@ export default function Home() {
 
       <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
-          Explore the Code Behind Video 4
+          Try the Quantum Notebook from Video 4
         </h2>
         <p className="text-center text-gray-300 mb-6">
-          Run the Jupyter notebook for “Mastering Quantum Gates” directly in your browser using Google Colab.
+          Run the code for “Mastering Quantum Gates” directly in Google Colab.
         </p>
-        <div className="rounded-2xl overflow-hidden border border-gray-300 shadow-lg bg-white">
-          <iframe
-            src="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
-            title="Quantum Gates Notebook"
-            className="w-full h-[800px]"
-            allowFullScreen
-            loading="lazy"
+        <div className="bg-white rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
+          <Image
+            src="/logo.png"
+            alt="Notebook Preview"
+            width={120}
+            height={120}
+            className="mx-auto mb-4 rounded-full"
           />
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            Video 4: Quantum Gates Notebook
+          </h3>
+          <a
+            href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
+          >
+            Open in Google Colab
+          </a>
         </div>
       </section>
 
@@ -368,11 +379,10 @@ export default function Home() {
       </section>
 
 
-<main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-4 relative z-10">
+<main className="max-w-6xl mx-auto px-6 pb-20 grid gap-10 md:grid-cols-3 relative z-10">
         <SocialCard icon={<FaYoutube className="text-5xl text-red-500 mb-4" />} title="Qubit Lab on YouTube" link="https://www.youtube.com/@qubit-lab" buttonText="Watch Videos" />
         <SocialCard icon={<FaLinkedin className="text-5xl text-blue-600 mb-4" />} title="LinkedIn Profile" link="https://linkedin.com/in/danielhug" buttonText="Connect on LinkedIn" />
         <SocialCard icon={<FaAddressCard className="text-5xl text-indigo-500 mb-4" />} title="HiHello Profile" link="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6" buttonText="Visit HiHello" />
-        <SocialCard icon={<FaGithub className="text-5xl text-gray-700 mb-4" />} title="GitHub Repository" comingSoon />
       </main>
 
       <footer className="text-center text-gray-400 text-sm pb-10 relative z-10">
