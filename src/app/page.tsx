@@ -13,13 +13,13 @@ const quantumResources = [
     category: "Math Basics and General Quantum Computing",
     resources: [
       {
-        name: "Matrix Multiplication for Beginners",
-        url: "https://www.youtube.com/watch?v=zH3Zohx8Phg",
+        name: "Matrix Multiplication for Beginners (Video)",
+        url: "https://www.youtube.com/watch?v=XkY2DOUCWMU"
         description: "Step-by-step video explanation of how to multiply matrices — essential for understanding quantum gates."
       },
       {
-        name: "Complex Numbers for Beginners",
-        url: "https://www.youtube.com/watch?v=3xQwO-zxTBU",
+        name: "Complex Numbers for Beginners (Video)",
+        url: "https://www.youtube.com/watch?v=T647CGsuOVU",
         description: "Friendly visual introduction to imaginary numbers and why the square root of −1 is useful in quantum mechanics."
       },
       {
@@ -30,22 +30,22 @@ const quantumResources = [
     ],
   },
   {
-    category: "Qiskit Programming Resources (IBM)",
+    category: "Qiskit Resources (IBM)",
     resources: [
       {
-        name: "Qiskit Textbook",
-        url: "https://qiskit.org/textbook/preface.html",
-        description: "IBM’s interactive textbook for learning quantum computing using Qiskit.",
+        name: "Qiskit",
+        url: "https://www.ibm.com/quantum/qiskit",
+        description: "The Homepage of IBM’s Qiskit.",
       },
       {
-        name: "IBM Quantum Lab",
-        url: "https://quantum-computing.ibm.com/",
-        description: "Run real quantum circuits using Qiskit on IBM's cloud-based quantum computers.",
+        name: "Qiskit Reference",
+        url: "https://docs.quantum.ibm.com/api/qiskit",
+        description: "Qiskit documentation (latest version)",
       },
       {
-        name: "Quantum Composer (IBM)",
-        url: "https://quantum-computing.ibm.com/composer",
-        description: "Visual circuit builder and simulator for designing quantum algorithms.",
+        name: "Python Basics for Qiskit Users",
+        url: "https://qiskit.org/learn/course/basics-of-python/",
+        description: "Qiskit's official Python refresher covering the essentials for quantum programming.",
       },
     ],
   },
@@ -65,7 +65,7 @@ const quantumResources = [
     ],
   },
   {
-    category: "Quirk Simulator",
+    category: "Interactive Quantum Circuit Simulators",
     resources: [
       {
         name: "Quirk",
@@ -73,25 +73,15 @@ const quantumResources = [
         description: "Interactive drag-and-drop quantum circuit simulator in the browser.",
       },
       {
-        name: "Quirk Documentation",
-        url: "https://algassert.com/quirk-doc/",
-        description: "Reference documentation for the Quirk simulator.",
+        name: "Quantum Composer (IBM)",
+        url: "https://quantum-computing.ibm.com/composer",
+        description: "Visual circuit builder and simulator for designing quantum algorithms.",
       },
     ],
   },
   {
     category: "Python Programming for Quantum Computing",
     resources: [
-      {
-        name: "Python Basics for Qiskit Users",
-        url: "https://qiskit.org/learn/course/basics-of-python/",
-        description: "Qiskit's official Python refresher covering the essentials for quantum programming.",
-      },
-      {
-        name: "Python Tutor (Visual Debugger)",
-        url: "https://pythontutor.com/",
-        description: "Step-by-step visual execution of Python code — great for understanding quantum algorithms.",
-      },
       {
         name: "Real Python",
         url: "https://realpython.com/",
