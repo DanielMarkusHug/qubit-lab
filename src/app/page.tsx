@@ -17,11 +17,6 @@ const quantumResources = [
         url: "https://quantum.country/qcvc",
         description: "A memory aid for learning quantum computing concepts through spaced repetition.",
       },
-      {
-        name: "Microsoft Quantum Learn",
-        url: "https://learn.microsoft.com/en-us/training/paths/quantum-computing-fundamentals/",
-        description: "Beginner-friendly learning path covering quantum fundamentals and Q# programming.",
-      },
     ],
   },
   {
