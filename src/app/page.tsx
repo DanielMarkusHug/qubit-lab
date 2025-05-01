@@ -322,6 +322,25 @@ export default function Home() {
         </div>
       </section>
 
+
+      <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
+          Explore the Code Behind Video 4
+        </h2>
+        <p className="text-center text-gray-300 mb-6">
+          Run the Jupyter notebook for “Mastering Quantum Gates” directly in your browser using Google Colab.
+        </p>
+        <div className="rounded-2xl overflow-hidden border border-gray-300 shadow-lg bg-white">
+          <iframe
+            src="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
+            title="Quantum Gates Notebook"
+            className="w-full h-[800px]"
+            allowFullScreen
+            loading="lazy"
+          />
+        </div>
+      </section>
+
       <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <QuantumResourcesSection />
       </section>
