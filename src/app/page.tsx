@@ -273,43 +273,55 @@ export default function Home() {
       </section>
 
 
-      <section id="videos_deepdive" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Deep Dives - The Next Step</h2>
+      <section
+        id="videos_deepdive"
+        className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10"
+      >
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
+          Deep Dives - The Next Step
+        </h2>
         <div className="grid gap-12 md:grid-cols-2">
-        {videos_deepdive.map(video => (
-        <div key={video.title} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl flex flex-col justify-center items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
-          {video.id === "xxxxx" ? (
-            <>
-              <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden bg-white flex items-center justify-center">
-                <Image
-                  src="/logo.png"
-                  alt="Qubit Lab Logo"
-                  width={120}
-                  height={120}
-                  className="rounded-full"
-                />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
-              <p className="text-gray-700">{video.description}</p>
-            </>
-          ) : (
-            <>
-              <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
-                <iframe
-                  src={`https://www.youtube.com/embed/${video.id}`}
-                  title={video.title}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="absolute top-0 left-0 w-full h-full"
-                ></iframe>
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
-              <p className="text-gray-700">{video.description}</p>
-            </>
-          )}
+          {videos_deepdive.map((video) => (
+            <div
+              key={video.title}
+              className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl flex flex-col justify-center items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition"
+            >
+              {video.id === "xxxxx" ? (
+                <>
+                  <div className="relative w-full mb-4 overflow-hidden rounded-xl bg-white" style={{ paddingBottom: '56.25%' }}>
+                    <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+                      <Image
+                        src="/logo.png"
+                        alt="Qubit Lab Logo"
+                        width={120}
+                        height={120}
+                        className="rounded-full"
+                      />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+                  <p className="text-gray-700">{video.description}</p>
+                </>
+              ) : (
+                <>
+                  <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${video.id}`}
+                      title={video.title}
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="absolute top-0 left-0 w-full h-full"
+                    />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+                  <p className="text-gray-700">{video.description}</p>
+                </>
+              )}
+            </div>
+          ))}
         </div>
-      ))}
+      </section>
 
 
         </div>
