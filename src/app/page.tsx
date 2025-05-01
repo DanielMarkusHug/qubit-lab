@@ -10,8 +10,18 @@ import React from "react";
 
 const quantumResources = [
   {
-    category: "General Quantum Computing",
+    category: "Math Basics and General Quantum Computing",
     resources: [
+      {
+        name: "Matrix Multiplication for Beginners",
+        url: "https://www.youtube.com/watch?v=zH3Zohx8Phg",
+        description: "Step-by-step video explanation of how to multiply matrices — essential for understanding quantum gates."
+      },
+      {
+        name: "Complex Numbers for Beginners",
+        url: "https://www.youtube.com/watch?v=3xQwO-zxTBU",
+        description: "Friendly visual introduction to imaginary numbers and why the square root of −1 is useful in quantum mechanics."
+      },
       {
         name: "Quantum Country",
         url: "https://quantum.country/qcvc",
@@ -291,8 +301,8 @@ export default function Home() {
                       <Image
                         src="/logo.png"
                         alt="Qubit Lab Logo"
-                        width={120}
-                        height={120}
+                        width={150}
+                        height={150}
                         className="rounded-full"
                       />
                     </div>
