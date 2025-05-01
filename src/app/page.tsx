@@ -14,13 +14,13 @@ const quantumResources = [
     resources: [
       {
         name: "Matrix Multiplication for Beginners (Video)",
-        url: "https://www.youtube.com/watch?v=XkY2DOUCWMU"
-        description: "Step-by-step video explanation of how to multiply matrices — essential for understanding quantum gates."
+        url: "https://www.youtube.com/watch?v=XkY2DOUCWMU",
+        description: "Step-by-step video explanation of how to multiply matrices — essential for understanding quantum gates.",
       },
       {
         name: "Complex Numbers for Beginners (Video)",
         url: "https://www.youtube.com/watch?v=T647CGsuOVU",
-        description: "Friendly visual introduction to imaginary numbers and why the square root of −1 is useful in quantum mechanics."
+        description: "Friendly visual introduction to imaginary numbers and why the square root of −1 is useful in quantum mechanics.",
       },
       {
         name: "Quantum Country",
