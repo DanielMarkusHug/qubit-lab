@@ -222,9 +222,9 @@ export default function Home() {
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
             <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dive Videos</Link>
           </div>
-          <div className="flex gap-4 mt-10">
-            <Link href="#resources" className="px-6 py-3 bg-cyan-550 text-white rounded-full font-semibold hover:bg-cyan-650 transition">Resources</Link>
-            <Link href="#comments" className="px-6 py-3 bg-cyan-650 text-white rounded-full font-semibold hover:bg-cyan-750 transition">Feedback</Link>
+          <div className="flex gap-4 mt-4">
+            <Link href="#resources" className="px-6 py-3 bg-blue-400 text-white rounded-full font-semibold hover:bg-blue-500 transition">Resources</Link>
+            <Link href="#comments" className="px-6 py-3 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition">Feedback</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>       
          </div>
@@ -281,8 +281,24 @@ export default function Home() {
       <section id="videos_deepdive" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Deep Dives - The Next Step</h2>
         <div className="grid gap-12 md:grid-cols-2">
-          {videos_deepdive.map(video => (
-            <div key={video.id} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+        {videos_deepdive.map(video => (
+        <div key={video.title} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl flex flex-col justify-center items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+          {video.id === "xxxxx" ? (
+            <>
+              <div className="w-full h-48 flex items-center justify-center rounded-xl mb-4 bg-white">
+                <Image
+                  src="/logo.png"
+                  alt="Qubit Lab Logo"
+                  width={120}
+                  height={120}
+                  className="rounded-full"
+                />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+              <p className="text-gray-700">{video.description}</p>
+            </>
+          ) : (
+            <>
               <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
                 <iframe
                   src={`https://www.youtube.com/embed/${video.id}`}
@@ -295,8 +311,12 @@ export default function Home() {
               </div>
               <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
               <p className="text-gray-700">{video.description}</p>
-            </div>
-          ))}
+            </>
+          )}
+        </div>
+      ))}
+
+
         </div>
       </section>
 
