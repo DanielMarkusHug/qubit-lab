@@ -93,8 +93,8 @@ const quantumResources = [
         description: "High-quality tutorials to build strong Python foundations for quantum circuit coding.",
       }
     ],
-  }
-    {
+  },
+  {
     category: "Community & Collaboration",
     resources: [
       {
@@ -221,13 +221,13 @@ export default function Home() {
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
             <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dive Videos</Link>
-            <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
           </div>
           <div className="flex gap-4 mt-10">
             <Link href="#resources" className="px-6 py-3 bg-cyan-550 text-white rounded-full font-semibold hover:bg-cyan-650 transition">Resources</Link>
             <Link href="#comments" className="px-6 py-3 bg-cyan-650 text-white rounded-full font-semibold hover:bg-cyan-750 transition">Feedback</Link>
             <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
-          </div>        </div>
+          </div>       
+         </div>
       </header>
 
       <section className="max-w-4xl mx-auto px-6 py-20 space-y-12 text-gray-200 relative z-10">
