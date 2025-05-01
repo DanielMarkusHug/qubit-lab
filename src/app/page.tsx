@@ -280,7 +280,7 @@ export default function Home() {
         <div key={video.title} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl flex flex-col justify-center items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
           {video.id === "xxxxx" ? (
             <>
-              <div className="w-full h-48 flex items-center justify-center rounded-xl mb-4 bg-white">
+              <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden bg-white flex items-center justify-center">
                 <Image
                   src="/logo.png"
                   alt="Qubit Lab Logo"
