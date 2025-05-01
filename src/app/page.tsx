@@ -136,7 +136,8 @@ export default function Home() {
       title: "Video 3: Our First Quantum Program",
       description:
         "🎲 Time to roll the dice — literally! We build our very first quantum circuit: a real eight-sided die powered by quantum randomness. Using Python and Qiskit, we'll create and run a simple but powerful “Hello, Quantum World!” program. Your first step into real quantum coding starts here — and it's easier than you think."
-    }
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
+      }
   ];
 
   const videos_deepdive = [
@@ -249,27 +250,72 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="videos" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Introduction - My First Quantum Circuit</h2>
+
+
+
+      <section
+        id="videos"
+        className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10"
+      > 
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
+          Introduction - My First Quantum Circuit
+        </h2>
         <div className="grid gap-12 md:grid-cols-2">
-          {videos_intro.map(video => (
-            <div key={video.id} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
-              <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
-                <iframe
-                  src={`https://www.youtube.com/embed/${video.id}`}
-                  title={video.title}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="absolute top-0 left-0 w-full h-full"
-                ></iframe>
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
-              <p className="text-gray-700">{video.description}</p>
+          {videos_intro.map((video) => (
+            <div
+              key={video.title}
+              className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl flex flex-col justify-center items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition"
+            >
+              {video.id === "xxxxx" ? (
+                <>
+                  <div className="relative w-full mb-4 overflow-hidden rounded-xl bg-white" style={{ paddingBottom: '56.25%' }}>
+                    <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+                      <Image
+                        src="/logo.png"
+                        alt="Qubit Lab Logo"
+                        width={150}
+                        height={150}
+                        className="rounded-full"
+                      />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+                  <p className="text-gray-700">{video.description}</p>
+                </>
+              ) : (
+                <>
+                  <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${video.id}`}
+                      title={video.title}
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="absolute top-0 left-0 w-full h-full"
+                    />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+                  <p className="text-gray-700 mb-4">{video.description}</p>
+
+                  {video.colabUrl && (
+                    <a
+                      href={video.colabUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block px-6 py-2 mt-2 bg-cyan-600 text-white font-semibold rounded-xl hover:bg-cyan-700 transition"
+                    >
+                      Try the Jupyter Notebook
+                    </a>
+                  )}
+                </>
+              )}
             </div>
           ))}
         </div>
       </section>
+
+
+
 
 
       <section
@@ -323,7 +369,7 @@ export default function Home() {
                       rel="noopener noreferrer"
                       className="inline-block px-6 py-2 mt-2 bg-cyan-600 text-white font-semibold rounded-xl hover:bg-cyan-700 transition"
                     >
-                      Try this in Colab
+                      Try the Jupyter Notebook
                     </a>
                   )}
                 </>
@@ -333,35 +379,6 @@ export default function Home() {
         </div>
       </section>
 
-
-      <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
-          Try the Quantum Notebook from Video 4
-        </h2>
-        <p className="text-center text-gray-300 mb-6">
-          Run the code for “Mastering Quantum Gates” directly in Google Colab.
-        </p>
-        <div className="bg-white rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
-          <Image
-            src="/logo.png"
-            alt="Notebook Preview"
-            width={120}
-            height={120}
-            className="mx-auto mb-4 rounded-full"
-          />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">
-            Video 4: Quantum Gates Notebook
-          </h3>
-          <a
-            href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
-          >
-            Open in Google Colab
-          </a>
-        </div>
-      </section>
 
       <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
         <QuantumResourcesSection />
@@ -514,3 +531,58 @@ function QuantumResourcesSection() {
     </div>
   );
 }*/
+
+
+/*    <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
+          Try the Quantum Notebook from Video 4
+        </h2>
+        <p className="text-center text-gray-300 mb-6">
+          Run the code for “Mastering Quantum Gates” directly in Google Colab.
+        </p>
+        <div className="bg-white rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
+          <Image
+            src="/logo.png"
+            alt="Notebook Preview"
+            width={120}
+            height={120}
+            className="mx-auto mb-4 rounded-full"
+          />
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            Video 4: Quantum Gates Notebook
+          </h3>
+          <a
+            href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
+          >
+            Open in Google Colab
+          </a>
+        </div>
+      </section>
+*/
+
+
+/*      <section id="videos" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">Introduction - My First Quantum Circuit</h2>
+        <div className="grid gap-12 md:grid-cols-2">
+          {videos_intro.map(video => (
+            <div key={video.id} className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition">
+              <div className="relative pb-[56.25%] mb-4 rounded-xl overflow-hidden">
+                <iframe
+                  src={`https://www.youtube.com/embed/${video.id}`}
+                  title={video.title}
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="absolute top-0 left-0 w-full h-full"
+                ></iframe>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+              <p className="text-gray-700">{video.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+*/
