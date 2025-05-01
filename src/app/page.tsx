@@ -161,8 +161,6 @@ export default function Home() {
     }  
   ]
 
-
-
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
       {/* Background Video */}
@@ -276,7 +274,7 @@ export default function Home() {
       <section
         id="videos_deepdive"
         className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10"
-      >
+      > 
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
           Deep Dives - The Next Step
         </h2>
@@ -320,10 +318,6 @@ export default function Home() {
               )}
             </div>
           ))}
-        </div>
-      </section>
-
-
         </div>
       </section>
 
