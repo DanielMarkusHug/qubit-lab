@@ -141,6 +141,28 @@ export default function Home() {
 
   const videos_deepdive = [
 
+
+    const videos_deepdive = [
+      {
+        id: "iHhmEkdoerM",
+        title: "Video 4: Mastering Quantum Gates",
+        description: "🔧 Ready to build your quantum toolbox? Now that you've seen your first circuit, it's time to learn how quantum gates really work. We revisit vectors and matrices from high school, uncover why quantum gates must be reversible, and explore key players like the X gate and Hadamard gate — with real Python examples to prove it. Understanding these simple tools is your gateway to mastering real quantum algorithms!",
+        colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
+      },
+      {
+        id: "xxxxx",
+        title: "Video 5: Quantum Interference",
+        description: "( coming soon )"
+      },
+      {
+        id: "xxxxx",
+        title: "Video 6: Multi Qubit Systems",
+        description: "( coming soon )"
+      }
+    ];
+
+
+
     {
       id: "iHhmEkdoerM",
       title: "Video 4: Mastering Quantum Gates",
@@ -314,7 +336,18 @@ export default function Home() {
                     />
                   </div>
                   <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
-                  <p className="text-gray-700">{video.description}</p>
+                  <p className="text-gray-700 mb-4">{video.description}</p>
+
+                  {video.colabUrl && (
+                    <a
+                      href={video.colabUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block px-6 py-2 mt-2 bg-cyan-600 text-white font-semibold rounded-xl hover:bg-cyan-700 transition"
+                    >
+                      Try this in Colab
+                    </a>
+                  )}
                 </>
               )}
             </div>
