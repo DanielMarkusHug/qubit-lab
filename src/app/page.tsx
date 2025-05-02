@@ -120,19 +120,19 @@ export default function Home() {
 
   const videos_intro = [
     {
-      id: "_88ECktcxSg",
+      id: "Ht8jRtI2k5Q",
       title: "Video 1: Why Quantum Computing Matters",
       description:
         "🌟 Quantum computing is making headlines everywhere — but is it hype or the next big thing? In this video, we go beyond the buzzwords to understand how quantum computers work, how they could disrupt industries like finance, AI, and cryptography, and what programming a quantum computer really looks like. No PhD needed — just curiosity and a bit of Python. Let's get started!"
     },
     {
-      id: "8vYwq1jUYNI",
+      id: "kCDn9aTnGB0",
       title: "Video 2: How Quantum Computers Think",
       description:
         "🧠 Before we code, we need to understand how quantum computers think. We dive into the four cornerstones: qubits, superposition, measurement, entanglement, and quantum gates. You'll see how quantum magic like interference and reversibility makes these machines so unique — and why programming them is a whole new ballgame."
     },
     {
-      id: "cCKH1soP4yI",
+      id: "HUZ7C7aAp9w",
       title: "Video 3: Our First Quantum Program",
       description:
         "🎲 Time to roll the dice — literally! We build our very first quantum circuit: a real eight-sided die powered by quantum randomness. Using Python and Qiskit, we'll create and run a simple but powerful “Hello, Quantum World!” program. Your first step into real quantum coding starts here — and it's easier than you think.",
@@ -144,7 +144,7 @@ export default function Home() {
 
 
     {
-      id: "iHhmEkdoerM",
+      id: "Y5dwYVTI97o",
       title: "Video 4: Mastering Quantum Gates",
       description: "🔧 Ready to build your quantum toolbox? Now that you've seen your first circuit, it's time to learn how quantum gates really work. We revisit vectors and matrices from high school, uncover why quantum gates must be reversible, and explore key players like the X gate and Hadamard gate — with real Python examples to prove it. Understanding these simple tools is your gateway to mastering real quantum algorithms!",
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
