@@ -339,7 +339,7 @@ export default function Home() {
               Qiskit 1 Implementation (as shown in the video)
             </a>
             <a
-              href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(Qiskit-version).ipynb"
+              href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(Qiskit-2-version).ipynb"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
