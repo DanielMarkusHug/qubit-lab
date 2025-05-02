@@ -136,7 +136,7 @@ export default function Home() {
       title: "Video 3: Our First Quantum Program",
       description:
         "🎲 Time to roll the dice — literally! We build our very first quantum circuit: a real eight-sided die powered by quantum randomness. Using Python and Qiskit, we'll create and run a simple but powerful “Hello, Quantum World!” program. Your first step into real quantum coding starts here — and it's easier than you think.",
-      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(cirq-version)%202.ipynb"
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(Qiskit-version).ipynb"
       }
   ];
 
@@ -314,7 +314,34 @@ export default function Home() {
         </div>
       </section>
 
-
+      <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
+          Try the Google cirq notebook from Video 3
+        </h2>
+        <p className="text-center text-gray-300 mb-6">
+          Run the code directly in Google Colab.
+        </p>
+        <div className="bg-white rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
+          <Image
+            src="/logo.png"
+            alt="Notebook Preview"
+            width={120}
+            height={120}
+            className="mx-auto mb-4 rounded-full"
+          />
+          <h3 className="text-l font-semibold text-gray-900 mb-2">
+            Video 4: Google cirq version of the Eight-Sided-Die Jupyter Notebook
+          </h3>
+          <a
+            href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(cirq-version)%202.ipynb"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
+          >
+            Open in Google Colab
+          </a>
+        </div>
+      </section>
 
 
 
