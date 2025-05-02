@@ -317,7 +317,7 @@ export default function Home() {
 
 
       <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
-        <h2 className="text-2xl font-bold text-center text-white mb-6">
+        <h2 className="text-xl font-bold text-center text-white mb-6">
           Compare 3 Implementations of the Eight-Sided-Die Quantum Circuit as used in Video 3:
         </h2>
         <p className="text-center text-gray-300 mb-8">
