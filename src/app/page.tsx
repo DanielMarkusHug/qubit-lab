@@ -314,35 +314,49 @@ export default function Home() {
         </div>
       </section>
 
+
+
       <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
-          Try the Google cirq version of the notebook from Video 3
+          Compare 3 Implementations of the Eight-Sided-Die Quantum Circuit as used in Video 3:
         </h2>
-        <p className="text-center text-gray-300 mb-6">
-          Run the code directly in Google Colab.
+        <p className="text-center text-gray-300 mb-8">
+          Explore the same circuit written using different quantum SDKs. Run each version directly in Google Colab.
         </p>
+
         <div className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
-          <Image
-            src="/logo.png"
-            alt="Notebook Preview"
-            width={120}
-            height={120}
-            className="mx-auto mb-4 rounded-full"
-          />
-          <h3 className="text-l font-semibold text-gray-900 mb-2">
-            Video 3: Google cirq version of the Eight-Sided-Die Jupyter Notebook
+
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Choose an implementation:
           </h3>
-          <a
-            href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(cirq-version)%202.ipynb"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
-          >
-            Open in Google Colab
-          </a>
+          <div className="flex flex-col gap-4">
+            <a
+              href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(Qiskit-version).ipynb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
+            >
+              Qiskit 1 Implementation (as in the video)
+            </a>
+            <a
+              href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(Qiskit-version).ipynb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
+            >
+              Qiskit 2 Implementation
+            </a>
+            <a
+              href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(cirq-version)%202.ipynb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
+            >
+              Google cirq Implementation
+            </a>
+          </div>
         </div>
       </section>
-
 
 
       <section
@@ -610,6 +624,37 @@ function QuantumResourcesSection() {
               <p className="text-gray-700">{video.description}</p>
             </div>
           ))}
+        </div>
+      </section>
+*/
+
+/*
+      <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
+          Try the Google cirq version of the notebook from Video 3
+        </h2>
+        <p className="text-center text-gray-300 mb-6">
+          Run the code directly in Google Colab.
+        </p>
+        <div className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
+          <Image
+            src="/logo.png"
+            alt="Notebook Preview"
+            width={120}
+            height={120}
+            className="mx-auto mb-4 rounded-full"
+          />
+          <h3 className="text-l font-semibold text-gray-900 mb-2">
+            Video 3: Google cirq version of the Eight-Sided-Die Jupyter Notebook
+          </h3>
+          <a
+            href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(cirq-version)%202.ipynb"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-6 py-3 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 transition"
+          >
+            Open in Google Colab
+          </a>
         </div>
       </section>
 */
