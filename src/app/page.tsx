@@ -316,12 +316,12 @@ export default function Home() {
 
       <section className="max-w-6xl mx-auto px-6 pb-20 relative z-10">
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-6">
-          Try the Google cirq notebook from Video 3
+          Try the Google cirq version of the notebook from Video 3
         </h2>
         <p className="text-center text-gray-300 mb-6">
           Run the code directly in Google Colab.
         </p>
-        <div className="bg-white rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
+        <div className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl border shadow-lg overflow-hidden max-w-3xl mx-auto p-6 text-center">
           <Image
             src="/logo.png"
             alt="Notebook Preview"
@@ -330,7 +330,7 @@ export default function Home() {
             className="mx-auto mb-4 rounded-full"
           />
           <h3 className="text-l font-semibold text-gray-900 mb-2">
-            Video 4: Google cirq version of the Eight-Sided-Die Jupyter Notebook
+            Video 3: Google cirq version of the Eight-Sided-Die Jupyter Notebook
           </h3>
           <a
             href="https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(cirq-version)%202.ipynb"
