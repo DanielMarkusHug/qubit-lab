@@ -150,9 +150,9 @@ export default function Home() {
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
     },
     {
-      id: "xxxxx",
+      id: "FDWJ5KgN6Xo",
       title: "Video 5: Quantum Interference",
-      description: "( coming soon )"
+      description: "🌀 In this video, we explore complex numbers and their phases — the hidden dimension powering quantum computing. You’ll learn how phase shifts enable ✨ quantum interference, creating effects like constructive and destructive overlaps. Discover how gates like Hadamard and Z work together to manipulate probability flows in ways classical computers can’t."
     },
     {
       id: "xxxxx",
