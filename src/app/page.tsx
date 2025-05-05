@@ -225,6 +225,28 @@ export default function Home() {
           </div>          </div>
       </header>
 
+
+      <section className="max-w-3xl mx-auto px-6 py-10 relative z-10">
+        <div className="rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 p-1 shadow-xl hover:scale-[1.01] transition">
+          <div className="bg-black rounded-2xl p-6">
+            <h2 className="text-3xl font-bold text-center text-white mb-4">🎬 Teaser</h2>
+            <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
+              <iframe
+                src="https://www.youtube.com/embed/9A9906MiYYM"
+                title="Teaser"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="absolute top-0 left-0 w-full h-full"
+              />
+            </div>
+            <p className="text-center text-gray-300 text-lg">Get a 90-second overview of what Qubit Lab is all about and how this series helps you dive into quantum computing with confidence.</p>
+          </div>
+        </div>
+      </section>
+
+
+
       <section className="max-w-4xl mx-auto px-6 py-20 space-y-12 text-gray-200 relative z-10">
         <h2 className="text-4xl font-bold mb-6">
           Quantum Computing. Straight Talk.
