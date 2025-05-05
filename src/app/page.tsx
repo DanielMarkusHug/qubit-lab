@@ -232,7 +232,7 @@ export default function Home() {
             <h2 className="text-3xl font-bold text-center text-white mb-4">🎬 Teaser</h2>
             <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
               <iframe
-                src="https://www.youtube.com/embed/9A9906MiYYM"
+                src="https://www.youtube.com/embed/9A9906MiYYM?rel=0"
                 title="Teaser"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
