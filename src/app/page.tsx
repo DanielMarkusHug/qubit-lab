@@ -240,7 +240,7 @@ export default function Home() {
                 className="absolute top-0 left-0 w-full h-full"
               />
             </div>
-            <p className="text-center text-gray-300 text-lg">Get a 90-second overview of what Qubit Lab is all about and how this series helps you dive into quantum computing with confidence.</p>
+            <p className="text-center text-gray-300 text-lg">Get quick overview of what Qubit Lab is all about and how this series helps you dive into quantum computing with confidence.</p>
           </div>
         </div>
       </section>
