@@ -8,13 +8,6 @@ import Link from "next/link";
 import Giscus from '@giscus/react';
 import React from "react";
 
-<head>
-  <title>Qubit Lab</title>
-  <meta name="description" content="Quantum Computing. Demystified.">
-  <link rel="icon" href="/favicon.ico" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-</head>
 
 const quantumResources = [
   {
