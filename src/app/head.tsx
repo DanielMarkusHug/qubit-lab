@@ -9,6 +9,7 @@
         
         {/* Favicon for modern browsers */}
         <link rel="icon" type="image/x-icon" href="/favicon-v2.ico" />
+        <link rel="shortcut icon" href="/favicon-v2.ico" />
         <link rel="icon" type="image/png" href="/favicon-v2-32.png" sizes="32x32" />
         <link rel="icon" type="image/png" href="/favicon-v2-16.png" sizes="16x16" />
         
