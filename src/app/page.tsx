@@ -153,7 +153,7 @@ export default function Home() {
     {
       id: "FDWJ5KgN6Xo",
       title: "Video 5: Quantum Interference",
-      description: "🌀 In this video, we explore complex numbers and their phases — the hidden dimension powering quantum computing. You’ll learn how phase shifts enable ✨ quantum interference, creating effects like constructive and destructive overlaps. Discover how gates like Hadamard and Z work together to manipulate probability flows in ways classical computers can’t."
+      description: "🌀 In this video, we explore complex numbers and their phases — the hidden dimension powering quantum computing. You’ll learn how phase shifts enable ✨ quantum interference, constructive and destructive. Discover how gates like Hadamard and Z work together to manipulate probability flows in ways classical computers can’t."
     },
     {
       id: "xxxxx",
