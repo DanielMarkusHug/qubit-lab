@@ -30,10 +30,10 @@ export default function RootLayout({
   );
 }
 
-export const metadata = {
+export const metadata: Metadata = {
   title: 'Qubit Lab',
   description: 'Quantum computing. Demystified.',
   verification: {
-    google: '1xVwE8IosALQcsc9WyNWWjeBpFfY_Ng8kwbg9K_Iqg0'
-  }
+    google: 'your-code-here',
+  },
 };
