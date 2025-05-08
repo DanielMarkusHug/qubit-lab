@@ -7,7 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import Giscus from '@giscus/react';
 import React from "react";
-
+import { Analytics } from "@vercel/analytics/react"
 
 const quantumResources = [
   {
@@ -230,7 +230,7 @@ export default function Home() {
       <section className="max-w-3xl mx-auto px-6 py-10 relative z-10">
         <div className="rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 p-1 shadow-xl hover:scale-[1.01] transition">
           <div className="bg-black rounded-2xl p-6">
-            <h2 className="text-3xl font-bold text-center text-white mb-4">🎬 Let Us Explain...</h2>
+            /*<h2 className="text-3xl font-bold text-center text-white mb-4">🎬 Let Us Explain...</h2>*/
             <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
               <iframe
                 src="https://www.youtube.com/embed/bIrVSk6OIM0?rel=0"
@@ -241,7 +241,7 @@ export default function Home() {
                 className="absolute top-0 left-0 w-full h-full"
               />
             </div>
-            <p className="text-center text-gray-300 text-xl">A quick overview of what Qubit Lab is all about.</p>
+            <p className="text-center text-gray-300 text-2xl">A quick overview of what Qubit Lab is all about.</p>
           </div>
         </div>
       </section>
