@@ -34,6 +34,6 @@ export const metadata: Metadata = {
   title: 'Qubit Lab',
   description: 'Quantum computing. Demystified.',
   verification: {
-    google: 'your-code-here',
+    google: '1xVwE8IosALQcsc9WyNWWjeBpFfY_Ng8kwbg9K_Iqg0',
   },
 };
