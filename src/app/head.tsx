@@ -6,7 +6,8 @@
         <title>Qubit Lab</title>
         <meta name="description" content="Quantum Computing. Demystified." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        
+        <meta name="google-site-verification" content="1xVwE8IosALQcsc9WyNWWjeBpFfY_Ng8kwbg9K_Iqg0" />
+
         {/* Favicon for modern browsers */}
         <link rel="icon" type="image/x-icon" href="/favicon.ico" />
         <link rel="shortcut icon" href="/favicon.ico" />
