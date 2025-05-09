@@ -136,7 +136,7 @@ export default function Home() {
       title: "Video 3: Our First Quantum Program",
       description:
         "🎲 Time to roll the dice — literally! We build our very first quantum circuit: a real eight-sided die powered by quantum randomness. Using Python and Qiskit, we'll create and run a simple but powerful “Hello, Quantum World!” program. Your first step into real quantum coding starts here — and it's easier than you think.",
-      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(Qiskit-version).ipynb"
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%203%20The-Eight-Sided-Die%20(Qiskit-1-version).ipynb"
       }
   ];
 
@@ -240,7 +240,7 @@ export default function Home() {
                 className="absolute top-0 left-0 w-full h-full"
               />
             </div>
-            <p className="text-center text-gray-300 text-2xl">A quick overview of what Qubit Lab is all about.</p>
+            <p className="text-center text-gray-300 text-xl">A quick overview of what Qubit Lab is all about.</p>
           </div>
         </div>
       </section>
