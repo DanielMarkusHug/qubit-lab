@@ -167,7 +167,7 @@ export default function Home() {
       {/* Background Video */}
       <video
         src="/background.mp4"
-        className="absolute top-0 left-0 w-full h-full object-cover z-[-1]"
+        className="absolute top-0 left-0 w-full h-full object-cover z-0"
         autoPlay
         muted
         loop
@@ -240,7 +240,7 @@ export default function Home() {
                 className="absolute top-0 left-0 w-full h-full"
               />
             </div>
-            <p className="text-center text-gray-300 text-xl">A quick overview of what Qubit Lab is all about.</p>
+            <p className="text-center text-gray-300 text-l">A quick overview of what Qubit Lab is all about.</p>
           </div>
         </div>
       </section>
