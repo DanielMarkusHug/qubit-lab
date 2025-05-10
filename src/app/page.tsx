@@ -112,15 +112,16 @@ const quantumResources = [
   },
 ];
 
-const videoRef = useRef<HTMLVideoElement>(null);
-
-useEffect(() => {
-  if (videoRef.current) {
-    videoRef.current.playbackRate = 0.5;
-  }
-}, []);
-
 export default function Home() {
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = 0.5;
+    }
+  }, []);  
+  
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const particlesInit = async (engine: any) => {
     await loadSlim(engine);
