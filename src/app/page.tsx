@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import Giscus from '@giscus/react';
 import React from "react";
+import { useEffect, useRef } from "react";
 
 const quantumResources = [
   {
@@ -111,6 +112,13 @@ const quantumResources = [
   },
 ];
 
+const videoRef = useRef<HTMLVideoElement>(null);
+
+useEffect(() => {
+  if (videoRef.current) {
+    videoRef.current.playbackRate = 0.5;
+  }
+}, []);
 
 export default function Home() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -166,6 +174,7 @@ export default function Home() {
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
       {/* Background Video */}
       <video
+        ref={videoRef}
         src="/background.mp4"
         className="absolute top-0 left-0 w-full h-full object-cover z-0"
         autoPlay
@@ -173,6 +182,8 @@ export default function Home() {
         loop
         playsInline
       />
+      {/* Background Overlay */}
+      <div className="absolute top-0 left-0 w-full h-full bg-black opacity-60 z-0" />
 
       <Particles
         className="absolute inset-0 z-0"
