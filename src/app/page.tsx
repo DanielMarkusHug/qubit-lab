@@ -176,7 +176,7 @@ export default function Home() {
       {/* Background Video */}
       <video
         ref={videoRef}
-        src="/background.mp4"
+        src="/background.mov"
         className="absolute top-0 left-0 w-full h-full object-cover z-0"
         autoPlay
         muted
