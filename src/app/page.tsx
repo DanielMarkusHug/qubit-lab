@@ -91,8 +91,13 @@ const quantumResources = [
     ],
   },
   {
-    category: "Community & Collaboration",
+    category: "Education, Community & Collaboration",
     resources: [
+      {
+        name: "Quantum Computing Report - Eduction section",
+        url: "https://quantumcomputingreport.com/education/",
+        description: "More resources to learn about quantum computing.",
+      },
       {
         name: "Quantum Computing Stack Exchange",
         url: "https://quantumcomputing.stackexchange.com/",
@@ -118,7 +123,7 @@ export default function Home() {
 
   useEffect(() => {
     if (videoRef.current) {
-      videoRef.current.playbackRate = 0.5;
+      videoRef.current.playbackRate = 0.25;
     }
   }, []);  
   
