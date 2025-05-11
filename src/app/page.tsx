@@ -118,7 +118,7 @@ export default function Home() {
 
   useEffect(() => {
     if (videoRef.current) {
-      videoRef.current.playbackRate = 0.25;
+      videoRef.current.playbackRate = 0.5;
     }
   }, []);  
   
@@ -184,7 +184,7 @@ export default function Home() {
         playsInline
       />
       {/* Background Overlay */}
-      <div className="absolute top-0 left-0 w-full h-full bg-black opacity-70 z-0" />
+      <div className="absolute top-0 left-0 w-full h-full bg-black opacity-80 z-0" />
 
       <Particles
         className="absolute inset-0 z-0"
