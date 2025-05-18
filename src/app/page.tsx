@@ -169,9 +169,11 @@ export default function Home() {
       description: "🌀 In this video, we explore complex numbers and their phases — the hidden dimension powering quantum computing. You’ll learn how phase shifts enable ✨ quantum interference, constructive and destructive. Discover how gates like Hadamard and Z work together to manipulate probability flows in ways classical computers can’t."
     },
     {
-      id: "xxxxx",
+      id: "LrujTEpfmSk",
       title: "Video 6: Multi Qubit Systems",
-      description: "( coming soon )"
+      description: "🧠 In this Deep Dive, we scale up to multi-qubit systems and explore entanglement — the third quantum superpower. You’ll see how the tensor product builds 4-state vectors, how CNOT creates Bell states, and why this quickly gets too big for classical computers. Try it all out in the Colab notebook—just click and run.",
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%206%20Deep%20Dive%203%20Multi%20Qubit%20Systems.ipynb"
+ 
     }
   ];
 
