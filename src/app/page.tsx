@@ -180,9 +180,9 @@ export default function Home() {
   const videos_quantum_finance = [
     {
       id: "xxxxx",
-      title: "Coming Soon: Quantum Finance Use Cases",
-      description: "This section will feature real-world applications of quantum computing in finance, including portfolio optimization with QAOA, quantum risk analysis, and more. Stay tuned!",
-      colabUrl: null
+      title: "Coming Soon: Portfolio Optimization using QAOA",
+      description: "Explore quantum portfolio optimization: QAOA, real-world finance, and the future beyond classical methods — all explained step by step.",
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20QAOA%20Portfolio%20Optimization.ipynb"
     }
   ];
 
@@ -242,7 +242,7 @@ export default function Home() {
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
             <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dive Videos</Link>
-            <Link href="#videos_quantum_finance" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quantum Finance Use Cases</Link>
+            <Link href="#videos_quantum_finance" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quantum Finance Videos</Link>
           </div>
           <div className="flex gap-4 mt-4">
             <Link href="#resources" className="px-6 py-3 bg-blue-400 text-white rounded-full font-semibold hover:bg-blue-500 transition">Resources</Link>
