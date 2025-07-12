@@ -492,7 +492,7 @@ export default function Home() {
           Real Life Use Cases - Quantum Finance
         </h2>
         <div className="grid gap-12 md:grid-cols-2">
-          {videos_deepdive.map((video) => (
+          {videos_quantum_finance.map((video) => (   // <<< FIX HERE!
             <div
               key={video.title}
               className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl flex flex-col justify-center items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition"
@@ -544,8 +544,6 @@ export default function Home() {
           ))}
         </div>
       </section>
-
-
 
 
       <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
