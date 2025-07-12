@@ -307,9 +307,9 @@ export default function Home() {
 
       <section
         id="videos"
-        className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10"
+        className="max-w-7xl mx-auto px-6 pb-20 space-y-14 relative z-10"
       > 
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
+        <h2 className="text-6xl font-bold text-center text-cyan-300 mb-10">
           Introduction - My First Quantum Circuit
         </h2>
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-3">
@@ -413,9 +413,9 @@ export default function Home() {
 
       <section
         id="videos_deepdive"
-        className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10"
+        className="max-w-7xl mx-auto px-6 pb-20 space-y-14 relative z-10"
       > 
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
+        <h2 className="text-6xl font-bold text-center text-cyan-300 mb-10">
           Deep Dives - The Next Step
         </h2>
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-3">
@@ -474,9 +474,9 @@ export default function Home() {
 
       <section
         id="videos_quantum_finance"
-        className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10"
+        className="max-w-7xl mx-auto px-6 pb-20 space-y-14 relative z-10"
       > 
-        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
+        <h2 className="text-6xl font-bold text-center text-cyan-300 mb-10">
           Real Life Use Cases - Quantum Finance
         </h2>
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-3">
