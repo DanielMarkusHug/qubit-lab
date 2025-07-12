@@ -177,6 +177,28 @@ export default function Home() {
     }
   ];
 
+  const videos_quantum_finance = [
+
+
+    {
+      id: "Y5dwYVTI97o",
+      title: "Video 7: QAOA Portfolio Optimization",
+      description: "text",
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
+    }  /*,
+    {
+      id: "FDWJ5KgN6Xo",
+      title: "Video 5: Quantum Interference",
+      description: "🌀 In this video, we explore complex numbers and their phases — the hidden dimension powering quantum computing. You’ll learn how phase shifts enable ✨ quantum interference, constructive and destructive. Discover how gates like Hadamard and Z work together to manipulate probability flows in ways classical computers can’t."
+    },
+    {
+      id: "LrujTEpfmSk",
+      title: "Video 6: Multi Qubit Systems",
+      description: "🧠 In this Deep Dive, we scale up to multi-qubit systems and explore entanglement — the third quantum superpower. You’ll see how the tensor product builds 4-state vectors, how CNOT creates Bell states, and why this quickly gets too big for classical computers. Try it all out in the Colab notebook—just click and run.",
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%206%20Deep%20Dive%203%20Multi%20Qubit%20Systems.ipynb"
+ 
+    } */
+  ];
 
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
@@ -234,6 +256,7 @@ export default function Home() {
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
             <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dive Videos</Link>
+            <Link href="#videos_quantum_finance" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quantum Finance Use Cases</Link>
           </div>
           <div className="flex gap-4 mt-4">
             <Link href="#resources" className="px-6 py-3 bg-blue-400 text-white rounded-full font-semibold hover:bg-blue-500 transition">Resources</Link>
@@ -460,6 +483,69 @@ export default function Home() {
           ))}
         </div>
       </section>
+
+      <section
+        id="videos_quantum_finance"
+        className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10"
+      > 
+        <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
+          Real Life Use Cases - Quantum Finance
+        </h2>
+        <div className="grid gap-12 md:grid-cols-2">
+          {videos_deepdive.map((video) => (
+            <div
+              key={video.title}
+              className="bg-gradient-to-br from-slate-100 to-blue-200 rounded-2xl p-6 shadow-2xl flex flex-col justify-center items-center text-center hover:scale-105 hover:ring-4 hover:ring-cyan-400 transition"
+            >
+              {video.id === "xxxxx" ? (
+                <>
+                  <div className="relative w-full mb-4 overflow-hidden rounded-xl bg-white" style={{ paddingBottom: '56.25%' }}>
+                    <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+                      <Image
+                        src="/logo.png"
+                        alt="Qubit Lab Logo"
+                        width={150}
+                        height={150}
+                        className="rounded-full"
+                      />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+                  <p className="text-gray-700">{video.description}</p>
+                </>
+              ) : (
+                <>
+                  <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${video.id}`}
+                      title={video.title}
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="absolute top-0 left-0 w-full h-full"
+                    />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h3>
+                  <p className="text-gray-700 mb-4">{video.description}</p>
+
+                  {video.colabUrl && (
+                    <a
+                      href={video.colabUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block px-6 py-2 mt-2 bg-cyan-600 text-white font-semibold rounded-xl hover:bg-cyan-700 transition"
+                    >
+                      Try the Jupyter Notebook
+                    </a>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+
 
 
       <section id="resources" className="max-w-6xl mx-auto px-6 pb-20 space-y-14 relative z-10">
