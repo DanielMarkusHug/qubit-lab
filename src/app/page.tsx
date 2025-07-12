@@ -312,7 +312,7 @@ export default function Home() {
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
           Introduction - My First Quantum Circuit
         </h2>
-        <div className="grid gap-12 md:grid-cols-2">
+        <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-3">
           {videos_intro.map((video) => (
             <div
               key={video.title}
@@ -418,7 +418,7 @@ export default function Home() {
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
           Deep Dives - The Next Step
         </h2>
-        <div className="grid gap-12 md:grid-cols-2">
+        <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-3">
           {videos_deepdive.map((video) => (
             <div
               key={video.title}
@@ -479,7 +479,7 @@ export default function Home() {
         <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
           Real Life Use Cases - Quantum Finance
         </h2>
-        <div className="grid gap-12 md:grid-cols-2">
+        <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-3">
           {videos_quantum_finance.map((video) => (   // <<< FIX HERE!
             <div
               key={video.title}
