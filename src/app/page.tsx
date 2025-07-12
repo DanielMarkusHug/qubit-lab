@@ -178,26 +178,12 @@ export default function Home() {
   ];
 
   const videos_quantum_finance = [
-
-
     {
-      id: "Y5dwYVTI97o",
-      title: "Video 7: QAOA Portfolio Optimization",
-      description: "text",
-      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb"
-    }  /*,
-    {
-      id: "FDWJ5KgN6Xo",
-      title: "Video 5: Quantum Interference",
-      description: "🌀 In this video, we explore complex numbers and their phases — the hidden dimension powering quantum computing. You’ll learn how phase shifts enable ✨ quantum interference, constructive and destructive. Discover how gates like Hadamard and Z work together to manipulate probability flows in ways classical computers can’t."
-    },
-    {
-      id: "LrujTEpfmSk",
-      title: "Video 6: Multi Qubit Systems",
-      description: "🧠 In this Deep Dive, we scale up to multi-qubit systems and explore entanglement — the third quantum superpower. You’ll see how the tensor product builds 4-state vectors, how CNOT creates Bell states, and why this quickly gets too big for classical computers. Try it all out in the Colab notebook—just click and run.",
-      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%206%20Deep%20Dive%203%20Multi%20Qubit%20Systems.ipynb"
- 
-    } */
+      id: "xxxxx",
+      title: "Coming Soon: Quantum Finance Use Cases",
+      description: "This section will feature real-world applications of quantum computing in finance, including portfolio optimization with QAOA, quantum risk analysis, and more. Stay tuned!",
+      colabUrl: null
+    }
   ];
 
   return (
