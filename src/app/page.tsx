@@ -242,6 +242,8 @@ export default function Home() {
           <div className="flex gap-4 mt-10">
             <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
             <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dive Videos</Link>
+          </div>
+          <div className="flex gap-4 mt-4">
             <Link href="#videos_quantum_finance" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quantum Finance Videos</Link>
           </div>
           <div className="flex gap-4 mt-4">
