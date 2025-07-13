@@ -182,7 +182,7 @@ export default function Home() {
       id: "WSXt4ODJBkA",
       title: "Quantum Finance: QAOA Portfolio Optimization",
       description: "Explore quantum portfolio optimization: QAOA, real-world finance, and the future beyond classical methods — all explained step by step.",
-      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20QAOA%20Portfolio%20Optimization.ipynb"
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Quantum%20Finance%20Video%207%20QAOA%20Portfolio%20Optimization.ipynb"
     }
   ];
 
