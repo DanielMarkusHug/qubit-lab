@@ -179,8 +179,8 @@ export default function Home() {
 
   const videos_quantum_finance = [
     {
-      id: "xxxxx",
-      title: "Coming Soon: Portfolio Optimization using QAOA",
+      id: "WSXt4ODJBkA",
+      title: "Portfolio Optimization using QAOA",
       description: "Explore quantum portfolio optimization: QAOA, real-world finance, and the future beyond classical methods — all explained step by step.",
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20QAOA%20Portfolio%20Optimization.ipynb"
     }
