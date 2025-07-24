@@ -183,6 +183,12 @@ export default function Home() {
       title: "Quantum Finance: QAOA Portfolio Optimization",
       description: "Explore quantum portfolio optimization: QAOA, real-world finance, and the future beyond classical methods — all explained step by step.",
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20Quantum%20Finance%20QAOA%20Portfolio%20Optimization.ipynb"
+    },
+    {
+      id: "-efDbIPs9dU",
+      title: "Quantum Finance: Quantum Monte Carlo for Option Pricing",
+      description: "Explore how Quantum Monte Carlo with QAE can achieve a quadratic speed-up against classical simulations in pricing financial options — featuring live Python code and real-world insights.",
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%208%20Quantum%20Finance%20Quantum%20Monte%20Carlo%20Option%20Pricing.ipynb"
     }
   ];
 
