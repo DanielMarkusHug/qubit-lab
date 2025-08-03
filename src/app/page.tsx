@@ -189,8 +189,13 @@ export default function Home() {
       title: "Quantum Finance: Quantum Monte Carlo for Option Pricing",
       description: "Explore how Quantum Monte Carlo with QAE can achieve a quadratic speed-up against classical simulations in pricing financial options — featuring live Python code and real-world insights.",
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%208%20Quantum%20Finance%20Quantum%20Monte%20Carlo%20Option%20Pricing.ipynb"
+    },
+    {
+      id: "04V2aCHOhh4",
+      title: "Quantum Finance: QML for Fraud Detection",
+      description: "Discover how Quantum Machine Learning powers fraud detection in finance—see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis.",
+      colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb"
     }
-  ];
 
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
