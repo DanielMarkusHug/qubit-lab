@@ -196,7 +196,8 @@ export default function Home() {
       description: "Discover how Quantum Machine Learning powers fraud detection in finance—see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis.",
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb"
     }
-
+  ];
+  
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
       {/* Background Video */}
