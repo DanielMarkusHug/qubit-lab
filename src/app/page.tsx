@@ -181,7 +181,7 @@ export default function Home() {
     {
       id: "WSXt4ODJBkA",
       title: "Quantum Finance: QAOA Portfolio Optimization",
-      description: "Explore quantum portfolio optimization: QAOA, real-world finance, and the future beyond classical methods — all explained step by step.",
+      description: "Explore quantum portfolio optimization: QAOA, real-world finance, and the future beyond classical methods — all explained step by step supported by a Python notebook.",
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20Quantum%20Finance%20QAOA%20Portfolio%20Optimization.ipynb"
     },
     {
@@ -193,11 +193,10 @@ export default function Home() {
     {
       id: "04V2aCHOhh4",
       title: "Quantum Finance: QML for Fraud Detection",
-      description: "Discover how Quantum Machine Learning powers fraud detection in finance—see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis.",
+      description: "Discover how Quantum Machine Learning powers fraud detection in finance — see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis.",
       colabUrl: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb"
-    }
   ];
-  
+
   return (
     <div className="relative min-h-screen font-sans overflow-hidden bg-black">
       {/* Background Video */}
