@@ -275,7 +275,7 @@ export default function Home() {
             <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
               <iframe
                 // src="https://www.youtube.com/embed/xeOuL77sb3A?rel=0"
-                src="https://youtu.be/2hNh-3bSXD0?rel=0"
+                src="https://www.youtube.com/embed/2hNh-3bSXD0?rel=0"
                 
                 title="The Quantum Roadmap"
                 frameBorder="0"
