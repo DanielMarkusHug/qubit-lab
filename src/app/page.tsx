@@ -274,15 +274,17 @@ export default function Home() {
             {/*<h2 className="text-3xl font-bold text-center text-white mb-4">🎬 Let Us Explain...</h2>*/}
             <div className="relative w-full mb-4 overflow-hidden rounded-xl" style={{ paddingBottom: '56.25%' }}>
               <iframe
-                src="https://www.youtube.com/embed/xeOuL77sb3A?rel=0"
-                title="Teaser"
+                // src="https://www.youtube.com/embed/xeOuL77sb3A?rel=0"
+                src="https://youtu.be/2hNh-3bSXD0?rel=0"
+                
+                title="The Quantum Roadmap"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 className="absolute top-0 left-0 w-full h-full"
               />
             </div>
-            <p className="text-center text-gray-300 text-l">A quick overview of what Qubit Lab is all about.</p>
+            <p className="text-center text-gray-300 text-l">The Quantum Roadmap: From Technology to Business Strategy</p>
           </div>
         </div>
       </section>
