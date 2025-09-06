@@ -252,18 +252,18 @@ export default function Home() {
             Unlock the secrets of quantum computing - step by step.
           </h2>
           <div className="flex gap-4 mt-10">
-            <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory Videos</Link>
-            <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dive Videos</Link>
+            <Link href="#videos" className="px-6 py-3 bg-cyan-500 text-white rounded-full font-semibold hover:bg-cyan-600 transition">Introductory</Link>
+            <Link href="#videos_deepdive" className="px-6 py-3 bg-cyan-600 text-white rounded-full font-semibold hover:bg-cyan-700 transition">Deep Dives</Link>
           </div>
           <div className="flex gap-4 mt-4">
-            <Link href="#videos_quantum_finance" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quantum Finance Videos</Link>
+            <Link href="#videos_quantum_finance" className="px-6 py-3 bg-cyan-700 text-white rounded-full font-semibold hover:bg-cyan-800 transition">Quantum Finance</Link>
           </div>
           <div className="flex gap-4 mt-4">
             <Link href="#resources" className="px-6 py-3 bg-blue-400 text-white rounded-full font-semibold hover:bg-blue-500 transition">Resources</Link>
             <Link href="#comments" className="px-6 py-3 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition">Feedback</Link>
           </div>       
           <div className="flex gap-4 mt-4">
-            <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect on LinkedIn</Link>
+            <Link href="https://linkedin.com/in/danielhug" target="_blank" className="px-6 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition">Connect</Link>
           </div>          </div>
       </header>
 
@@ -284,34 +284,48 @@ export default function Home() {
                 className="absolute top-0 left-0 w-full h-full"
               />
             </div>
-            <p className="text-center text-gray-300 text-xl">The Business Perspective on Quantum Technology: How to Develop Your Corporate Quantum Roadmap</p>
+            <p className="text-center text-gray-300 text-2xl">The Business Perspective on Quantum Technology: <br />How to Develop Your Corporate Quantum Roadmap</p>
           </div>
         </div>
       </section>
-
-
 
       <section className="max-w-4xl mx-auto px-6 py-20 space-y-12 text-gray-200 relative z-10">
         <h2 className="text-4xl font-bold mb-6">
           Quantum Computing. Straight Talk.
         </h2>
+
         <Section title="Who is this for?">
-          No advanced math or physics background is required. With basic Python skills and a healthy dose of curiosity, anyone can start learning quantum computing. This series is ideal for finance professionals, tech enthusiasts, students, and anyone interested in the future of computing.
+          You do not need an advanced math or physics background. This series is designed for 
+          finance professionals, technology leaders, managers, students, and anyone curious 
+          about how quantum computing will impact business and society. Whether you want to 
+          explore hands-on programming or simply understand the strategic implications, this 
+          journey is for you.
         </Section>
 
         <Section title="Why explore quantum computing?">
-          Quantum computing is advancing from theory to reality faster than many realize. However, learning resources often remain either too abstract or too complex. This project aims to bridge the gap — providing an accessible, practical introduction to core quantum concepts and hands-on programming.
+          Quantum computing is moving from theory to reality faster than many expect. 
+          Beyond the technical fascination, it carries real implications for corporate strategy: 
+          risk management, post-quantum security, competitive advantage, and new business models. 
+          Most resources focus either on pure theory or on coding details. This project aims to 
+          bridge the gap — providing both an accessible introduction to core concepts and a clear 
+          perspective on their business relevance.
         </Section>
 
         <Section title="What will you achieve?">
-          You will learn how quantum computers store and process information, how to design simple quantum circuits in Python using Qiskit, and how fundamental phenomena like superposition and interference are applied to computation. The goal is to build not only an understanding of what quantum computing is, but also how it works — preparing for deeper exploration into the field.
+          You will understand how quantum computers store and process information, how they differ 
+          fundamentally from todays systems, and what opportunities and risks they create for 
+          enterprises. For those interested in the technical side, you will also learn to design 
+          simple circuits in Python using Qiskit. The overall goal is to prepare you for deeper 
+          exploration — whether as a decision maker shaping strategy, or as a practitioner building 
+          solutions.
         </Section>
 
-        <Section title="Begin the journey toward a new way of thinking about computing...">
-        ...it is not trivial, but you can do it!
+        <Section title="Begin the journey toward a new way of thinking about technology...">
+          Quantum computing is not trivial, but it is becoming increasingly relevant — 
+          and now is the time to start.
         </Section>
 
-<div className="pt-6">
+        <div className="pt-6">
           <p className="text-xl font-bold text-cyan-400"></p>
         </div>
       </section>
