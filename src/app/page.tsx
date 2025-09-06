@@ -284,7 +284,7 @@ export default function Home() {
                 className="absolute top-0 left-0 w-full h-full"
               />
             </div>
-            <p className="text-center text-gray-300 text-l">The Quantum Roadmap: From Technology to Business Strategy</p>
+            <p className="text-center text-gray-300 text-xl">The Business Perspective on Quantum Technology: How to Develop Your Corporate Quantum Roadmap</p>
           </div>
         </div>
       </section>
