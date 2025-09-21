@@ -18,7 +18,7 @@ export default function ContactPage() {
         {/* Contact Buttons */}
         <div className="flex flex-wrap gap-4 mb-12">
           <a
-            href="mailto:info@qubit-lab.ch"
+            href="mailto:daniel.hug@qubit-lab.ch"
             className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
           >
             📧 Email Me
