@@ -21,9 +21,6 @@ export default function Home() {
     return () => v.removeEventListener("canplay", tryPlay);
   }, []);
 
-  // 🎯 Featured strategy video
-  const featuredVideo = videos.find((v) => v.topic === "strategy");
-
   return (
     <main className="relative min-h-screen text-white">
       {/* Background Video */}
