@@ -13,54 +13,14 @@ export default function VideoList({
 }) {
   if (videos.length === 0) return null;
 
-  const [filter, setFilter] = useState<string | null>(null);
-
-  // Collect unique tags from the provided videos
-  const allTags = Array.from(new Set(videos.flatMap((v) => v.tags || [])));
-
-  // Filter videos by tag if selected
-  const filteredVideos = filter
-    ? videos.filter((v) => v.tags?.includes(filter))
-    : videos;
-
   return (
     <section className="max-w-6xl mx-auto px-6 py-16">
       <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
         {title}
       </h2>
 
-      {/* Filter Buttons */}
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-2 justify-center mb-10">
-          <button
-            onClick={() => setFilter(null)}
-            className={`px-3 py-1 rounded-full text-sm font-semibold ${
-              filter === null
-                ? "bg-cyan-600 text-white"
-                : "bg-white/10 text-gray-300 hover:bg-white/20"
-            }`}
-          >
-            All
-          </button>
-          {allTags.map((tag) => (
-            <button
-              key={tag}
-              onClick={() => setFilter(tag)}
-              className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                filter === tag
-                  ? "bg-cyan-600 text-white"
-                  : "bg-white/10 text-gray-300 hover:bg-white/20"
-              }`}
-            >
-              {tag}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Videos */}
       <div className="space-y-12">
-        {filteredVideos.map((video) => (
+        {videos.map((video) => (
           <VideoItem key={video.id} video={video} />
         ))}
       </div>
@@ -69,6 +29,7 @@ export default function VideoList({
 }
 
 function VideoItem({ video }: { video: Video }) {
+  // ✅ useState must always be here, never inside a conditional
   const [play, setPlay] = useState(false);
 
   return (
@@ -97,10 +58,10 @@ function VideoItem({ video }: { video: Video }) {
               src={`/${video.image}`}
               alt={video.title}
               fill
-              className="object-cover z-0"
+              className="object-cover z-10"
             />
             {/* Play button overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-20">
               <span className="text-white text-5xl">▶</span>
             </div>
           </>
@@ -128,7 +89,7 @@ function VideoItem({ video }: { video: Video }) {
           </div>
         )}
 
-        {/* Multiple Links */}
+        {/* Links */}
         {video.links && (
           <div className="flex flex-wrap gap-3">
             {video.links.map((link) => (
