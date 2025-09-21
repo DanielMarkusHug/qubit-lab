@@ -23,19 +23,6 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen text-white">
-      {/* Background Video */}
-      <video
-        ref={videoRef}
-        src="/background.mp4"
-        className="fixed inset-0 w-full h-full object-cover scale-125 pointer-events-none z-0 brightness-50"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        aria-hidden="true"
-      />
-      <div className="absolute inset-0 bg-black/70 z-0" />
 
       <div className="relative z-20">
         {/* Header */}
