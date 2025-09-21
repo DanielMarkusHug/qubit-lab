@@ -23,7 +23,21 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen text-white">
+      {/* 🔹 Background Video + Overlay */}
+      <video
+        ref={videoRef}
+        src="/background.mp4"
+        className="fixed inset-0 w-full h-full object-cover scale-125 pointer-events-none z-0 brightness-50"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        aria-hidden="true"
+      />
+      <div className="absolute inset-0 bg-black/70 z-0" />
 
+      {/* 🔹 Content */}
       <div className="relative z-20">
         {/* Header */}
         <Header />
@@ -50,7 +64,7 @@ export default function Home() {
           </div>
         </section>
 
-
+        {/* Straight Talk Section */}
         <section className="max-w-4xl mx-auto px-6 mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-6">
             Quantum Computing. Straight Talk.
