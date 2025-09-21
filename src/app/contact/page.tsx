@@ -23,7 +23,7 @@ export default function ContactPage() {
             📧 Email Me
           </a>
           <a
-            href="https://www.linkedin.com/in/danielmarkushug"
+            href="https://www.linkedin.com/in/danielhug"
             target="_blank"
             rel="noopener noreferrer"
             className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
