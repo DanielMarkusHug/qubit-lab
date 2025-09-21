@@ -1,8 +1,9 @@
 import Header from "@/components/Header";
+import AppLayout from "@/components/AppLayout";
 
 export default function AboutPage() {
   return (
-    <main className="relative min-h-screen text-white">
+    <AppLayout>
       <Header />
       <section className="max-w-4xl mx-auto px-6 pt-24 text-gray-200">
         <h1 className="text-4xl font-bold text-cyan-300 mb-8">
@@ -24,7 +25,6 @@ export default function AboutPage() {
             />
           </div>
         </section>
-
 
         <h2 className="text-3xl font-bold text-cyan-300 mb-6">
           Quantum Computing. Straight Talk.
@@ -54,7 +54,7 @@ export default function AboutPage() {
         <h3 className="text-2xl font-semibold mb-2">What will you achieve?</h3>
         <p className="text-lg leading-relaxed mb-6">
           You will gain a clear understanding of how quantum computers store
-          and process information, how they differ fundamentally from today’s
+          and process information, how they differ fundamentally from todays
           systems, and what opportunities and risks they create for
           enterprises. If you are interested in the technical side, you will
           also learn to design simple circuits in Python using Qiskit. The
@@ -72,7 +72,7 @@ export default function AboutPage() {
         </p>
       </section>
 
-      {/* New Section: Awareness & Support */}
+      {/* Awareness & Support */}
       <section className="max-w-4xl mx-auto px-6 pt-16 pb-24 text-gray-200">
         <h2 className="text-3xl font-bold text-cyan-300 mb-6">
           Awareness and Support
@@ -87,14 +87,13 @@ export default function AboutPage() {
         </p>
         <p className="text-lg leading-relaxed mb-8">
           Beyond awareness, I offer support in preparing, planning, and
-          executing a company’s quantum roadmap. This can include workshops for
+          executing a companys quantum roadmap. This can include workshops for
           leadership, use case exploration for business units, and hands-on
           sessions for those interested in coding. The focus is always on
           aligning technology insights with business priorities — ensuring that
           organizations are ready for the opportunities and challenges ahead.
         </p>
 
-        {/* Contact Buttons */}
         <div className="flex flex-wrap gap-4">
           <a
             href="mailto:daniel.hug@qubit-lab.ch"
@@ -120,6 +119,6 @@ export default function AboutPage() {
           </a>
         </div>
       </section>
-    </main>
+    </AppLayout>
   );
 }
