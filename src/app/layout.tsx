@@ -32,3 +32,30 @@ export default function RootLayout({
     </html>
   );
 }
+
+export const metadata = {
+  title: "Qubit-Lab",
+  description: "Exploring Quantum Computing in Finance and Beyond",
+  openGraph: {
+    title: "Qubit-Lab",
+    description: "Exploring Quantum Computing in Finance and Beyond",
+    url: "https://qubit-lab.ch",
+    siteName: "Qubit-Lab",
+    images: [
+      {
+        url: "https://qubit-lab.ch/og-image.png", // <- create and host this image
+        width: 1200,
+        height: 630,
+        alt: "Qubit-Lab",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Qubit-Lab",
+    description: "Exploring Quantum Computing in Finance and Beyond",
+    images: ["https://qubit-lab.ch/og-image.png"],
+  },
+};
