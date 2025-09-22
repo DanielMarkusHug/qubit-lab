@@ -53,7 +53,7 @@ export default function Home() {
           />
           <div>
             <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
-              Qubit-Lab.ch
+              Qubit Lab
             </h1>
             <h2 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500 mb-6">
               Quantum Computing. Demystified.

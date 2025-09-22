@@ -33,11 +33,11 @@ export interface Video {
       links: [
         {
           url: "https://qir.mit.edu/wp-content/uploads/2025/06/MIT-QIR-2025.pdf",
-          text: "MIT QIR Report 2025",
+          text: "MIT QIR 5/2025",
         },
         {
           url: "https://www.mckinsey.com/~/media/mckinsey/business%20functions/mckinsey%20digital/our%20insights/the%20year%20of%20quantum%20from%20concept%20to%20reality%20in%202025/quantum-monitor-2025.pdf",
-          text: "McKinsey Quantum Monitor Report 2025",
+          text: "McKinsey Quantum Monitor 6/2025",
         },
       ],
     },
@@ -103,6 +103,10 @@ export interface Video {
           url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb",
           text: "Open Colab Notebook",
         },
+        {
+          url: "https://youtu.be/XkY2DOUCWMU?si=c8xkJEZK_11zGJ_O",
+          text: "Matrix Multiplication (YT Video)",
+        },      
       ],
     },
     {
@@ -114,6 +118,12 @@ export interface Video {
       number: 5,
       image: "Video-5.jpg",
       tags: ["Deep Dive", "Complex Numbers", "Interference", "Qiskit Coding"],
+      links: [
+        {
+          url: "https://youtu.be/T647CGsuOVU?si=Vx38zbHJlMia-A7v",
+          text: "Complex Numbers (YT Video)",
+        },      
+      ],
     },
     {
       id: "LrujTEpfmSk",

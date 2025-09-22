@@ -77,7 +77,7 @@ export const resources: Resource[] = [
     description:
       "A simple video introduction to matrix multiplication, one of the key mathematical tools behind quantum gates and circuits.",
     url: "https://youtu.be/XkY2DOUCWMU?si=c8xkJEZK_11zGJ_O",
-    image: "matrixvideo.jpg",
+    image: "Matrixvideo.jpg",
     tags: ["Math Basics", "Video", "Linear Algebra", "Matrices"],
   },
   {
