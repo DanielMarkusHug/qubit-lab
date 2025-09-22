@@ -45,7 +45,7 @@ export default function Home() {
         {/* Hero Section */}
         <section className="flex flex-col md:flex-row items-center max-w-6xl mx-auto px-6 pt-24 gap-8 mb-16">
           <Image
-            src="/logo.png"
+            src="/logo_new.png"
             alt="Qubit Lab Logo"
             width={220}
             height={220}
