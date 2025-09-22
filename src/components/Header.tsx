@@ -18,7 +18,7 @@ export default function Header() {
             height={40}
             className="rounded-full object-cover"
           />
-          <span className="font-bold text-xl tracking-wide">Qubit-Lab.ch</span>
+          <span className="font-bold text-xl tracking-wide">qubit-lab.ch</span>
         </Link>
 
         {/* Desktop Nav */}
