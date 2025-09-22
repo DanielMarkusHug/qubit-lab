@@ -2,6 +2,11 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+<head>
+  <link rel="manifest" href="/manifest.json" />
+</head>
+
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -11,6 +16,7 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
 
 
 export default function RootLayout({
@@ -39,7 +45,7 @@ export const metadata = {
     siteName: "Qubit-Lab",
     images: [
       {
-        url: "https://qubit-lab.ch/og-image2x.png", // <- create and host this image
+        url: "https://qubit-lab.ch/og-image2x.png",
         width: 1200,
         height: 630,
         alt: "Qubit-Lab",
@@ -53,5 +59,12 @@ export const metadata = {
     title: "Qubit-Lab",
     description: "Exploring Quantum Computing in Finance and Beyond",
     images: ["https://qubit-lab.ch/og-image.png"],
+  },
+  icons: {
+    icon: [
+      { url: "/Icon-192x512.png", sizes: "192x192", type: "image/png" },
+      { url: "/Icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
   },
 };
