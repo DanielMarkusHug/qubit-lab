@@ -11,20 +11,14 @@ export default function VideoList({
   videos: Video[];
   title: string;
 }) {
-  if (videos.length === 0) return null;
-
-  // Collect all unique tags from the videos
-  const allTags = Array.from(
-    new Set(videos.flatMap((v) => v.tags ?? []))
-  ).sort();
-
+  // Always call hooks at the top level
+  const allTags = Array.from(new Set(videos.flatMap((v) => v.tags ?? []))).sort();
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
-  // Filter videos by activeTag (if selected)
+  if (videos.length === 0) return null;
+
   const filteredVideos =
-    activeTag === null
-      ? videos
-      : videos.filter((v) => v.tags?.includes(activeTag));
+    activeTag === null ? videos : videos.filter((v) => v.tags?.includes(activeTag));
 
   return (
     <section className="max-w-6xl mx-auto px-6 py-16">
