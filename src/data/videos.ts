@@ -30,6 +30,16 @@ export interface Video {
       number: 10,
       image: "Video-10.jpg",
       tags: ["Business", "Roadmap", "Strategy", "PQC", "Q-Day", "Regulation"],
+      links: [
+        {
+          url: "https://qir.mit.edu/wp-content/uploads/2025/06/MIT-QIR-2025.pdf",
+          text: "MIT QIR Report 2025",
+        },
+        {
+          url: "https://www.mckinsey.com/~/media/mckinsey/business%20functions/mckinsey%20digital/our%20insights/the%20year%20of%20quantum%20from%20concept%20to%20reality%20in%202025/quantum-monitor-2025.pdf",
+          text: "McKinsey Quantum Monitor Report 2025",
+        },
+      ],
     },
   
     // --- Intro ---

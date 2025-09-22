@@ -13,14 +13,56 @@ export default function VideoList({
 }) {
   if (videos.length === 0) return null;
 
+  // Collect all unique tags from the videos
+  const allTags = Array.from(
+    new Set(videos.flatMap((v) => v.tags ?? []))
+  ).sort();
+
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+
+  // Filter videos by activeTag (if selected)
+  const filteredVideos =
+    activeTag === null
+      ? videos
+      : videos.filter((v) => v.tags?.includes(activeTag));
+
   return (
     <section className="max-w-6xl mx-auto px-6 py-16">
       <h2 className="text-4xl font-bold text-center text-cyan-300 mb-10">
         {title}
       </h2>
 
+      {/* Tag Filters */}
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap justify-center gap-2 mb-8">
+          <button
+            onClick={() => setActiveTag(null)}
+            className={`px-3 py-1 rounded-full text-sm font-medium transition ${
+              activeTag === null
+                ? "bg-cyan-600 text-white"
+                : "bg-white/10 text-cyan-200 hover:bg-cyan-700 hover:text-white"
+            }`}
+          >
+            All
+          </button>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => setActiveTag(tag)}
+              className={`px-3 py-1 rounded-full text-sm font-medium transition ${
+                activeTag === tag
+                  ? "bg-cyan-600 text-white"
+                  : "bg-white/10 text-cyan-200 hover:bg-cyan-700 hover:text-white"
+              }`}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-12">
-        {videos.map((video) => (
+        {filteredVideos.map((video) => (
           <VideoItem key={video.id} video={video} />
         ))}
       </div>
@@ -29,7 +71,6 @@ export default function VideoList({
 }
 
 function VideoItem({ video }: { video: Video }) {
-  // ✅ useState must always be here, never inside a conditional
   const [play, setPlay] = useState(false);
 
   return (
@@ -60,7 +101,6 @@ function VideoItem({ video }: { video: Video }) {
               fill
               className="object-cover z-10"
             />
-            {/* Play button overlay */}
             <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-20">
               <span className="text-white text-5xl">▶</span>
             </div>
