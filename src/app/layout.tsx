@@ -39,7 +39,7 @@ export const metadata = {
     siteName: "Qubit-Lab",
     images: [
       {
-        url: "https://qubit-lab.ch/og-image.png", // <- create and host this image
+        url: "https://qubit-lab.ch/og-image2x.png", // <- create and host this image
         width: 1200,
         height: 630,
         alt: "Qubit-Lab",
