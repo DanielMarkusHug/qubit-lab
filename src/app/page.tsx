@@ -58,7 +58,9 @@ export default function Home() {
             <h2 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500 mb-6 pb-1">
               Quantum Computing. Demystified.
             </h2>
-
+            <p className="text-2xl text-gray-200">
+              Unlock the secrets of quantum computing – step by step.
+            </p>
           </div>
         </section>
 
