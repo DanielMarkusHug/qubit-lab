@@ -30,7 +30,7 @@ export const resources: Resource[] = [
     id: "gqi-report-2025",
     title: "Global Quantum Intelligence Report 2025",
     description:
-      "Video summary of the Global Quantum Intelligence (GQI) report, highlighting major developments in quantum technology and industry trends.",
+      "Global Quantum Intelligence (GQI) report, highlighting major developments in quantum technology and industry trends.",
     url: "https://quantumcomputingreport.com",
     image: "QCReport.jpg",
     tags: ["Strategy", "Report", "Business"],
@@ -84,7 +84,7 @@ export const resources: Resource[] = [
     id: "complex-numbers-video",
     title: "Complex Numbers for Beginners",
     description:
-      "Video explainer of complex numbers and their role in quantum mechanics, covering imaginary units, phases, and rotations.",
+      "Video explainer of complex numbers, important to understand phases, rotations and quantum interference.",
     url: "https://youtu.be/T647CGsuOVU?si=Vx38zbHJlMia-A7v",
     image: "complexvideo.jpg",
     tags: ["Math Basics", "Video", "Complex Numbers"],
