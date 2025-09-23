@@ -1,11 +1,6 @@
-
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-<head>
-  <link rel="manifest" href="/manifest.json" />
-</head>
-
+import { Analytics } from "@vercel/analytics/react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,24 +11,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
-    </html>
-  );
-}
 
 export const metadata = {
   title: "Qubit-Lab",
@@ -68,3 +45,23 @@ export const metadata = {
     apple: "/apple-touch-icon.png",
   },
 };
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+      </head>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        {children}
+        <Analytics />
+      </body>
+    </html>
+  );
+}
