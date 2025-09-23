@@ -52,13 +52,13 @@ export default function Home() {
             className="rounded-full flex-shrink-0"
           />
           <div>
-            <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
+            <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent leading-snug bg-gradient-to-r from-cyan-400 to-blue-500">
               Qubit Lab
             </h1>
             <h2 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500 mb-6">
               Quantum Computing. Demystified.
             </h2>
-            <p className="text-2xl text-gray-200">
+            <p className="text-2xl leading-relaxed text-gray-200">
               Unlock the secrets of quantum computing – step by step.
             </p>
           </div>
