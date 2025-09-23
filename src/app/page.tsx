@@ -1,5 +1,6 @@
 "use client";
 
+import { Analytics } from "@vercel/analytics/react";
 import { useEffect, useRef } from "react";
 import Image from "next/image";
 import { videos } from "@/data/videos";
