@@ -179,7 +179,7 @@ export interface Video {
       id: "04V2aCHOhh4",
       title: "QML for Fraud Detection",
       description:
-        "Discover how Quantum Machine Learning powers fraud detection in finance — see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis. The approach used here is the very same as used by HSBC for their bond trading use case. See also the coverage below. QML is the most promising option today.",
+        "Discover how Quantum Machine Learning powers fraud detection in finance — see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis. The approach used here is the very same as used by HSBC for their bond trading use case. See also the coverage below. QML is the most promising option today for quantum computing in finance.",
       topic: "finance",
       number: 9,
       image: "Video-9.jpg",
