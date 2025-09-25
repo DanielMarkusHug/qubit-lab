@@ -8,8 +8,9 @@ import Header from "@/components/Header";
 import { Analytics } from "@vercel/analytics/react";
 
 export default function FeaturedVideoContent() {
-  const video = 9
-
+  // Pick the video object with number === 9
+  const video = videos.find(v => v.number === 9);
+  
   if (!video) {
     return <div className="p-8 text-white">No video found. Please provide a valid video number.</div>;
   }
@@ -54,7 +55,7 @@ export default function FeaturedVideoContent() {
           <div className="flex flex-col items-end gap-3">
             <Link href="/" passHref>
               <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
-                Start Page
+                Start Page 
               </span>
             </Link>
             <Link href="/strategy" passHref>
