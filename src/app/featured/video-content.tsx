@@ -1,4 +1,3 @@
-// app/featured/video-content.tsx
 "use client";
 
 import { useSearchParams } from "next/navigation";
@@ -10,7 +9,7 @@ export default function FeaturedVideoContent() {
   const searchParams = useSearchParams();
   const videoNumber = searchParams.get("video");
 
-  const video = videos.find((v) => v.id.toString() === videoNumber);
+  const video = videos.find((v) => String(v.number) === String(videoNumber));
 
   if (!video) {
     return <div>No video found. Please provide a valid video number.</div>;
@@ -20,7 +19,7 @@ export default function FeaturedVideoContent() {
     <main className="p-8 text-white">
       <h1 className="text-3xl font-bold mb-6">Featured Video</h1>
       <div className="max-w-3xl mx-auto">
-        <VideoList videos={[video]} title={`Video ${video.id}`} />
+        <VideoList videos={[video]} title={`Video ${video.number}`} />
 
         {/* Navigation Buttons */}
         <div className="mt-8 flex flex-wrap gap-4 justify-center">
