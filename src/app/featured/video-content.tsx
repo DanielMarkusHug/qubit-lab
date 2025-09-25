@@ -24,32 +24,32 @@ export default function FeaturedVideoContent() {
         {/* Navigation Buttons */}
         <div className="mt-8 flex flex-wrap gap-4 justify-center">
           <Link href="/">
-            <span className="px-4 py-2 rounded-xl bg-gray-600 hover:bg-gray-700 transition text-white font-semibold shadow">
+            <span className="px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 transition text-white font-semibold shadow">
               Start Page
             </span>
           </Link>
           <Link href="/strategy">
-            <span className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 transition text-white font-semibold shadow">
+            <span className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 transition text-white font-semibold shadow">
               Quantum Strategy Videos
             </span>
           </Link>
           <Link href="/finance">
-            <span className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition text-white font-semibold shadow">
+            <span className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 transition text-white font-semibold shadow">
               Quantum Finance Use Cases
             </span>
           </Link>
           <Link href="/videos">
-            <span className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 transition text-white font-semibold shadow">
+            <span className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 transition text-black font-semibold shadow">
               All Videos
             </span>
           </Link>
           <Link href="/intro">
-            <span className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 transition text-white font-semibold shadow">
+            <span className="px-4 py-2 rounded-xl bg-amber-300 hover:bg-amber-400 transition text-black font-semibold shadow">
               Introductory Videos
             </span>
           </Link>
           <Link href="/deepdive">
-            <span className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 transition text-white font-semibold shadow">
+            <span className="px-4 py-2 rounded-xl bg-amber-200 hover:bg-amber-300 transition text-black font-semibold shadow">
               Tech Deep Dive Videos
             </span>
           </Link>
