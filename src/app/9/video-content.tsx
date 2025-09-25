@@ -1,6 +1,5 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { videos } from "@/data/videos";
@@ -9,10 +8,7 @@ import Header from "@/components/Header";
 import { Analytics } from "@vercel/analytics/react";
 
 export default function FeaturedVideoContent() {
-  const searchParams = useSearchParams();
-  const videoNumber = searchParams.get("video");
-
-  const video = 9;
+  const video = 9
 
   if (!video) {
     return <div className="p-8 text-white">No video found. Please provide a valid video number.</div>;
