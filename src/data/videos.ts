@@ -189,6 +189,14 @@ export interface Video {
           url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb",
           text: "Open Colab Notebook",
         },
+        {
+          url: "https://www.hsbc.com/news-and-views/news/media-releases/2025/hsbc-demonstrates-worlds-first-known-quantum-enabled-algorithmic-trading-with-ibm",
+          text: "HSBC Press Release 25-Sep-2025",
+        },
+        {
+          url: "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.hsbc.com/news-and-views/news/media-releases/2025/hsbc-demonstrates-worlds-first-known-quantum-enabled-algorithmic-trading-with-ibm&ved=2ahUKEwjo4svMh_SPAxWM3QIHHceEEhEQFnoECCUQAQ&usg=AOvVaw0WY3WjyxtpW3fX_1xKPEjy",
+          text: "Bloomberg Podcast on HSBC QML 25-Sept-2025",
+        },
       ],
     },
   ];
