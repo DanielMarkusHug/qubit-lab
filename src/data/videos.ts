@@ -194,7 +194,7 @@ export interface Video {
           text: "HSBC Press Release 25-Sep-2025",
         },
         {
-          url: "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.hsbc.com/news-and-views/news/media-releases/2025/hsbc-demonstrates-worlds-first-known-quantum-enabled-algorithmic-trading-with-ibm&ved=2ahUKEwjo4svMh_SPAxWM3QIHHceEEhEQFnoECCUQAQ&usg=AOvVaw0WY3WjyxtpW3fX_1xKPEjy",
+          url: "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.bloomberg.com/news/videos/2025-09-25/a-sputnik-moment-hsbc-quantum-computing-breakthrough&ved=2ahUKEwja-5eak_SPAxVRwAIHHe6PE-kQwqsBegQIIRAF&usg=AOvVaw3aa_wMC0WfAvGKYwSR5r-X",
           text: "Bloomberg Podcast on HSBC QML 25-Sept-2025",
         },
       ],

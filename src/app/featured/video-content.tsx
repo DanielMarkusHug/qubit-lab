@@ -57,17 +57,17 @@ export default function FeaturedVideoContent() {
           {/* Left column (right-aligned) */}
           <div className="flex flex-col items-end gap-3">
             <Link href="/" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-800 transition text-black font-semibold shadow">
+              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
                 Start Page
               </span>
             </Link>
             <Link href="/strategy" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-800 transition text-black font-semibold shadow">
+              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
                 Quantum Strategy Videos
               </span>
             </Link>
             <Link href="/finance" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-800 transition text-black font-semibold shadow">
+              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
                 Quantum Finance Use Cases
               </span>
             </Link>
@@ -76,17 +76,17 @@ export default function FeaturedVideoContent() {
           {/* Right column (left-aligned) */}
           <div className="flex flex-col items-start gap-3">
             <Link href="/videos" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-800 transition text-black font-semibold shadow">
+              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
                 All Videos
               </span>
             </Link>
             <Link href="/intro" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-800 transition text-black font-semibold shadow">
+              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
                 Introductory Videos
               </span>
             </Link>
             <Link href="/deepdive" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-800 transition text-black font-semibold shadow">
+              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
                 Tech Deep Dive Videos
               </span>
             </Link>
@@ -94,7 +94,7 @@ export default function FeaturedVideoContent() {
         </div>
 
         {/* Cyan accent below the buttons */}
-        <div className="mt-6 mb-8 h-1 w-full bg-cyan-600 rounded"></div>
+        <div className="mt-6 mb-8 h-1 w-full bg-black rounded"></div>
 
 
 
