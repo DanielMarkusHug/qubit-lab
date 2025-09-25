@@ -10,7 +10,7 @@ import { Analytics } from "@vercel/analytics/react";
 export default function FeaturedVideoContent() {
   // Pick the video object with number === 9
   const video = videos.find(v => v.number === 9);
-  
+
   if (!video) {
     return <div className="p-8 text-white">No video found. Please provide a valid video number.</div>;
   }
@@ -48,46 +48,38 @@ export default function FeaturedVideoContent() {
 
         {/* Single Featured Video */}
         <VideoList videos={[video]} title={`Featured Video #${video.number}`} />
-
-        {/* Navigation Buttons: two columns, consistent color */}
-        <div className="mt-4 flex justify-center gap-12">
-          {/* Left column (right-aligned) */}
-          <div className="flex flex-col items-end gap-3">
-            <Link href="/" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
-                Start Page 
-              </span>
-            </Link>
-            <Link href="/strategy" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
-                Quantum Strategy Videos
-              </span>
-            </Link>
-            <Link href="/finance" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
-                Quantum Finance Use Cases
-              </span>
-            </Link>
-          </div>
-
-          {/* Right column (left-aligned) */}
-          <div className="flex flex-col items-start gap-3">
-            <Link href="/videos" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
-                All Videos
-              </span>
-            </Link>
-            <Link href="/intro" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
-                Introductory Videos
-              </span>
-            </Link>
-            <Link href="/deepdive" passHref>
-              <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
-                Tech Deep Dive Videos
-              </span>
-            </Link>
-          </div>
+        {/* Navigation Buttons: single column, left-aligned */}
+        <div className="mt-4 flex flex-col items-start gap-3">
+          <Link href="/" passHref>
+            <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
+              Start Page 
+            </span>
+          </Link>
+          <Link href="/strategy" passHref>
+            <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
+              Quantum Strategy Videos
+            </span>
+          </Link>
+          <Link href="/finance" passHref>
+            <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
+              Quantum Finance Use Cases
+            </span>
+          </Link>
+          <Link href="/videos" passHref>
+            <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
+              All Videos
+            </span>
+          </Link>
+          <Link href="/intro" passHref>
+            <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
+              Introductory Videos
+            </span>
+          </Link>
+          <Link href="/deepdive" passHref>
+            <span className="px-4 py-2 rounded-xl bg-cyan-800 hover:bg-cyan-600 transition text-black font-semibold shadow">
+              Tech Deep Dive Videos
+            </span>
+          </Link>
         </div>
 
         {/* Cyan accent below the buttons */}
