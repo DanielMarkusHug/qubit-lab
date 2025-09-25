@@ -51,37 +51,45 @@ export default function FeaturedVideoContent() {
         <VideoList videos={[video]} title={`Featured Video #${video.number}`} />
 
         {/* Navigation Buttons */}
-        <div className="mt-8 flex flex-col gap-3 items-center">
-          <Link href="/" passHref>
-            <span className="block w-full max-w-sm px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold text-center shadow">
-              Start Page
-            </span>
-          </Link>
-          <Link href="/strategy" passHref>
-            <span className="block w-full max-w-sm px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold text-center shadow">
-              Quantum Strategy Videos
-            </span>
-          </Link>
-          <Link href="/finance" passHref>
-            <span className="block w-full max-w-sm px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold text-center shadow">
-              Quantum Finance Use Cases
-            </span>
-          </Link>
-          <Link href="/videos" passHref>
-            <span className="block w-full max-w-sm px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold text-center shadow">
-              All Videos
-            </span>
-          </Link>
-          <Link href="/intro" passHref>
-            <span className="block w-full max-w-sm px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold text-center shadow">
-              Introductory Videos
-            </span>
-          </Link>
-          <Link href="/deepdive" passHref>
-            <span className="block w-full max-w-sm px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold text-center shadow">
-              Tech Deep Dive Videos
-            </span>
-          </Link>
+        {/* Navigation Buttons: two columns, consistent color */}
+        <div className="mt-8 flex justify-center gap-12">
+          {/* Left column (right‑aligned) */}
+          <div className="flex flex-col items-end gap-3">
+            <Link href="/" passHref>
+              <span className="px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold shadow">
+                Start Page
+              </span>
+            </Link>
+            <Link href="/strategy" passHref>
+              <span className="px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold shadow">
+                Quantum Strategy Videos
+              </span>
+            </Link>
+            <Link href="/finance" passHref>
+              <span className="px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold shadow">
+                Quantum Finance Use Cases
+              </span>
+            </Link>
+          </div>
+
+          {/* Right column (left‑aligned) */}
+          <div className="flex flex-col items-start gap-3">
+            <Link href="/videos" passHref>
+              <span className="px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold shadow">
+                All Videos
+              </span>
+            </Link>
+            <Link href="/intro" passHref>
+              <span className="px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold shadow">
+                Introductory Videos
+              </span>
+            </Link>
+            <Link href="/deepdive" passHref>
+              <span className="px-4 py-2 rounded-xl bg-blue-200 hover:bg-blue-300 transition text-black font-semibold shadow">
+                Tech Deep Dive Videos
+              </span>
+            </Link>
+          </div>
         </div>
 
 
