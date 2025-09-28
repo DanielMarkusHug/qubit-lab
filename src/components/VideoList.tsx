@@ -55,32 +55,73 @@ export default function VideoList({
         </div>
       )}
 
-      {/* Grid for all videos */}
-      <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {filteredVideos.map((video) => (
-          <VideoItem key={video.id} video={video} />
-        ))}
+      {/* Videos */}
+      <div className="space-y-12">
+        {filteredVideos.map((video) => {
+          const isPortrait = video.topic === "stq";
+
+          if (isPortrait) {
+            // Portrait videos → grid row
+            return (
+              <div
+                key={video.id}
+                className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 justify-items-center"
+              >
+                <VideoItem video={video} isPortrait />
+              </div>
+            );
+          }
+
+          // Landscape videos → stacked (one per row)
+          return (
+            <div key={video.id}>
+              <VideoItem video={video} isPortrait={false} />
+            </div>
+          );
+        })}
       </div>
     </section>
   );
 }
 
-function VideoItem({ video }: { video: Video }) {
+function VideoItem({ video, isPortrait }: { video: Video; isPortrait: boolean }) {
   const [play, setPlay] = useState(false);
 
-  const isPortrait = video.topic === "stq";
-
   return (
-    <div className="relative bg-white/5 p-4 rounded-xl shadow-lg hover:scale-[1.01] transition flex flex-col">
+    <div
+      className={`relative bg-white/5 p-4 rounded-xl shadow-lg hover:scale-[1.01] transition flex flex-col ${
+        isPortrait ? "max-w-xs" : "md:flex-row items-start gap-6"
+      }`}
+    >
       {/* Video Number Badge */}
       <span className="absolute top-3 right-3 z-20 bg-cyan-600 text-white text-sm font-bold px-3 py-1 rounded-full shadow-lg">
         #{video.number}
       </span>
 
+      {/* Topic Badge */}
+      <span
+        className={`absolute top-3 left-3 z-20 text-xs font-bold px-2 py-1 rounded-full shadow-md ${
+          video.topic === "stq"
+            ? "bg-cyan-600 text-white"
+            : video.topic === "finance"
+            ? "bg-green-600 text-white"
+            : video.topic === "strategy"
+            ? "bg-purple-600 text-white"
+            : video.topic === "intro"
+            ? "bg-blue-600 text-white"
+            : video.topic === "deepdive"
+            ? "bg-orange-600 text-white"
+            : "bg-gray-600 text-white"
+        }`}
+      >
+        {video.topic.toUpperCase()}
+      </span>
+
       {/* Thumbnail / Video */}
       <div
-        className={`relative overflow-hidden rounded cursor-pointer mb-4
-          ${isPortrait ? "aspect-[9/16]" : "aspect-video"}`}
+        className={`relative overflow-hidden rounded cursor-pointer mb-4 ${
+          isPortrait ? "aspect-[9/16]" : "w-full md:w-1/2 aspect-video"
+        }`}
         onClick={() => setPlay(true)}
       >
         {play ? (
@@ -107,11 +148,9 @@ function VideoItem({ video }: { video: Video }) {
       </div>
 
       {/* Text Content */}
-      <div className={`${isPortrait ? "text-center" : ""}`}>
+      <div className={`${isPortrait ? "text-center mt-4" : "flex-1"}`}>
         <h3 className="text-lg font-bold text-cyan-300 mb-2">{video.title}</h3>
-        <p className="text-gray-300 text-sm mb-3 line-clamp-3">
-          {video.description}
-        </p>
+        <p className="text-gray-300 text-sm mb-3 line-clamp-3">{video.description}</p>
 
         {/* Tags */}
         {video.tags && (
