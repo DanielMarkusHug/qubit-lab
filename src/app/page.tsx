@@ -70,25 +70,6 @@ export default function Home() {
             Quantum Computing. Straight Talk.
           </h2>
           <p className="text-gray-300 text-xl font-semibold leading-relaxed mb-8">
-            Quick, vertical videos that cut through the noise and answer real questions.  
-            Each episode tackles a single challenge — from “Start now or in 10 years?”  
-            to “Harvest Now, Decrypt Later” — offering concise insights on strategy,  
-            risks, and opportunities of quantum computing today.
-          </p>
-          <a
-            href="/stq"
-            className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
-          >
-            Explore Straight Talk Quantum
-          </a>
-        </section>
-
-        {/* About Section (restored) */}
-        <section className="max-w-4xl mx-auto px-6 mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-6">
-            About Qubit-Lab
-          </h2>
-          <p className="text-gray-300 text-xl font-semibold leading-relaxed mb-8">
             This project bridges the gap between technical depth and business relevance —
             showing how quantum computing works, why it matters, and what it means for
             strategy and practice.  
