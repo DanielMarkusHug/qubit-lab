@@ -20,7 +20,6 @@ export default function STQPage() {
         <VideoList
           videos={videos.filter((v) => v.topic === "stq")}
           title="Straight Talk Quantum Episodes"
-          layout="portrait"
         />
       </section>
     </AppLayout>
