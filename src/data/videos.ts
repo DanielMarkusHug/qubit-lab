@@ -2,7 +2,7 @@ export interface Video {
     id: string;
     title: string;
     description: string;
-    topic: "intro" | "deepdive" | "finance" | "strategy";
+    topic: "intro" | "deepdive" | "finance" | "strategy" | "stq";
     number: number;       // Video number
     image: string;        // Placeholder JPG
     tags?: string[];      // Tags for filtering, search, display
@@ -211,6 +211,6 @@ export interface Video {
       image: "STQ-1.jpg",
       tags: ["Straight Talk", "Hybrid Algorithms", "Strategy", "Quantum Today"],
     },
-    
+
   ];
   
