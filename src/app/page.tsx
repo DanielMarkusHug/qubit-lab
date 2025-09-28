@@ -70,22 +70,24 @@ export default function Home() {
             Quantum Computing. Straight Talk.
           </h2>
           <p className="text-gray-300 text-xl font-semibold leading-relaxed mb-8">
-            This project bridges the gap between technical depth and business relevance —
-            showing how quantum computing works, why it matters, and what it means for
-            strategy and practice.  
-            The focus is on clarity and impact: making the concepts understandable without
-            advanced physics, highlighting where quantum could affect industries like finance,
-            and offering a perspective that connects technology with real business decisions.
+            Quick, vertical videos that cut through the noise and answer real questions.  
+            Each episode tackles a single challenge — from “Start now or in 10 years?”  
+            to “Harvest Now, Decrypt Later” — offering concise insights on strategy,  
+            risks, and opportunities of quantum computing today.
           </p>
           <a
-            href="/about"
+            href="/stq"
             className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
           >
-            Learn more about qubit-lab.ch
+            Explore Straight Talk Quantum
           </a>
         </section>
 
-        {/* Video Sections */}
+        {/* 🔹 Video Sections */}
+        <VideoList
+          videos={videos.filter((v) => v.topic === "stq")}
+          title="Straight Talk Quantum"
+        />
         <VideoList
           videos={videos.filter((v) => v.topic === "strategy")}
           title="Quantum Strategy"

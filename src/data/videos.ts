@@ -199,5 +199,18 @@ export interface Video {
         },
       ],
     },
+
+    // --- Straight Talk Quantum ---
+    {
+      id: "rJocSH89s5E",
+      title: "Start Now or Wait 10 Years?",
+      description:
+        "Should we wait until quantum hardware matures — or already start today with hybrid algorithms? A straight talk on opportunities and risks.",
+      topic: "straight talk quantum",
+      number: 1,
+      image: "STQ-1.jpg",
+      tags: ["Straight Talk", "Hybrid Algorithms", "Strategy", "Quantum Today"],
+    },
+    
   ];
   

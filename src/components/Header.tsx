@@ -23,13 +23,13 @@ export default function Header() {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex gap-4 text-sm">
+          <Link href="/stq">Straight Talk Quantum</Link> {/* moved to beginning */}
           <Link href="/all">All Videos</Link>
           <Link href="/strategy">Quantum Strategy</Link>
           <Link href="/finance">Quantum Finance</Link>
           <Link href="/deepdive">Tech Deep Dive</Link>
           <Link href="/intro">Intro Videos</Link>
         </nav>
-
 
         {/* Desktop Right Menu */}
         <div className="ml-auto hidden md:flex gap-4 text-sm">
@@ -52,15 +52,70 @@ export default function Header() {
       {/* Mobile Menu (Slide Down) */}
       {menuOpen && (
         <div className="md:hidden bg-black/90 border-t border-white/10 px-4 py-4 space-y-3">
-          <Link href="/all" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>All Videos</Link>
-          <Link href="/strategy" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>Quantum Strategy</Link>
-          <Link href="/finance" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>Quantum Finance</Link>
-          <Link href="/deepdive" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>Tech Deep Dive</Link>
-          <Link href="/intro" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>Intro Videos</Link>
+          <Link
+            href="/stq"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Straight Talk Quantum
+          </Link>
+          <Link
+            href="/all"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            All Videos
+          </Link>
+          <Link
+            href="/strategy"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Quantum Strategy
+          </Link>
+          <Link
+            href="/finance"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Quantum Finance
+          </Link>
+          <Link
+            href="/deepdive"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Tech Deep Dive
+          </Link>
+          <Link
+            href="/intro"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Intro Videos
+          </Link>
           <hr className="border-white/20" />
-          <Link href="/about" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>About</Link>
-          <Link href="/resources" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>Resources</Link>
-          <Link href="/contact" className="block text-white hover:text-cyan-400" onClick={() => setMenuOpen(false)}>Contact</Link>
+          <Link
+            href="/about"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            About
+          </Link>
+          <Link
+            href="/resources"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Resources
+          </Link>
+          <Link
+            href="/contact"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Contact
+          </Link>
         </div>
       )}
     </header>
