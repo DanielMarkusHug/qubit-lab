@@ -57,47 +57,24 @@ export default function VideoList({
 
       {/* Videos */}
       <div className="space-y-12">
-        {filteredVideos.map((video) => {
-          const isPortrait = video.topic === "stq";
-
-          if (isPortrait) {
-            // Portrait videos → grid row
-            return (
-              <div
-                key={video.id}
-                className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 justify-items-center"
-              >
-                <VideoItem video={video} isPortrait />
-              </div>
-            );
-          }
-
-          // Landscape videos → stacked (one per row)
-          return (
-            <div key={video.id}>
-              <VideoItem video={video} isPortrait={false} />
-            </div>
-          );
-        })}
+        {filteredVideos.map((video) => (
+          <VideoItem key={video.id} video={video} />
+        ))}
       </div>
     </section>
   );
 }
 
-function VideoItem({ video, isPortrait }: { video: Video; isPortrait: boolean }) {
+function VideoItem({ video }: { video: Video }) {
   const [play, setPlay] = useState(false);
+  const isPortrait = video.topic === "stq";
 
   return (
     <div
       className={`relative bg-white/5 p-4 rounded-xl shadow-lg hover:scale-[1.01] transition flex flex-col ${
-        isPortrait ? "max-w-xs" : "md:flex-row items-start gap-6"
+        isPortrait ? "max-w-xs mx-auto" : "md:flex-row items-start gap-6"
       }`}
     >
-      {/* Video Number Badge */}
-      <span className="absolute top-3 right-3 z-20 bg-cyan-600 text-white text-sm font-bold px-3 py-1 rounded-full shadow-lg">
-        #{video.number}
-      </span>
-
       {/* Topic Badge */}
       <span
         className={`absolute top-3 left-3 z-20 text-xs font-bold px-2 py-1 rounded-full shadow-md ${
@@ -115,6 +92,11 @@ function VideoItem({ video, isPortrait }: { video: Video; isPortrait: boolean })
         }`}
       >
         {video.topic.toUpperCase()}
+      </span>
+
+      {/* Video Number Badge */}
+      <span className="absolute top-3 right-3 z-20 bg-cyan-600 text-white text-sm font-bold px-3 py-1 rounded-full shadow-lg">
+        #{video.number}
       </span>
 
       {/* Thumbnail / Video */}
@@ -150,7 +132,7 @@ function VideoItem({ video, isPortrait }: { video: Video; isPortrait: boolean })
       {/* Text Content */}
       <div className={`${isPortrait ? "text-center mt-4" : "flex-1"}`}>
         <h3 className="text-lg font-bold text-cyan-300 mb-2">{video.title}</h3>
-        <p className="text-gray-300 text-sm mb-3 line-clamp-3">{video.description}</p>
+        <p className="text-gray-300 text-sm mb-3">{video.description}</p>
 
         {/* Tags */}
         {video.tags && (

@@ -83,6 +83,27 @@ export default function Home() {
           </a>
         </section>
 
+        {/* About Section (restored) */}
+        <section className="max-w-4xl mx-auto px-6 mb-16">
+          <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-6">
+            About Qubit-Lab
+          </h2>
+          <p className="text-gray-300 text-xl font-semibold leading-relaxed mb-8">
+            This project bridges the gap between technical depth and business relevance —
+            showing how quantum computing works, why it matters, and what it means for
+            strategy and practice.  
+            The focus is on clarity and impact: making the concepts understandable without
+            advanced physics, highlighting where quantum could affect industries like finance,
+            and offering a perspective that connects technology with real business decisions.
+          </p>
+          <a
+            href="/about"
+            className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
+          >
+            Learn more about qubit-lab.ch
+          </a>
+        </section>
+
         {/* 🔹 Video Sections */}
         <VideoList
           videos={videos.filter((v) => v.topic === "stq")}
