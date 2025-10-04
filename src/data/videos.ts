@@ -217,7 +217,7 @@ export interface Video {
       description:
         "A qubit is much more than an “extended classical bit. It is the core carrier of quantum behavior — superposition, phase, interference. And in QML, a single qubit can encode a full parameter, making it a powerful resource. Some say you don’t need to understand qubits, just like coders don’t care about voltages in classical chips. I disagree. To truly grasp quantum code, you need at least the general picture of what a qubit really is. This video aims to give you that — not comprehensive, but enough to spark real understanding and curiosity.",
       topic: "stq",
-      number: 1,
+      number: 2,
       image: "STQ-2.jpg",
       tags: ["Straight Talk", "Qubit", "Interference", "Probability Amplitude", "Phase", "Complex Numbers"],
     },
