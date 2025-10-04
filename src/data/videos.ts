@@ -97,7 +97,7 @@ export interface Video {
       topic: "deepdive",
       number: 4,
       image: "Video-4.jpg",
-      tags: ["Deep Dive", "Quantum Gates", "Linear Algebra", "Qiskit Coding"],
+      tags: ["Deep Dive", "Quantum Gates", "Linear Algebra", "Qiskit Coding", "Probability Amplitude"],
       links: [
         {
           url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%204%20Deep%20Dive%201%20Quantum%20Gates.ipynb",
@@ -117,7 +117,7 @@ export interface Video {
       topic: "deepdive",
       number: 5,
       image: "Video-5.jpg",
-      tags: ["Deep Dive", "Complex Numbers", "Interference", "Qiskit Coding"],
+      tags: ["Deep Dive", "Complex Numbers", "Interference", "Qiskit Coding", "Probability Amplitude", "Phase"],
       links: [
         {
           url: "https://youtu.be/T647CGsuOVU?si=Vx38zbHJlMia-A7v",
@@ -211,6 +211,15 @@ export interface Video {
       image: "STQ-1.jpg",
       tags: ["Straight Talk", "Hybrid Algorithms", "Strategy", "Quantum Today"],
     },
-
+    {
+      id: "dAAFwaqFn8k",
+      title: "What is a Qubit?",
+      description:
+        "A qubit is much more than an “extended classical bit. It is the core carrier of quantum behavior — superposition, phase, interference. And in QML, a single qubit can encode a full parameter, making it a powerful resource. Some say you don’t need to understand qubits, just like coders don’t care about voltages in classical chips. I disagree. To truly grasp quantum code, you need at least the general picture of what a qubit really is. This video aims to give you that — not comprehensive, but enough to spark real understanding and curiosity.",
+      topic: "stq",
+      number: 1,
+      image: "STQ-1.jpg",
+      tags: ["Straight Talk", "Qubit", "Interference", "Probability Amplitude", "Phase", "Complex Numbers"],
+    },
   ];
   
