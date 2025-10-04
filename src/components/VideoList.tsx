@@ -56,10 +56,24 @@ export default function VideoList({
       )}
 
       {/* Videos */}
-      <div className="space-y-12">
-        {filteredVideos.map((video) => (
-          <VideoItem key={video.id} video={video} />
-        ))}
+      <div>
+        {/* Portrait (vertical) videos in grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+          {filteredVideos
+            .filter((v) => v.topic === "stq")
+            .map((video) => (
+              <VideoItem key={video.id} video={video} />
+            ))}
+        </div>
+
+        {/* Landscape videos in vertical list */}
+        <div className="space-y-12">
+          {filteredVideos
+            .filter((v) => v.topic !== "stq")
+            .map((video) => (
+              <VideoItem key={video.id} video={video} />
+            ))}
+        </div>
       </div>
     </section>
   );
@@ -71,8 +85,8 @@ function VideoItem({ video }: { video: Video }) {
 
   return (
     <div
-      className={`relative bg-white/5 p-4 rounded-xl shadow-lg hover:scale-[1.01] transition flex flex-col ${
-        isPortrait ? "max-w-xs mx-auto" : "md:flex-row items-start gap-6"
+      className={`relative bg-white/5 p-4 rounded-xl shadow-lg transition flex flex-col transform scale-90 hover:scale-95 ${
+        isPortrait ? "" : "md:flex-row items-start gap-6"
       }`}
     >
       {/* Topic Badge */}
