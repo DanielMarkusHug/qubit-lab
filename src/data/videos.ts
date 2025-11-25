@@ -183,7 +183,7 @@ export interface Video {
       topic: "finance",
       number: 9,
       image: "Video-9.jpg",
-      tags: ["Finance", "QML", "Fraud Detection", "Qiskit Coding"],
+      tags: ["Finance", "QML", "VQC", "Fraud Detection", "Qiskit Coding"],
       links: [
         {
           url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb",
@@ -199,7 +199,30 @@ export interface Video {
         },
       ],
     },
-
+    {
+      id: "rAtVsBAbCiU",
+      title: "QML reality check: classical vs quantum",
+      description:
+        "Discover how Quantum Machine Learning performs in a real finance scenario — we test a hybrid quantum-classical model on S&P 500 market regime prediction and benchmark it against a strong classical baseline. You will see the full experiment end-to-end: engineered features, 4-class regime labels, reproducible runs over many seeds, and a proper statistical test using confidence intervals. This is the same rigorous approach used in industry pilots today. A clear look at whether QML delivers real value beyond decoration.",
+      topic: "finance",
+      number: 12,
+      image: "Video-12.jpg",
+      tags: ["Finance", "QML", "VQC", "Comparison", "classical vs Quantum", "Hybrid", "Pennylane Coding"],
+      links: [
+        {
+          url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%2012%20Quantum%20Finance%20QML%202%20-%20classical%20vs%20quantum.ipynb",
+          text: "Open Colab Notebook",
+        },
+        {
+          url: "https://www.hsbc.com/news-and-views/news/media-releases/2025/hsbc-demonstrates-worlds-first-known-quantum-enabled-algorithmic-trading-with-ibm",
+          text: "HSBC Press Release 25-Sep-2025",
+        },
+        {
+          url: "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.bloomberg.com/news/videos/2025-09-25/a-sputnik-moment-hsbc-quantum-computing-breakthrough&ved=2ahUKEwja-5eak_SPAxVRwAIHHe6PE-kQwqsBegQIIRAF&usg=AOvVaw3aa_wMC0WfAvGKYwSR5r-X",
+          text: "Bloomberg Podcast on HSBC QML 25-Sept-2025",
+        },
+      ],
+    },
     // --- Straight Talk Quantum ---
     {
       id: "rJocSH89s5E",
