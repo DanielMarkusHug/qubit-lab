@@ -177,9 +177,9 @@ export interface Video {
     },
     {
       id: "04V2aCHOhh4",
-      title: "QML for Fraud Detection",
+      title: "QML/VQC for Fraud Detection",
       description:
-        "Discover how Quantum Machine Learning powers fraud detection in finance — see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis. The approach used here is the very same as used by HSBC for their bond trading use case. See also the coverage below. QML is the most promising option today for quantum computing in finance.",
+        "Discover how Quantum Machine Learning powers fraud detection in finance — see QNNs in action with real transaction data, hands-on Python code, and practical performance analysis. The approach used here is similar to the one used by HSBC for their bond trading use case. See also the coverage below. QML/VQC is the a promising option today for quantum computing in finance.",
       topic: "finance",
       number: 9,
       image: "Video-9.jpg",
@@ -232,6 +232,15 @@ export interface Video {
       number: 13,
       image: "Video-13.jpg",
       tags: ["Finance", "Talk", "QML", "VQC", "Intro", "Qubits", "Focus 2026", "Algorithms", "QAOA", "Strategy", "Hybrid"],
+      links: [
+        {
+          url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20Quantum%20Finance%20QAOA%20Portfolio%20Optimization.ipynb",
+          text: "QAOA Colab Notebook",
+        },
+        {
+          url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb",
+          text: "QML/VQC Colab Notebook",
+        },      ],
     },    
     
     
