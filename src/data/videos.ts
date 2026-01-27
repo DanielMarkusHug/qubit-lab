@@ -223,6 +223,18 @@ export interface Video {
         },
       ],
     },
+    {
+      id: "X1wbB9xLDqg",
+      title: "Quantum Algorithms in Finance: The “Inner Life” of a Qubit, QAOA + QML/VQC, Objectives 2026",
+      description:
+        "The talk opens with a simulator-based view of a qubit’s dual life before and after measurement, building intuition for quantum behavior. It then introduces key quantum algorithms, including QAOA and Quantum Machine Learning via Variational Quantum Circuits (VQC), and explains how these approaches are used in practice. The presentation concludes with an outlook on a phased approach to onboarding quantum computing in a financial institution, including concrete objectives for 2026. This session was delivered for a bank.",
+      topic: "finance",
+      number: 13,
+      image: "Video-13.jpg",
+      tags: ["Finance", "Talk", "QML", "VQC", "Intro", "Qubits", "Focus 2026", "Algorithms", "QAOA", "Strategy", "Hybrid"],
+    },    
+    
+    
     // --- Straight Talk Quantum ---
     {
       id: "rJocSH89s5E",
