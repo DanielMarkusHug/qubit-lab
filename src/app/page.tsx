@@ -12,7 +12,7 @@ export default function Home() {
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    v.playbackRate = 0.3;
+    v.playbackRate = 1.0;
 
 
     const tryPlay = () => v.play().catch(() => {});
