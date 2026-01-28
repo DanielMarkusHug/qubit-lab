@@ -13,6 +13,7 @@ export default function Home() {
     const v = videoRef.current;
     if (!v) return;
     v.playbackRate = 0.1;
+    v.defaultPlaybackRate = 0.1;
 
     const tryPlay = () => v.play().catch(() => {});
     v.addEventListener("canplay", tryPlay, { once: true });
