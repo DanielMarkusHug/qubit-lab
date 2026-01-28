@@ -27,7 +27,7 @@ export default function Home() {
       {/* 🔹 Background Video + Overlay */}
       <video
         ref={videoRef}
-        src="/background.mp4"
+        src="/background_slow.mp4"
         className="fixed inset-0 w-full h-full object-cover scale-125 pointer-events-none z-0 brightness-50"
         autoPlay
         muted
