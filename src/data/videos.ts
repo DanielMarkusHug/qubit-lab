@@ -242,7 +242,16 @@ export interface Video {
           text: "QML/VQC Colab Notebook",
         },      ],
     },    
-    
+    {
+      id: "qDcnmYLnWNU",
+      title: "QAOA Masterclass for Finance: From QUBO to Circuits, Mixers, Constraints, and Credible Reporting",
+      description:
+        "This QAOA masterclass is a practical, end to end deep dive into constrained optimization with quantum circuits. A quick word of warning: we go all the way down to the low level, including unitaries, gate mappings, and mixer design details. The session starts from problem formulation and shows how to translate real objectives and constraints into QUBO and Ising models, then builds the corresponding cost unitary and maps it to gates. It then focuses on mixer choices, including why the standard X mixer can fail for constrained problems and how constraint-aware mixers can improve feasibility and sampling quality. We close with parameter optimization patterns, common pitfalls, and what to report so results are credible, such as best feasible samples, feasibility rates, and robustness across seeds. This session was created for finance-style optimization use cases.",
+      topic: "finance",
+      number: 14,
+      image: "Video-14.jpg",
+      tags: ["Finance", "Focus 2026", "Algorithms", "QAOA", "Deep Dive", "Hybrid"],
+    },    
     
     // --- Straight Talk Quantum ---
     {
