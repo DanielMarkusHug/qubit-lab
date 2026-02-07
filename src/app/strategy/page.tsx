@@ -1,9 +1,11 @@
 import { videos } from "@/data/videos";
-import VideoList from "@/components/VideoList";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
+import VideoGrid from "@/components/VideoGrid";
 
-export default function StrategyPage() {
+export default function DeepDivePage() {
+  const deepDiveVideos = videos.filter((v) => (v.bins ?? []).includes("Strategy"));
+
   return (
     <AppLayout>
       <Header />
@@ -18,10 +20,7 @@ export default function StrategyPage() {
           These videos focus on the strategic dimension: regulation, security, 
           and the capability to integrate quantum into business models.
         </p>
-        <VideoList
-          videos={videos.filter((v) => v.topic === "strategy")}
-          title="Strategy Videos"
-        />
+        <VideoGrid title="Deep Dive Videos" videos={deepDiveVideos} />
       </section>
     </AppLayout>
   );

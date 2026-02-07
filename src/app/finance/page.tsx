@@ -1,9 +1,11 @@
 import { videos } from "@/data/videos";
-import VideoList from "@/components/VideoList";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
+import VideoGrid from "@/components/VideoGrid";
 
-export default function FinancePage() {
+export default function DeepDivePage() {
+  const deepDiveVideos = videos.filter((v) => (v.bins ?? []).includes("Finance"));
+
   return (
     <AppLayout>
       <Header />
@@ -18,10 +20,7 @@ export default function FinancePage() {
           understand the algorithms, and evaluate where quantum may 
           outperform classical methods.
         </p>
-        <VideoList
-          videos={videos.filter((v) => v.topic === "finance")}
-          title="Finance Videos"
-        />
+        <VideoGrid title="Deep Dive Videos" videos={deepDiveVideos} />
       </section>
     </AppLayout>
   );
