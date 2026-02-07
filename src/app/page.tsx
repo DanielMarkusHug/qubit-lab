@@ -118,7 +118,7 @@ export default function Home() {
             href="/about"
             className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
           >
-            Learn more about Qubit Lab and training
+            Learn more about Qubit Lab, training and advisory
           </a>
         </section>
 

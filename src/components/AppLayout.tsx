@@ -16,10 +16,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         preload="auto"
         aria-hidden="true"
       />
-      <div className="absolute inset-0 bg-black/70 z-0" />
+
+      {/* Overlay must be fixed so it covers full scroll/viewport */}
+      <div className="fixed inset-0 bg-black/70 z-0" />
 
       {/* Content */}
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-20">{children}</div>
     </main>
   );
 }
