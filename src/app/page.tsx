@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { videos } from "@/data/videos";
 import Header from "@/components/Header";
@@ -16,7 +16,6 @@ const BIN_ROUTES: Record<string, string> = {
 
 function formatIsoDate(iso: string | null): string {
   if (!iso) return "";
-  // iso expected: YYYY-MM-DD
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
   return new Intl.DateTimeFormat("en-GB", {
@@ -27,12 +26,16 @@ function formatIsoDate(iso: string | null): string {
 }
 
 function isVertical(v: { topic: string; image: string }) {
-  // STQ thumbnails are typically vertical
   return v.topic === "stq" || v.image?.toUpperCase().startsWith("STQ-");
 }
 
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Per-card expand/collapse state
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
   useEffect(() => {
     const v = videoRef.current;
@@ -75,7 +78,6 @@ export default function Home() {
         preload="auto"
         aria-hidden="true"
       />
-      {/* FIX 2: overlay should cover full scroll/viewport */}
       <div className="fixed inset-0 bg-black/70 z-0" />
 
       {/* Content */}
@@ -112,10 +114,10 @@ export default function Home() {
           <p className="text-gray-300 text-xl font-semibold leading-relaxed mb-8">
             This project bridges the gap between technical depth and business relevance,
             showing how quantum computing works, why it matters, and what it means for
-            strategy and practice.
-            The focus is on clarity and impact: making the concepts understandable without
-            advanced physics, highlighting where quantum could affect industries like finance,
-            and offering a perspective that connects technology with real business decisions.
+            strategy and practice. The focus is on clarity and impact: making the concepts
+            understandable without advanced physics, highlighting where quantum could affect
+            industries like finance, and offering a perspective that connects technology with
+            real business decisions.
           </p>
           <a
             href="/about"
@@ -139,15 +141,14 @@ export default function Home() {
             </a>
           </div>
 
-          {/* Optional: change md:grid-cols-3 to md:grid-cols-2 if you want bigger cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {newest3.map((v, idx) => {
               const vertical = isVertical(v);
               const padBottom = vertical ? "177.78%" : "56.25%"; // 9:16 vs 16:9
               const release = formatIsoDate(v.publishDate);
+              const isExpanded = Boolean(expanded[v.id]);
 
               return (
-                // FIX 1: taller tiles, content stretches
                 <article
                   key={v.id}
                   className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg flex flex-col h-full"
@@ -158,10 +159,7 @@ export default function Home() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <div
-                      className="relative w-full"
-                      style={{ paddingBottom: padBottom }}
-                    >
+                    <div className="relative w-full" style={{ paddingBottom: padBottom }}>
                       <Image
                         src={`/${v.image}`}
                         alt={v.title}
@@ -180,9 +178,7 @@ export default function Home() {
                         {String(v.topic).toUpperCase()}#{v.number}
                       </div>
                       {release ? (
-                        <div className="text-gray-300 text-sm">
-                          Released {release}
-                        </div>
+                        <div className="text-gray-300 text-sm">Released {release}</div>
                       ) : null}
                     </div>
 
@@ -190,13 +186,25 @@ export default function Home() {
                       {v.title}
                     </h3>
 
-                    {/* More space for description */}
-                    <p className="text-gray-200 text-sm leading-relaxed line-clamp-6 mb-4 flex-1">
+                    {/* Expandable description */}
+                    <p
+                      className={`text-gray-200 text-sm leading-relaxed mb-3 ${
+                        isExpanded ? "" : "line-clamp-6"
+                      }`}
+                    >
                       {v.description}
                     </p>
 
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(v.id)}
+                      className="self-start mb-4 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-cyan-200 text-sm font-semibold hover:bg-white/10 hover:text-cyan-100 transition"
+                    >
+                      {isExpanded ? "Show less" : "More"}
+                    </button>
+
                     {/* Bins as buttons */}
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 mt-auto">
                       {(v.bins ?? []).map((b) => (
                         <a
                           key={`${v.id}-${b}`}
@@ -219,7 +227,6 @@ export default function Home() {
               <a
                 key={label}
                 href={BIN_ROUTES[label] ?? BIN_ROUTES.All}
-                // FIX 3: brand-styled buttons
                 className={
                   label === "All"
                     ? "px-5 py-2 rounded-xl font-bold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-lg shadow-cyan-500/20 border border-white/15 transition"
