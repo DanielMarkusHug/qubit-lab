@@ -112,18 +112,13 @@ export default function Home() {
             Quantum Computing. Straight Talk.
           </h2>
           <p className="text-gray-300 text-xl font-semibold leading-relaxed mb-8">
-            This project bridges the gap between technical depth and business relevance,
-            showing how quantum computing works, why it matters, and what it means for
-            strategy and practice. The focus is on clarity and impact: making the concepts
-            understandable without advanced physics, highlighting where quantum could affect
-            industries like finance, and offering a perspective that connects technology with
-            real business decisions.
+          Qubit Lab translates quantum computing into practical guidance for decision makers and practitioners. I explain how the technology works, where it matters for business and finance, and how to move from curiosity to concrete next steps. The content is designed for clarity and impact: no unnecessary physics, no hype, and a focus on what you can evaluate, pilot, and prepare for. Training and advisory are available for teams that want a structured path.
           </p>
           <a
             href="/about"
             className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
           >
-            Learn more about qubit-lab.ch
+            Learn more about Qubit Lab and training
           </a>
         </section>
 
