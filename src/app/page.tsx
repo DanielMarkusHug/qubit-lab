@@ -75,7 +75,8 @@ export default function Home() {
         preload="auto"
         aria-hidden="true"
       />
-      <div className="absolute inset-0 bg-black/70 z-0" />
+      {/* FIX 2: overlay should cover full scroll/viewport */}
+      <div className="fixed inset-0 bg-black/70 z-0" />
 
       {/* Content */}
       <div className="relative z-20">
@@ -138,6 +139,7 @@ export default function Home() {
             </a>
           </div>
 
+          {/* Optional: change md:grid-cols-3 to md:grid-cols-2 if you want bigger cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {newest3.map((v, idx) => {
               const vertical = isVertical(v);
@@ -145,13 +147,21 @@ export default function Home() {
               const release = formatIsoDate(v.publishDate);
 
               return (
+                // FIX 1: taller tiles, content stretches
                 <article
                   key={v.id}
-                  className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg"
+                  className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg flex flex-col h-full"
                 >
                   {/* Thumbnail */}
-                  <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer">
-                    <div className="relative w-full" style={{ paddingBottom: padBottom }}>
+                  <a
+                    href={`https://www.youtube.com/watch?v=${v.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <div
+                      className="relative w-full"
+                      style={{ paddingBottom: padBottom }}
+                    >
                       <Image
                         src={`/${v.image}`}
                         alt={v.title}
@@ -164,7 +174,7 @@ export default function Home() {
                   </a>
 
                   {/* Content */}
-                  <div className="p-5">
+                  <div className="p-5 flex flex-col flex-1">
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div className="text-cyan-200 font-bold">
                         {String(v.topic).toUpperCase()}#{v.number}
@@ -180,7 +190,8 @@ export default function Home() {
                       {v.title}
                     </h3>
 
-                    <p className="text-gray-200 text-sm leading-relaxed line-clamp-4 mb-4">
+                    {/* More space for description */}
+                    <p className="text-gray-200 text-sm leading-relaxed line-clamp-6 mb-4 flex-1">
                       {v.description}
                     </p>
 
@@ -208,7 +219,12 @@ export default function Home() {
               <a
                 key={label}
                 href={BIN_ROUTES[label] ?? BIN_ROUTES.All}
-                className="px-5 py-2 rounded-xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition"
+                // FIX 3: brand-styled buttons
+                className={
+                  label === "All"
+                    ? "px-5 py-2 rounded-xl font-bold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-lg shadow-cyan-500/20 border border-white/15 transition"
+                    : "px-5 py-2 rounded-xl font-bold text-white bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 shadow-lg shadow-cyan-500/10 border border-white/10 transition"
+                }
               >
                 {label === "All" ? "Browse all videos" : `Browse ${label}`}
               </a>
