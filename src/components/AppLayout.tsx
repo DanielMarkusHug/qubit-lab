@@ -7,7 +7,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <main className="relative min-h-screen text-white">
       {/* Background video */}
       <video
-        src="/background.mp4"
+        src="/background_slow.mp4"
         className="fixed inset-0 w-full h-full object-cover scale-125 pointer-events-none z-0 brightness-50"
         autoPlay
         muted
