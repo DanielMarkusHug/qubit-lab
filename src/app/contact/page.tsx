@@ -54,7 +54,6 @@ export default function ContactPage() {
           >
             here
           </Link>
-          .
         </p>
 
 
