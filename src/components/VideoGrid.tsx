@@ -38,8 +38,15 @@ export default function VideoGrid({ title, videos }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
+  // NEW: inline player state
+  const [playing, setPlaying] = useState<Record<string, boolean>>({});
+
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  // NEW: toggle inline player
+  const togglePlaying = (id: string) =>
+    setPlaying((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const allTags = useMemo(() => {
     const s = new Set<string>();
@@ -112,29 +119,46 @@ export default function VideoGrid({ title, videos }: Props) {
           const padBottom = vertical ? "177.78%" : "56.25%"; // 9:16 vs 16:9
           const release = formatIsoDate(v.publishDate);
           const isExpanded = Boolean(expanded[v.id]);
+          const isPlaying = Boolean(playing[v.id]);
 
           return (
             <article
               key={v.id}
               className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg flex flex-col h-full"
             >
-              {/* Thumbnail */}
-              <a
-                href={`https://www.youtube.com/watch?v=${v.id}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <div className="relative w-full" style={{ paddingBottom: padBottom }}>
-                  <Image
-                    src={`/${v.image}`}
-                    alt={v.title}
-                    fill
-                    className="object-cover"
-                    sizes="(max-width: 768px) 100vw, 33vw"
-                    priority={idx === 0}
+              {/* Thumbnail / Inline Player */}
+              <div className="relative w-full" style={{ paddingBottom: padBottom }}>
+                {isPlaying ? (
+                  <iframe
+                    className="absolute inset-0 w-full h-full"
+                    src={`https://www.youtube-nocookie.com/embed/${v.id}?rel=0&playsinline=1`}
+                    title={v.title}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
                   />
-                </div>
-              </a>
+                ) : (
+                  <>
+                    <Image
+                      src={`/${v.image}`}
+                      alt={v.title}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 768px) 100vw, 33vw"
+                      priority={idx === 0}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => togglePlaying(v.id)}
+                      className="absolute inset-0 flex items-center justify-center bg-black/25 hover:bg-black/35 transition"
+                      aria-label={`Play ${v.title}`}
+                    >
+                      <span className="px-5 py-2 rounded-full bg-cyan-600 text-white font-bold shadow-lg ring-1 ring-white/10">
+                        ▶ Play
+                      </span>
+                    </button>
+                  </>
+                )}
+              </div>
 
               {/* Content */}
               <div className="p-5 flex flex-col flex-1">
@@ -150,6 +174,26 @@ export default function VideoGrid({ title, videos }: Props) {
                 <h3 className="text-xl font-bold text-white mb-2 leading-snug">
                   {v.title}
                 </h3>
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => togglePlaying(v.id)}
+                    className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-cyan-200 text-sm font-semibold hover:bg-white/10 hover:text-cyan-100 transition"
+                  >
+                    {isPlaying ? "Close video" : "Watch here"}
+                  </button>
+
+                  <a
+                    href={`https://www.youtube.com/watch?v=${v.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-200 text-sm font-semibold hover:bg-white/10 transition"
+                  >
+                    Open on YouTube
+                  </a>
+                </div>
 
                 <p
                   className={`text-gray-200 text-sm leading-relaxed mb-3 ${
