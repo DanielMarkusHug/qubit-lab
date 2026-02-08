@@ -1,5 +1,6 @@
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
+import Link from "next/link";
 
 export default function AboutPage() {
   return (
@@ -52,7 +53,9 @@ export default function AboutPage() {
           gap — translating technical foundations into business relevance.
         </p>
 
-        <h3 className="text-2xl font-semibold mb-2">What outcomes can you expect?</h3>
+        <h3 className="text-2xl font-semibold mb-2">
+          What outcomes can you expect?
+        </h3>
         <p className="text-lg leading-relaxed mb-6">
           Participants gain a clear understanding of how quantum systems work,
           how they differ fundamentally from classical IT, and what opportunities
@@ -150,6 +153,18 @@ export default function AboutPage() {
           that start building awareness today will be better positioned to
           mitigate risks, seize opportunities, and actively shape the future of
           this technology.
+        </p>
+
+        {/* Legal link (below the current about text) */}
+        <p className="text-sm text-gray-400 leading-relaxed mt-8">
+          Legal notice, terms of use, and privacy information are available{" "}
+          <Link
+            href="/legal"
+            className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
+          >
+            here
+          </Link>
+          .
         </p>
       </section>
     </AppLayout>
