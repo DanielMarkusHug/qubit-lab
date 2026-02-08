@@ -19,16 +19,25 @@ export default function AboutPage() {
           <h2 className="text-2xl font-bold text-cyan-300 mb-4">
             Watch the Overview
           </h2>
-          <div className="aspect-video rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10">
-            <iframe
-              className="w-full h-full"
-              src="https://www.youtube.com/embed/cy9YVwhnKNQ?rel=0"
-              title="qubit-lab Introduction Video"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-            />
+
+          <div className="max-w-sm sm:max-w-md mx-auto">
+            <div className="aspect-[9/16] rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10">
+              <iframe
+                className="w-full h-full"
+                src="https://www.youtube-nocookie.com/embed/MyhqYV0sAbU?rel=0&playsinline=1"
+                title="qubit-lab Overview (Short)"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            </div>
+
+            <p className="text-sm text-gray-400 leading-relaxed mt-3">
+              Short vertical overview video. If you prefer a longer format, you can also
+              browse the full video list on the homepage.
+            </p>
           </div>
         </section>
+
 
         {/* Core Narrative */}
         <h2 className="text-3xl font-bold text-cyan-300 mb-6">
