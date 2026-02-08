@@ -11,7 +11,7 @@ export default function LegalPage() {
 
         <p className="text-lg leading-relaxed mb-10">
           This page contains the legal notice, terms of use, and key privacy
-          information for Qubit-Lab.ch.
+          information for qubit-lab.ch.
         </p>
 
         {/* Legal Notice */}
@@ -21,7 +21,7 @@ export default function LegalPage() {
           <div className="rounded-xl shadow-lg ring-1 ring-white/10 bg-white/5 p-6">
             <h3 className="text-2xl font-semibold mb-3">Website operator</h3>
             <p className="text-lg leading-relaxed">
-              Qubit-Lab.ch
+              Daniel Hug (qubit-lab.ch)
               <br />
               Bitziberg 24
               <br />
@@ -188,7 +188,7 @@ export default function LegalPage() {
 
           <div className="rounded-xl shadow-lg ring-1 ring-white/10 bg-white/5 p-6">
             <p className="text-lg leading-relaxed">
-              © 2026 Qubit-Lab.ch. All rights reserved.
+              © 2026 qubit-lab.ch. All rights reserved.
             </p>
 
             <p className="text-lg leading-relaxed mt-4">
@@ -198,7 +198,7 @@ export default function LegalPage() {
 
             <div className="mt-3 rounded-lg bg-black/30 ring-1 ring-white/10 px-4 py-3">
               <code className="text-sm text-gray-200">
-                © 2026 Qubit-Lab.ch | All rights reserved | qubit-lab.ch/legal
+                © 2026 qubit-lab.ch | All rights reserved | qubit-lab.ch/legal
               </code>
             </div>
           </div>

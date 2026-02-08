@@ -10,7 +10,7 @@ export default function AboutPage() {
       {/* Hero / Intro */}
       <section className="max-w-4xl mx-auto px-6 pt-24 text-gray-200">
         <h1 className="text-4xl font-bold text-cyan-300 mb-8">
-          About Qubit-Lab.ch
+          About qubit-lab.ch
         </h1>
 
         {/* Intro Video */}
@@ -22,7 +22,7 @@ export default function AboutPage() {
             <iframe
               className="w-full h-full"
               src="https://www.youtube.com/embed/cy9YVwhnKNQ?rel=0"
-              title="Qubit-Lab Introduction Video"
+              title="qubit-lab.ch Introduction Video"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
             />
@@ -40,7 +40,7 @@ export default function AboutPage() {
           program is designed for finance professionals, technology leaders,
           managers, and specialists who want to understand the business impact
           of quantum computing. Whether the goal is strategic awareness or
-          practical exploration, Qubit-Lab provides a structured entry point.
+          practical exploration, qubit-lab.ch provides a structured entry point.
         </p>
 
         <h3 className="text-2xl font-semibold mb-2">Why now?</h3>
@@ -136,14 +136,6 @@ export default function AboutPage() {
             className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
           >
             🔗 LinkedIn
-          </a>
-          <a
-            href="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
-          >
-            💼 HiHello
           </a>
         </div>
 
