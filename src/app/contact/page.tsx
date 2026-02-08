@@ -18,12 +18,12 @@ export default function ContactPage() {
         </p>
 
         <div className="flex flex-wrap gap-4 mb-12">
-          <a
-            href="mailto:daniel.hug@qubit-lab.ch"
-            className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
-          >
-            📧 Email Me
-          </a>
+        <a
+          href="mailto:contact@qubit-lab.ch?subject=Inquiry%20via%20qubit-lab.ch"
+          className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
+        >
+          📧 Email Me: contact@qubit-lab.ch
+        </a>
           <a
             href="https://www.linkedin.com/in/danielhug"
             target="_blank"
@@ -31,14 +31,6 @@ export default function ContactPage() {
             className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
           >
             🔗 LinkedIn
-          </a>
-          <a
-            href="https://hihello.me/p/952356c5-423a-4aee-b1ae-05973a468ac6"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
-          >
-            💼 HiHello
           </a>
         </div>
       </section>
