@@ -80,9 +80,7 @@ export default function LegalPage() {
                   Modify, translate, or create derivative works based on the
                   Content
                 </li>
-                <li>
-                  Remove copyright notices, watermarks, or attribution
-                </li>
+                <li>Remove copyright notices, watermarks, or attribution</li>
               </ul>
             </div>
 
@@ -105,7 +103,9 @@ export default function LegalPage() {
             </div>
 
             <div>
-              <h3 className="text-2xl font-semibold mb-2">No warranty, no advice</h3>
+              <h3 className="text-2xl font-semibold mb-2">
+                No warranty, no advice
+              </h3>
               <p className="text-lg leading-relaxed">
                 The Content is provided for general information only and does
                 not constitute professional, legal, financial, or investment
@@ -115,7 +115,9 @@ export default function LegalPage() {
             </div>
 
             <div>
-              <h3 className="text-2xl font-semibold mb-2">Liability limitation</h3>
+              <h3 className="text-2xl font-semibold mb-2">
+                Liability limitation
+              </h3>
               <p className="text-lg leading-relaxed">
                 To the extent permitted by law, the website operator is not
                 liable for direct or indirect damages arising from the use of
@@ -181,9 +183,6 @@ export default function LegalPage() {
         </section>
 
         {/* Copyright */}
-        // Add this inside your existing /legal page component, in the Copyright section,
-        // replacing the current "Suggested slide footer" paragraph.
-
         <section>
           <h2 className="text-3xl font-bold text-cyan-300 mb-4">Copyright</h2>
 
@@ -193,8 +192,8 @@ export default function LegalPage() {
             </p>
 
             <p className="text-lg leading-relaxed mt-4">
-              For permitted licensed reuse only: if your license requires attribution,
-              the standard notice is:
+              For permitted licensed reuse only: if your license requires
+              attribution, the standard notice is:
             </p>
 
             <div className="mt-3 rounded-lg bg-black/30 ring-1 ring-white/10 px-4 py-3">
@@ -204,6 +203,7 @@ export default function LegalPage() {
             </div>
           </div>
         </section>
+      </section>
     </AppLayout>
   );
 }
