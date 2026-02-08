@@ -156,7 +156,7 @@ export default function AboutPage() {
         </p>
 
         {/* Legal link (below the current about text) */}
-        <p className="text-sm text-gray-400 leading-relaxed mt-8">
+        <p className="text-sm text-gray-400 leading-relaxed mt-10">
           Legal notice, terms of use, and privacy information are available{" "}
           <Link
             href="/legal"

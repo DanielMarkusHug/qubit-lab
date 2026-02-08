@@ -34,10 +34,10 @@ export default function LegalPage() {
             <p className="text-lg leading-relaxed">
               Email:{" "}
               <a
-                href="mailto:daniel.hug@qubit-lab.ch"
+                href="mailto:contact@qubit-lab.ch"
                 className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
               >
-                daniel.hug@qubit-lab.ch
+                contact@qubit-lab.ch
               </a>
             </p>
           </div>
@@ -95,10 +95,10 @@ export default function LegalPage() {
                 redistribution, or reuse of slides, templates, or code are
                 available on request. Contact{" "}
                 <a
-                  href="mailto:daniel.hug@qubit-lab.ch"
+                  href="mailto:contact@qubit-lab.ch"
                   className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
                 >
-                  daniel.hug@qubit-lab.ch
+                  contact@qubit-lab.ch
                 </a>
                 .
               </p>
@@ -181,6 +181,9 @@ export default function LegalPage() {
         </section>
 
         {/* Copyright */}
+        // Add this inside your existing /legal page component, in the Copyright section,
+        // replacing the current "Suggested slide footer" paragraph.
+
         <section>
           <h2 className="text-3xl font-bold text-cyan-300 mb-4">Copyright</h2>
 
@@ -190,14 +193,17 @@ export default function LegalPage() {
             </p>
 
             <p className="text-lg leading-relaxed mt-4">
-              Suggested slide footer:{" "}
-              <span className="text-white font-semibold">
-                © 2026 Qubit-Lab.ch | All rights reserved | qubit-lab.ch/legal
-              </span>
+              For permitted licensed reuse only: if your license requires attribution,
+              the standard notice is:
             </p>
+
+            <div className="mt-3 rounded-lg bg-black/30 ring-1 ring-white/10 px-4 py-3">
+              <code className="text-sm text-gray-200">
+                © 2026 Qubit-Lab.ch | All rights reserved | qubit-lab.ch/legal
+              </code>
+            </div>
           </div>
         </section>
-      </section>
     </AppLayout>
   );
 }

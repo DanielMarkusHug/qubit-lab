@@ -44,6 +44,20 @@ export default function ContactPage() {
 
       {/* Feedback section (Giscus) */}
       <Feedback />
+
+        {/* Legal link (below the current about text) */}
+        <p className="text-sm text-gray-400 leading-relaxed mt-10">
+          Legal notice, terms of use, and privacy information are available{" "}
+          <Link
+            href="/legal"
+            className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
+          >
+            here
+          </Link>
+          .
+        </p>
+
+
     </AppLayout>
   );
 }
