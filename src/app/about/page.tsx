@@ -32,8 +32,7 @@ export default function AboutPage() {
             </div>
 
             <p className="text-sm text-gray-400 leading-relaxed mt-3">
-              Short vertical overview video. If you prefer a longer format, you can also
-              browse the full video list on the homepage.
+              Short intro video on qubit-lab.ch trainings and services. 
             </p>
           </div>
         </section>
