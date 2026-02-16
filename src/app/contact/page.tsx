@@ -17,16 +17,17 @@ export default function ContactPage() {
           thoughts directly below.
         </p>
 
-        <button
-          type="button"
-          onClick={async () => {
-            await navigator.clipboard.writeText("contact@qubit-lab.ch");
-          }}
-          className="px-5 py-2 bg-white/5 border border-white/10 text-white rounded-lg font-semibold hover:bg-white/10 transition"
-        >
-          📋 Email Me: contact@qubit-lab.ch
-        </button>
-   
+        <div className="flex flex-wrap gap-4 mb-12">
+          <button
+            type="button"
+            onClick={async () => {
+              await navigator.clipboard.writeText("contact@qubit-lab.ch");
+            }}
+            className="px-5 py-2 bg-white/5 border border-white/10 text-white rounded-lg font-semibold hover:bg-white/10 transition"
+          >
+            📋 Email Me: contact@qubit-lab.ch
+          </button>
+
           <a
             href="https://www.linkedin.com/in/danielhug"
             target="_blank"
