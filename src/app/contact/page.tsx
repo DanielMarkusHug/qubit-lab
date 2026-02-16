@@ -26,7 +26,7 @@ export default function ContactPage() {
         >
           📋 Email Me: contact@qubit-lab.ch
         </button>
-
+   
           <a
             href="https://www.linkedin.com/in/danielhug"
             target="_blank"
