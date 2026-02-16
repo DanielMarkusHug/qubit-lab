@@ -2,6 +2,7 @@ import Header from "@/components/Header";
 import Feedback from "@/components/Feedback";
 import AppLayout from "@/components/AppLayout";
 import Link from "next/link";
+import EmailCopyButton from "./EmailCopyButton";
 
 export default function ContactPage() {
   return (
@@ -18,15 +19,7 @@ export default function ContactPage() {
         </p>
 
         <div className="flex flex-wrap gap-4 mb-12">
-          <button
-            type="button"
-            onClick={async () => {
-              await navigator.clipboard.writeText("contact@qubit-lab.ch");
-            }}
-            className="px-5 py-2 bg-white/5 border border-white/10 text-white rounded-lg font-semibold hover:bg-white/10 transition"
-          >
-            📋 Email Me: contact@qubit-lab.ch
-          </button>
+          <EmailCopyButton />
 
           <a
             href="https://www.linkedin.com/in/danielhug"
@@ -39,10 +32,8 @@ export default function ContactPage() {
         </div>
       </section>
 
-      {/* Feedback section (Giscus) */}
       <Feedback />
 
-      {/* Legal link */}
       <section className="max-w-3xl mx-auto px-6 pb-24">
         <p className="text-sm text-gray-400 leading-relaxed mt-10">
           Legal notice, terms of use, and privacy information are available{" "}
