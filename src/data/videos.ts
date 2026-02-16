@@ -298,7 +298,19 @@ export const videos: Video[] = [
     image: "Video-14.jpg",
     tags: ["Finance", "Focus 2026", "Algorithms", "QAOA", "Deep Dive", "Hybrid"],
   },
-
+  {
+    id: "80e4RLnOmZ4",
+    title: "Quantum Readiness for Banking Executives: A Practical Playbook",
+    description:
+      "The video presents quantum readiness for banks as a practical capability build, independent of betting on a specific hardware timeline. It starts by separating what a bank can control today from what it cannot, then lays out a staged playbook from initial enablement and use case triage to baseline-first benchmarking, vendor assessment, and controlled pilots. Along the way, it highlights the minimum evidence artifacts a leadership team should expect, including a simple executive dashboard and reusable templates to keep efforts measurable and avoid hype. It concludes with a pragmatic 12 to 24 month roadmap that banks can start this quarter. This video was created for a banking audience.",
+    topic: "finance",
+    number: 15,
+    year: 2026,
+    publishDate: "2026-02-16",
+    bins: ["Strategy", "Finance"],
+    image: "Video-15.jpg",
+    tags: ["Strategy", "Finance", "Focus 2026", "Readiness"],
+  },
   // --- Straight Talk Quantum ---
   {
     id: "rJocSH89s5E",
