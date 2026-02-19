@@ -18,7 +18,7 @@ export default function DeepDivePage() {
           The videos in this section show how portfolio optimization, option pricing,
           and fraud detection can be formulated as quantum problems.
           <br /><br />
-          Each video is supported by notebooks so you can follow the code,
+          Many videos are supported by notebooks so you can follow the code,
           understand the algorithms, and evaluate where quantum may
           outperform classical methods.
         </p>
@@ -33,7 +33,7 @@ export default function DeepDivePage() {
           />
         </div>
 
-        <VideoGrid title="Deep Dive Videos" videos={deepDiveVideos} />
+        <VideoGrid title="Quantum Finance Videos" videos={FinanceVideos} />
       </section>
     </AppLayout>
   );

@@ -313,24 +313,11 @@ export const videos: Video[] = [
   },
   {
     id: "8LVTUf4j0oQ",
-    title: "Finance Quantum Initiatives: Landscape of Methods and Domains (2021–2025)",
-    description:
-      "This one-minute teaser shows a structured snapshot of publicly documented quantum initiatives from 2021 to the end of 2025. Each item is placed in a grid by business domain and by the quantum method or topic used, so you can quickly see where activity concentrates and how it evolves over time.",
-    topic: "finance",
-    number: 16,
-    year: 2026,
-    publishDate: "2026-02-19",
-    bins: ["Strategy", "Finance"],
-    image: "Video-16.jpg",
-    tags: ["Strategy", "Finance", "Focus 2026", "Readiness", "PQC"],
-  },
-  {
-    id: "8LVTUf4j0oQ",
     title: "Quantum Initiatives in Finance: Landscape of Methods and Domains (2021–2025)",
     description:
       "The video maps publicly documented quantum initiatives in finance from 2021 to the end of 2025 in a structured, non-ranking overview. Each initiative is placed in a grid by business domain and by the quantum method or topic used, showing where activity clusters and how it evolves over time. Coverage spans portfolio allocation, credit risk, derivatives pricing, trading, fraud and AML, and cybersecurity. The method and topic columns include quantum annealing, QAOA, quantum Monte Carlo and quantum machine learning, as well as security efforts such as quantum key distribution and post-quantum cryptography migration programs. A legend section provides partner context and references for each entry. This video was created for a finance audience.",
     topic: "finance",
-    number: 17,
+    number: 16,
     year: 2026,
     publishDate: "2026-02-19",
     bins: ["Strategy", "Finance"],
