@@ -2,6 +2,7 @@ import { videos } from "@/data/videos";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
 import VideoGrid from "@/components/VideoGrid";
+import TeaserCard from "@/components/TeaserCard";
 
 export default function DeepDivePage() {
   const deepDiveVideos = videos.filter((v) => (v.bins ?? []).includes("Strategy"));
