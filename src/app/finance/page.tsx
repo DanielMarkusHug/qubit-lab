@@ -25,10 +25,11 @@ export default function DeepDivePage() {
 
         <div className="mb-10">
           <TeaserCard
-            title="1-minute teaser: Quantum initiatives in finance (2021–2025)"
-            subtitle="A fast visual overview by business domain and quantum methods."
-            mp4Src="/teasers/finance-teaser.mp4"
+            title="Teaser: Quantum initiatives in finance (2021–2025)"
+            subtitle="By business domain and quantum methods. Click to play the 1-minute teaser. Or click on the full video below with comments and more context."
+            shortMp4Src="/teasers/finance-teaser-10s.mp4"
             posterSrc="/teasers/finance-teaser.jpg"
+            youtubeUrl="https://youtu.be/5bvqJxxYHTQ"
           />
         </div>
 
