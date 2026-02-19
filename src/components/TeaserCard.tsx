@@ -210,7 +210,7 @@ export default function TeaserCard({
             </video>
 
             <div className="absolute bottom-3 left-3 text-xs px-2 py-1 rounded-md bg-black/50 text-white">
-              Click to play the 1-minute teaser
+              Click to play the 1-minute preview
             </div>
           </div>
 
@@ -221,9 +221,7 @@ export default function TeaserCard({
                 {subtitle}
               </div>
             ) : null}
-            <div className="mt-3 text-sm text-gray-400">
-              Click to play the extended quantum landscape preview.
-            </div>
+
           </div>
         </div>
       </button>
