@@ -67,7 +67,7 @@ export default function TeaserCard({
     }
 
     v.play().catch(() => {});
-  }, [reducedMotion, open]);
+  }, [reducedMotion]);
 
   const onClickCard = () => {
     // user gesture: open inline YouTube player
@@ -94,6 +94,7 @@ export default function TeaserCard({
               muted
               loop
               playsInline
+              autoPlay
               preload="metadata"
               poster={posterSrc}
             >
