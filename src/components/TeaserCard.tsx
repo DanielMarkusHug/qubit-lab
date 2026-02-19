@@ -10,7 +10,7 @@ type TeaserCardProps = {
   shortMp4Src: string;
   posterSrc?: string;
 
-  // YouTube URL for the extended teaser (will be embedded inline on click)
+  // YouTube URL for the extended teaser (embedded inline on click)
   youtubeUrl: string;
 
   // Optional: volume for YouTube player (0-100). Default 50.
@@ -24,17 +24,14 @@ function extractYouTubeId(url: string): string | null {
   try {
     const u = new URL(url);
 
-    // youtu.be/<id>
     if (u.hostname.includes("youtu.be")) {
       const id = u.pathname.replace("/", "").trim();
       return id || null;
     }
 
-    // youtube.com/watch?v=<id>
     const v = u.searchParams.get("v");
     if (v) return v;
 
-    // youtube.com/embed/<id>
     const parts = u.pathname.split("/").filter(Boolean);
     const embedIndex = parts.indexOf("embed");
     if (embedIndex >= 0 && parts[embedIndex + 1]) return parts[embedIndex + 1];
@@ -47,6 +44,41 @@ function extractYouTubeId(url: string): string | null {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Minimal YouTube IFrame Player API types (only what we use).
+ */
+type YTPlayer = {
+  destroy: () => void;
+  playVideo: () => void;
+  setVolume: (v: number) => void;
+};
+
+type YTPlayerEvent = {
+  target: YTPlayer;
+};
+
+type YTPlayerConstructor = new (
+  elementId: string,
+  options: {
+    videoId: string;
+    playerVars?: Record<string, string | number>;
+    events?: {
+      onReady?: (e: YTPlayerEvent) => void;
+    };
+  }
+) => YTPlayer;
+
+type YTNamespace = {
+  Player: YTPlayerConstructor;
+};
+
+declare global {
+  interface Window {
+    YT?: YTNamespace;
+    onYouTubeIframeAPIReady?: () => void;
+  }
 }
 
 export default function TeaserCard({
@@ -95,44 +127,40 @@ export default function TeaserCard({
     v.play().catch(() => {});
   }, [reducedMotion, open]);
 
-  // YouTube Player API for volume control (default 50%)
+  // Load YouTube IFrame API and set volume (default 50%)
   useEffect(() => {
     if (!open) return;
     if (!youtubeId) return;
 
-    let player: any;
+    let player: YTPlayer | null = null;
 
     const loadApi = () =>
       new Promise<void>((resolve) => {
-        if ((window as any).YT?.Player) return resolve();
+        if (window.YT?.Player) return resolve();
 
         const existing = document.querySelector(
           'script[src="https://www.youtube.com/iframe_api"]'
         );
-        if (existing) {
-          const prev = (window as any).onYouTubeIframeAPIReady;
-          (window as any).onYouTubeIframeAPIReady = () => {
-            prev?.();
-            resolve();
-          };
-          return;
-        }
+
+        const prev = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => {
+          prev?.();
+          resolve();
+        };
+
+        if (existing) return;
 
         const tag = document.createElement("script");
         tag.src = "https://www.youtube.com/iframe_api";
         document.body.appendChild(tag);
-
-        const prev = (window as any).onYouTubeIframeAPIReady;
-        (window as any).onYouTubeIframeAPIReady = () => {
-          prev?.();
-          resolve();
-        };
       });
 
     loadApi().then(() => {
+      if (!window.YT?.Player) return;
+
       const vol = clamp(youtubeVolume, 0, 100);
 
-      player = new (window as any).YT.Player(playerElementId, {
+      player = new window.YT.Player(playerElementId, {
         videoId: youtubeId,
         playerVars: {
           autoplay: 1,
@@ -140,13 +168,9 @@ export default function TeaserCard({
           rel: 0,
         },
         events: {
-          onReady: (e: any) => {
-            try {
-              e.target.setVolume(vol);
-            } catch {}
-            try {
-              e.target.playVideo();
-            } catch {}
+          onReady: (e) => {
+            e.target.setVolume(vol);
+            e.target.playVideo();
           },
         },
       });
@@ -154,7 +178,7 @@ export default function TeaserCard({
 
     return () => {
       try {
-        player?.destroy?.();
+        player?.destroy();
       } catch {}
     };
   }, [open, youtubeId, playerElementId, youtubeVolume]);
@@ -198,7 +222,7 @@ export default function TeaserCard({
               </div>
             ) : null}
             <div className="mt-3 text-sm text-gray-400">
-              10s preview loops silently. Click to play the extended teaser inline.
+              Click to play the extended quantum landscape preview.
             </div>
           </div>
         </div>
@@ -214,7 +238,7 @@ export default function TeaserCard({
             className={`w-full ${overlayMaxWidthClassName} rounded-2xl overflow-hidden ring-1 ring-white/10 bg-neutral-950`}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <div className="text-gray-200 font-semibold">Extended teaser</div>
+              <div className="text-gray-200 font-semibold">Extended Preview on Quantum Landscape</div>
               <button
                 type="button"
                 onClick={onClose}
