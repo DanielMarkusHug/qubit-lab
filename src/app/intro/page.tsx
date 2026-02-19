@@ -18,7 +18,7 @@ export default function DeepDivePage() {
           and how they differ from classical bits.  
           Finally, we build and run the first simple circuits together in Python.
         </p>
-        <VideoGrid title="Deep Dive Videos" videos={deepDiveVideos} />
+        <VideoGrid title="Intro Videos" videos={deepDiveVideos} />
       </section>
     </AppLayout>
   );

@@ -33,7 +33,7 @@ export default function DeepDivePage() {
           />
         </div>
 
-        <VideoGrid title="Quantum Finance Videos" videos={FinanceVideos} />
+        <VideoGrid title="Finance Videos" videos={eepDiveVideos} />
       </section>
     </AppLayout>
   );

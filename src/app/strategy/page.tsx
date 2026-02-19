@@ -20,7 +20,7 @@ export default function DeepDivePage() {
           These videos focus on the strategic dimension: regulation, security, 
           and the capability to integrate quantum into business models.
         </p>
-        <VideoGrid title="Deep Dive Videos" videos={deepDiveVideos} />
+        <VideoGrid title="Strategy Videos" videos={deepDiveVideos} />
       </section>
     </AppLayout>
   );
