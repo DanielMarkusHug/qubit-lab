@@ -210,7 +210,7 @@ export default function TeaserCard({
             </video>
 
             <div className="absolute bottom-3 left-3 text-xs px-2 py-1 rounded-md bg-black/50 text-white">
-              Click to play 1-minute teaser
+              Click to play the 1-minute teaser
             </div>
           </div>
 
