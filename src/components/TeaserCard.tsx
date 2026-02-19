@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 type TeaserCardProps = {
   title: string;
   subtitle?: string;
-  href: string;
+  youtubeHref?: string;
   mp4Src: string;
   webmSrc?: string;
   posterSrc?: string;
@@ -15,13 +15,14 @@ type TeaserCardProps = {
 export default function TeaserCard({
   title,
   subtitle,
-  href,
+  youtubeHref,
   mp4Src,
   webmSrc,
   posterSrc,
 }: TeaserCardProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -38,45 +39,84 @@ export default function TeaserCard({
     if (reducedMotion) {
       v.pause();
       v.currentTime = 0;
+      setIsPlaying(false);
       return;
     }
 
-    v.play().catch(() => {});
+    v.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
   }, [reducedMotion]);
 
-  return (
-    <Link
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block rounded-2xl overflow-hidden ring-1 ring-white/10 bg-white/5 hover:bg-white/10 transition"
-    >
-      <div className="grid md:grid-cols-[320px_1fr] gap-0">
-        <div className="relative">
-          <video
-            ref={videoRef}
-            className="w-full h-full object-cover"
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            poster={posterSrc}
-          >
-            {webmSrc ? <source src={webmSrc} type="video/webm" /> : null}
-            <source src={mp4Src} type="video/mp4" />
-          </video>
-        </div>
+  const toggle = async () => {
+    const v = videoRef.current;
+    if (!v) return;
 
-        <div className="p-5 text-gray-200">
-          <div className="text-cyan-300 font-bold text-lg">{title}</div>
-          {subtitle ? (
-            <div className="text-gray-300 mt-1 leading-relaxed">{subtitle}</div>
-          ) : null}
-          <div className="mt-3 text-sm text-gray-400">
-            Opens the full video on YouTube.
+    if (v.paused) {
+      try {
+        await v.play();
+        setIsPlaying(true);
+      } catch {
+        setIsPlaying(false);
+      }
+    } else {
+      v.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl overflow-hidden ring-1 ring-white/10 bg-white/5">
+      <button
+        type="button"
+        onClick={toggle}
+        className="w-full text-left hover:bg-white/10 transition"
+        aria-label="Toggle teaser playback"
+      >
+        <div className="grid md:grid-cols-[320px_1fr] gap-0">
+          <div className="relative">
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              poster={posterSrc}
+            >
+              {webmSrc ? <source src={webmSrc} type="video/webm" /> : null}
+              <source src={mp4Src} type="video/mp4" />
+            </video>
+
+            <div className="absolute bottom-3 left-3 text-xs px-2 py-1 rounded-md bg-black/50 text-white">
+              {isPlaying ? "Playing" : "Paused"}
+            </div>
+          </div>
+
+          <div className="p-5 text-gray-200">
+            <div className="text-cyan-300 font-bold text-lg">{title}</div>
+            {subtitle ? (
+              <div className="text-gray-300 mt-1 leading-relaxed">{subtitle}</div>
+            ) : null}
+
+            {youtubeHref ? (
+              <div className="mt-3 text-sm">
+                <Link
+                  href={youtubeHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Watch full video on YouTube
+                </Link>
+              </div>
+            ) : null}
+
+            <div className="mt-2 text-xs text-gray-400">
+              Click the card to play or pause.
+            </div>
           </div>
         </div>
-      </div>
-    </Link>
+      </button>
+    </div>
   );
 }
