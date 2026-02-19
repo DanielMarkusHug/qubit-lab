@@ -37,7 +37,7 @@ export default function Home() {
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  // NEW: per-card inline player state
+  // per-card inline player state
   const [playing, setPlaying] = useState<Record<string, boolean>>({});
   const togglePlaying = (id: string) =>
     setPlaying((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -54,8 +54,8 @@ export default function Home() {
     return () => v.removeEventListener("canplay", tryPlay);
   }, []);
 
-  const newest3 = useMemo(() => {
-    return [...videos].sort((a, b) => b.number - a.number).slice(0, 3);
+  const newest6 = useMemo(() => {
+    return [...videos].sort((a, b) => b.number - a.number).slice(0, 6);
   }, []);
 
   const sectionButtons = useMemo(() => {
@@ -145,8 +145,9 @@ export default function Home() {
             </a>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {newest3.map((v, idx) => {
+          {/* 6 newest */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            {newest6.map((v, idx) => {
               const vertical = isVertical(v);
               const padBottom = vertical ? "177.78%" : "56.25%"; // 9:16 vs 16:9
               const release = formatIsoDate(v.publishDate);
@@ -159,7 +160,10 @@ export default function Home() {
                   className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg flex flex-col h-full"
                 >
                   {/* Thumbnail / Inline Player */}
-                  <div className="relative w-full" style={{ paddingBottom: padBottom }}>
+                  <div
+                    className="relative w-full"
+                    style={{ paddingBottom: padBottom }}
+                  >
                     {isPlaying ? (
                       <iframe
                         className="absolute inset-0 w-full h-full"
@@ -175,7 +179,7 @@ export default function Home() {
                           alt={v.title}
                           fill
                           className="object-cover"
-                          sizes="(max-width: 768px) 100vw, 33vw"
+                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                           priority={idx === 0}
                         />
                         <button
@@ -199,7 +203,9 @@ export default function Home() {
                         {String(v.topic).toUpperCase()}#{v.number}
                       </div>
                       {release ? (
-                        <div className="text-gray-300 text-sm">Released {release}</div>
+                        <div className="text-gray-300 text-sm">
+                          Released {release}
+                        </div>
                       ) : null}
                     </div>
 
