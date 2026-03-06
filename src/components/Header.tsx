@@ -82,14 +82,14 @@ export default function Header() {
             Finance
           </Link>
           <Link
-            href="/deepdive"
+            href="/chemistry"
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
            Chemistry
           </Link>
           <Link
-            href="/chemistry"
+            href="/deepdive"
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
