@@ -86,7 +86,7 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-           Chemistry
+            Chemistry
           </Link>
           <Link
             href="/deepdive"
