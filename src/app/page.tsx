@@ -62,7 +62,7 @@ export default function Home() {
   const sectionButtons = useMemo(() => {
     const unique = new Set<string>();
     for (const v of videos) (v.bins ?? []).forEach((b) => unique.add(b));
-    const ordered = ["STQ", "Strategy", "Finance", "Intro", "Deep Dive"].filter((b) =>
+    const ordered = ["STQ", "Strategy", "Finance", "Chemistry", "Intro", "Deep Dive"].filter((b) =>
       unique.has(b)
     );
     return ["All", ...ordered];
