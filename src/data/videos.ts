@@ -324,6 +324,34 @@ export const videos: Video[] = [
     image: "Video-16-full.jpg",
     tags: ["Strategy", "Finance", "Focus 2026", "Readiness", "PQC"],
   },
+  {
+    id: "beAFvMkCYe0",
+    title: "Quantum Chemistry 1: Hamiltonian Simulation",
+    description:
+    "The video introduces quantum computing for chemistry through the example of molecular ground state problems and explains why chemistry is often considered a leading candidate for eventual real quantum advantage. It outlines how chemical systems are translated into quantum representations, why ground state energy matters in practice, and which core concepts are needed before moving to algorithms. Coverage includes the motivation from chemistry, the idea of the electronic Hamiltonian, and the basic pipeline from molecule to qubits. The video is designed to build intuition without losing scientific rigor. This video was created for a broad audience interested in chemistry and quantum computing.",
+    topic: "chemistry",
+    number: 17,
+    year: 2026,
+    publishDate: "2026-03-06",
+    bins: ["Chemistry", "Deep Dive"],
+    image: "chemistry-1.jpg",
+    tags: ["Chemistry", "Hamiltonian Simulation", "Focus 2026", "VQE", "ADAPT-VQE", "QPE", "Trotterization", "Qubitization", "Quantum Phase Estimation", "Variational Quantum Eigensolver", "Ground State Energy"],
+  },
+  {
+    id: "flNfgj85OrI",
+    title: "Quantum Chemistry 2: Hamiltonian Simulation Algorithms (VQE, ADAPT-VQE, QPE, Trotterization, Qubitization)",
+    description:
+    "The video builds on the first chemistry introduction and compares the main quantum algorithm choices for estimating molecular ground-state energies in a structured, step-by-step overview. It explains which approaches are relevant on current NISQ hardware, which belong to the fault-tolerant era, and why that distinction matters when assessing realistic timelines for quantum advantage in chemistry. Coverage includes VQE and ADAPT-VQE as near-term hybrid methods, as well as Quantum Phase Estimation with trotterization and with qubitization, including the key tradeoffs in circuit depth, precision, measurement effort, and asymptotic scaling. The goal is to provide a clear framework for understanding what is feasible now and what may become important later. This video was created for an audience seeking a technically informed comparison.",
+    topic: "chemistry",
+    number: 18,
+    year: 2026,
+    publishDate: "2026-03-06",
+    bins: ["Chemistry", "Deep Dive"],
+    image: "chemistry-2.jpg",
+    tags: ["Chemistry", "Hamiltonian Simulation", "Focus 2026", "VQE", "ADAPT-VQE", "QPE", "Trotterization", "Qubitization", "Quantum Phase Estimation", "Variational Quantum Eigensolver", "Ground State Energy"],
+  },
+
+
   // --- Straight Talk Quantum ---
   {
     id: "rJocSH89s5E",

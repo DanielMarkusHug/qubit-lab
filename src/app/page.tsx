@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 
 const BIN_ROUTES: Record<string, string> = {
   Finance: "/finance",
+  Chemistry: "/chemistry",
   "Deep Dive": "/deepdive",
   Strategy: "/strategy",
   Intro: "/intro",
@@ -104,24 +105,24 @@ export default function Home() {
               Quantum Computing. Demystified.
             </h2>
             <p className="text-2xl text-gray-200">
-              Unlock the secrets of quantum computing - step by step.
+              Clear insights for business leaders, practitioners, and quantum enthusiasts.
             </p>
           </div>
         </section>
 
-        {/* Straight Talk Section */}
         <section className="max-w-4xl mx-auto px-6 mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-6">
             Quantum Computing. Straight Talk.
           </h2>
           <p className="text-gray-300 text-xl font-semibold leading-relaxed mb-8">
-            Qubit Lab translates quantum computing into practical guidance for
-            decision makers and practitioners. I explain how the technology
-            works, where it matters for business and finance, and how to move
-            from curiosity to concrete next steps. The content is designed for
-            clarity and impact: no unnecessary physics, no hype, and a focus on
-            what you can evaluate, pilot, and prepare for. Training and advisory
-            are available for teams that want a structured path.
+            Qubit Lab makes quantum computing understandable, relevant, and actionable.
+            It is designed for business leaders who need clarity on use cases, timing,
+            and strategic implications, and for practitioners who want to understand
+            the underlying concepts, algorithms, and code.
+            <br /><br />
+            Through focused videos, practical examples, and advisory-oriented content,
+            the platform connects quantum theory with real-world decision-making in
+            finance, chemistry, and beyond.
           </p>
           <a
             href="/about"
