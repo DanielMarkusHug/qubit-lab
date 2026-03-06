@@ -6,6 +6,7 @@ import type { Video } from "@/data/videos";
 
 const BIN_ROUTES: Record<string, string> = {
   Finance: "/finance",
+  Chemistry: "/chemistry",
   "Deep Dive": "/deepdive",
   Strategy: "/strategy",
   Intro: "/intro",

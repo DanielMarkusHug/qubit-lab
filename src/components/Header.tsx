@@ -25,8 +25,9 @@ export default function Header() {
         <nav className="hidden md:flex gap-4 text-sm">
           <Link href="/stq">Straight Talk Quantum</Link> {/* moved to beginning */}
           <Link href="/all">All Videos</Link>
-          <Link href="/strategy">Quantum Strategy</Link>
-          <Link href="/finance">Quantum Finance</Link>
+          <Link href="/strategy">Strategy</Link>
+          <Link href="/finance">Finance</Link>
+          <Link href="/chemistry">Chemistry</Link>
           <Link href="/deepdive">Tech Deep Dive</Link>
           <Link href="/intro">Intro Videos</Link>
         </nav>
@@ -71,17 +72,24 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Quantum Strategy
+            Strategy
           </Link>
           <Link
             href="/finance"
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Quantum Finance
+            Finance
           </Link>
           <Link
             href="/deepdive"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+           Chemistry
+          </Link>
+          <Link
+            href="/chemistry"
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
