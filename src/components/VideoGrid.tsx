@@ -125,7 +125,8 @@ export default function VideoGrid({ title, videos }: Props) {
           return (
             <article
               key={v.id}
-              className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg flex flex-col h-full"
+              id={`video-${v.number}`}
+              className="scroll-mt-24 bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg flex flex-col h-full"
             >
               {/* Thumbnail / Inline Player */}
               <div className="relative w-full" style={{ paddingBottom: padBottom }}>
