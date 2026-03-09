@@ -65,11 +65,10 @@ function FinanceModelsTable() {
     <section className="mt-12 mb-12">
       <div className="mb-5">
         <h2 className="text-2xl font-semibold tracking-tight text-white">
-          Applied Quantum Finance Models
+          Applied Quantum Models for Finance
         </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-300">
-          Selected finance-focused quantum models combining real or market-based
-          data, executable code, and short video explainers.
+        <p className="mt-2 max-w-3xl text-m leading-6 text-gray-300">
+          Not just theory, but concrete prototypes: real datasets, working notebooks, and step-by-step videos that make the methods transparent and testable. Test it yourself.
         </p>
       </div>
 
