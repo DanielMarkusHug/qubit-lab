@@ -32,7 +32,7 @@ const financeModels: FinanceModel[] = [
       "Detect fraudulent card transactions from labeled payment data.",
     data:
       "Real Mastercard transaction data, PCA-preprocessed, used in a popular Kaggle competition.",
-    quantumMethod: "QSVM / VQC / hybrid quantum ML",
+    quantumMethod: "VQC (Variational Quantum Classifier) / feature mapping",
     videoNumber: 9,
     codeHref:
       "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb",
@@ -53,7 +53,7 @@ const financeModels: FinanceModel[] = [
       "Classify market stress regimes from equity and volatility signals.",
     data:
       "Real day-end prices of the S&P 500, implied volatility, and derived indicators.",
-    quantumMethod: "Quantum classification / feature mapping",
+    quantumMethod: "Quantum classification / hybrid layers / quantum-classical comparison",
     videoNumber: 12,
     codeHref:
       "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%2012%20Quantum%20Finance%20QML%202%20-%20classical%20vs%20quantum.ipynb",
