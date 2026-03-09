@@ -165,7 +165,7 @@ export default function FinancePage() {
         <div className="mb-10">
           <TeaserCard
             title="Quantum Initiatives in Finance (2021–today)"
-            subtitle="Click to play the preview. Or play the full video below for comments and more context."
+            subtitle="Click to play the preview. Or play the full video #16 below for comments and much more context."
             shortMp4Src="/teasers/finance-teaser-10s.mp4"
             posterSrc="/teasers/finance-teaser.jpg"
             youtubeUrl="https://youtu.be/5bvqJxxYHTQ"
