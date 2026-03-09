@@ -121,7 +121,7 @@ function FinanceModelsTable() {
                     href={`#video-${model.videoNumber}`}
                     className="inline-flex rounded-full border border-neutral-700 px-3 py-1.5 font-medium text-neutral-200 transition hover:bg-neutral-800"
                   >
-                    Video {model.videoNumber}
+                    #{model.videoNumber}
                   </a>
                 </td>
                 <td className="px-5 py-4 text-sm">
