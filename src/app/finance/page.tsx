@@ -17,10 +17,20 @@ type FinanceModel = {
 
 const financeModels: FinanceModel[] = [
   {
+    title: "Credit Spread Tail-Risk Scenario Generation",
+    businessProblem:
+      "Generate synthetic credit spread tail-risk scenarios from empirical copula dependence data.",
+    data: "Real daily credit spread index data from 2020 to 2025 via FRED.",
+    quantumMethod: "QCBM / quantum generative modeling",
+    videoNumber: 19,
+    codeHref:
+      "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%2019%20Quantum%20Finance%20QCBM-Copula%20for%20Credit%20Tail%20Risk.ipynb",
+  },
+  {
     title: "Portfolio Optimization",
     businessProblem:
-      "Select a Sharpe-ratio-oriented portfolio of up to 10 assets under budget constraints.",
-    data: "Real day-end prices from mid-2024 to mid-2025 via yfinance.",
+      "Optimize a Sharpe-ratio-driven portfolio of up to 10 assets under budget constraints.",
+    data: "Real daily equity price data from mid-2024 to mid-2025 via yfinance.",
     quantumMethod: "QUBO / QAOA",
     videoNumber: 7,
     codeHref:
@@ -31,8 +41,8 @@ const financeModels: FinanceModel[] = [
     businessProblem:
       "Detect fraudulent card transactions from labeled payment data.",
     data:
-      "Real Mastercard transaction data, PCA-preprocessed, used in a popular Kaggle competition.",
-    quantumMethod: "VQC (Variational Quantum Classifier) / feature mapping",
+      "Public credit card transaction dataset (Mastercard), PCA-preprocessed, widely used for fraud-detection benchmarking.",
+    quantumMethod: "VQC / quantum feature mapping",
     videoNumber: 9,
     codeHref:
       "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb",
@@ -40,20 +50,20 @@ const financeModels: FinanceModel[] = [
   {
     title: "Derivative Pricing",
     businessProblem:
-      "Estimate derivative prices with Monte Carlo-based methods and quantum acceleration concepts.",
+      "Estimate derivative prices using Monte Carlo methods and quantum amplitude-estimation concepts.",
     data: "Market-based option inputs and simulated payoff paths.",
-    quantumMethod: "Quantum Monte Carlo / Amplitude Estimation",
+    quantumMethod: "Quantum Monte Carlo / amplitude estimation",
     videoNumber: 8,
     codeHref:
       "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%208%20Quantum%20Finance%20Quantum%20Monte%20Carlo%20Option%20Pricing.ipynb",
   },
   {
-    title: "Classification of Market Stress Regimes (S&P 500)",
+    title: "Market Stress Regime Classification",
     businessProblem:
-      "Classify market stress regimes from equity and volatility signals.",
+      "Classify market stress regimes from equity, volatility, and derived market signals.",
     data:
-      "Real day-end prices of the S&P 500, implied volatility, and derived indicators.",
-    quantumMethod: "Quantum classification / hybrid layers / quantum-classical comparison",
+      "Real daily S&P 500 and implied-volatility data with derived indicators.",
+    quantumMethod: "Quantum classification / hybrid quantum-classical model",
     videoNumber: 12,
     codeHref:
       "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%2012%20Quantum%20Finance%20QML%202%20-%20classical%20vs%20quantum.ipynb",

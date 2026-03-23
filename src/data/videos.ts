@@ -38,7 +38,7 @@ export const videos: Video[] = [
     publishDate: "2025-09-04",
     bins: ["Strategy"],
     image: "Video-10.jpg",
-    tags: ["Business", "Roadmap", "Strategy", "PQC", "Q-Day", "Regulation"],
+    tags: ["Business", "Roadmap", "Strategy", "PQC", "Q-Day", "Regulation", "NISQ", "FTQC"],
     links: [
       {
         url: "https://qir.mit.edu/wp-content/uploads/2025/06/MIT-QIR-2025.pdf",
@@ -181,7 +181,7 @@ export const videos: Video[] = [
     publishDate: "2025-07-13",
     bins: ["Finance"],
     image: "Video-7.jpg",
-    tags: ["Finance", "QAOA", "Portfolio Optimization", "Qiskit Coding"],
+    tags: ["Finance", "QAOA", "Portfolio Optimization", "Qiskit Coding", "NISQ"],
     links: [
       {
         url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20Quantum%20Finance%20QAOA%20Portfolio%20Optimization.ipynb",
@@ -200,7 +200,7 @@ export const videos: Video[] = [
     publishDate: "2025-07-24",
     bins: ["Finance"],
     image: "Video-8.jpg",
-    tags: ["Finance", "Monte Carlo", "Option Pricing", "Qiskit Coding"],
+    tags: ["Finance", "Monte Carlo", "Option Pricing", "Qiskit Coding", "NISQ"],
     links: [
       {
         url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%208%20Quantum%20Finance%20Quantum%20Monte%20Carlo%20Option%20Pricing.ipynb",
@@ -219,7 +219,7 @@ export const videos: Video[] = [
     publishDate: "2026-08-03",
     bins: ["Finance"],
     image: "Video-9.jpg",
-    tags: ["Finance", "QML", "VQC", "Fraud Detection", "Qiskit Coding"],
+    tags: ["Finance", "QML", "VQC", "Fraud Detection", "Qiskit Coding", "NISQ"],
     links: [
       {
         url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%209%20Quantum%20Finance%20QML%20for%20Fraud%20Detection.ipynb",
@@ -246,7 +246,7 @@ export const videos: Video[] = [
     publishDate: "2025-11-26",
     bins: ["Finance"],
     image: "Video-12.jpg",
-    tags: ["Finance", "QML", "VQC", "Comparison", "classical vs Quantum", "Hybrid", "Pennylane Coding"],
+    tags: ["Finance", "QML", "VQC", "Comparison", "classical vs Quantum", "Hybrid", "Pennylane Coding", "NISQ"],
     links: [
       {
         url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%2012%20Quantum%20Finance%20QML%202%20-%20classical%20vs%20quantum.ipynb",
@@ -273,7 +273,7 @@ export const videos: Video[] = [
     publishDate: "2026-01-24",
     bins: ["Finance", "Strategy"],
     image: "Video-13.jpg",
-    tags: ["Finance", "Talk", "QML", "VQC", "Intro", "Qubits", "Focus 2026", "Algorithms", "QAOA", "Strategy", "Hybrid"],
+    tags: ["Finance", "Talk", "QML", "VQC", "Intro", "Qubits", "Focus 2026", "Algorithms", "QAOA", "Strategy", "Hybrid", "NISQ"],
     links: [
       {
         url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20Quantum%20Finance%20QAOA%20Portfolio%20Optimization.ipynb",
@@ -296,7 +296,7 @@ export const videos: Video[] = [
     publishDate: "2026-02-09",
     bins: ["Finance", "Deep Dive"],
     image: "Video-14.jpg",
-    tags: ["Finance", "Focus 2026", "Algorithms", "QAOA", "Deep Dive", "Hybrid"],
+    tags: ["Finance", "Focus 2026", "Algorithms", "QAOA", "Deep Dive", "Hybrid", "NISQ"],
   },
   {
     id: "80e4RLnOmZ4",
@@ -309,7 +309,7 @@ export const videos: Video[] = [
     publishDate: "2026-02-16",
     bins: ["Strategy", "Finance"],
     image: "Video-15.jpg",
-    tags: ["Strategy", "Finance", "Focus 2026", "Readiness"],
+    tags: ["Strategy", "Finance", "Focus 2026", "Readiness", "NISQ"],
   },
   {
     id: "8LVTUf4j0oQ",
@@ -335,7 +335,7 @@ export const videos: Video[] = [
     publishDate: "2026-03-06",
     bins: ["Chemistry", "Deep Dive"],
     image: "chemistry-1.jpg",
-    tags: ["Chemistry", "Hamiltonian Simulation", "Focus 2026", "VQE", "ADAPT-VQE", "QPE", "Trotterization", "Qubitization", "Quantum Phase Estimation", "Variational Quantum Eigensolver", "Ground State Energy"],
+    tags: ["Chemistry", "Hamiltonian Simulation", "Focus 2026", "VQE", "ADAPT-VQE", "QPE", "Trotterization", "Qubitization", "Quantum Phase Estimation", "Variational Quantum Eigensolver", "Ground State Energy", "NISQ", "FTQC"],
   },
   {
     id: "flNfgj85OrI",
@@ -348,9 +348,32 @@ export const videos: Video[] = [
     publishDate: "2026-03-06",
     bins: ["Chemistry", "Deep Dive"],
     image: "chemistry-2.jpg",
-    tags: ["Chemistry", "Hamiltonian Simulation", "Focus 2026", "VQE", "ADAPT-VQE", "QPE", "Trotterization", "Qubitization", "Quantum Phase Estimation", "Variational Quantum Eigensolver", "Ground State Energy"],
+    tags: ["Chemistry", "Hamiltonian Simulation", "Focus 2026", "VQE", "ADAPT-VQE", "QPE", "Trotterization", "Qubitization", "Quantum Phase Estimation", "Variational Quantum Eigensolver", "Ground State Energy", "NISQ", "FTQC"],
   },
-
+  {
+    id: "L_p0ciM8hTM",
+    title: "QCBM for Quantum Finance: Credit Spread Copulas and Tail Risk",
+    description:
+    "This video presents a structured quantum-finance use case built around copula-based dependence modeling and quantum scenario generation for credit spread tail risk. It explains how empirical credit spread data can be transformed into a joint dependence distribution, why tail regions are difficult to model with sparse classical observations alone, and how a Quantum Circuit Born Machine can be used to learn and sample from that distribution. The discussion covers the intuition behind empirical, Gaussian, and t-copulas, the role of tail dependence in credit risk, and the practical logic of discretizing the joint space before training a quantum generative model. It also positions the workflow in the broader context of Quantum GenAI, highlighting how quantum models may eventually support scenario generation for rare but relevant financial stress events. The goal is to provide a technically grounded but accessible walkthrough of a realistic quantum-finance modeling pipeline.",
+    topic: "finance",
+    number: 19,
+    year: 2026,
+    publishDate: "2026-03-23",
+    bins: ["Finance"],
+    image: "Video-19.jpg",
+    tags: ["Finance", "Pennylane Coding", "Focus 2026", "QCBM", "GenAI", "Credit Risk", "Credit Spreads", "Tail Risk", "Copula", "Hybrid", "NISQ"],
+    links: [
+      {
+        url: "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%2019%20Quantum%20Finance%20QCBM-Copula%20for%20Credit%20Tail%20Risk.ipynb",
+        text: "Open Colab Notebook",
+      },
+      {
+        url: "https://youtu.be/WFEzkoK7tsE",
+        text: "A Simple Introduction to Copulas (by Dirty Quant)",
+      },
+    ],
+ 
+  },
 
   // --- Straight Talk Quantum ---
   {
