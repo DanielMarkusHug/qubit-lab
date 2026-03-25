@@ -18,23 +18,19 @@ export default function PQCPage() {
           </h1>
 
           <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-4">
-            Post-quantum cryptography is becoming a current management topic for
-            regulated institutions.
+            Post-quantum cryptography refers to cryptographic methods designed to
+            withstand future quantum attacks.
           </p>
 
           <p className="text-gray-300 text-lg leading-relaxed mb-4">
-            qubit-lab.ch helps clients build awareness, assess relevant
-            exposure, and define a practical starting point.
+            For regulated institutions, the topic matters because cryptography
+            supports confidentiality, authentication, digital signatures, and
+            trusted communication across business and technology environments.
           </p>
 
           <p className="text-gray-300 text-lg leading-relaxed">
-            For more information, contact:{" "}
-            <a
-              href="mailto:contact@qubit-lab.ch"
-              className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
-            >
-              contact@qubit-lab.ch
-            </a>
+            Public roadmaps are now making PQC an increasingly tangible
+            management topic, not just a distant technical issue.
           </p>
         </div>
 
@@ -62,6 +58,32 @@ export default function PQCPage() {
             </div>
           </div>
         </section>
+
+        <div className="max-w-4xl mb-10">
+          <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-4">
+            The issue is no longer limited to a distant future migration.
+          </p>
+
+          <p className="text-gray-300 text-lg leading-relaxed mb-4">
+            Sensitive data captured today may still need protection years from
+            now, and digital trust mechanisms created today may need to remain
+            defensible in the future. In parallel, public PQC roadmaps are
+            making regulatory direction and transition expectations increasingly
+            tangible.
+          </p>
+
+          <p className="text-gray-300 text-lg leading-relaxed">
+            qubit-lab.ch helps clients build awareness, assess relevant
+            exposure, and define a practical starting point. For more
+            information, contact:{" "}
+            <a
+              href="mailto:contact@qubit-lab.ch"
+              className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
+            >
+              contact@qubit-lab.ch
+            </a>
+          </p>
+        </div>
 
         <section className="mb-16">
           <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
