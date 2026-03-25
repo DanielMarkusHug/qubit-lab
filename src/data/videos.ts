@@ -2,12 +2,12 @@ export interface Video {
   id: string;
   title: string;
   description: string;
-  topic: "intro" | "deepdive" | "finance" | "chemistry" | "strategy" | "stq";
+  topic: "intro" | "deepdive" | "finance" | "chemistry" | "strategy" | "pqc" | "stq";
   number: number; // Video number (used for sorting: newest -> oldest)
   year: number; // Publishing year (coarse)
   publishDate: string | null; // NEW: ISO date "YYYY-MM-DD" (manual), null until filled
   image: string; // Placeholder JPG
-  bins: ("Intro" | "Deep Dive" | "Finance" | "Chemistry" | "Strategy" | "STQ")[]; // Manual bins (multi-bin allowed)
+  bins: ("Intro" | "Deep Dive" | "Finance" | "Chemistry" | "Strategy" | "PQC" | "STQ")[]; // Manual bins (multi-bin allowed)
   tags?: string[];
   links?: { url: string; text: string }[];
 }
