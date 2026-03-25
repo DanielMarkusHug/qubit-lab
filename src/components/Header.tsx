@@ -58,7 +58,7 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Straight Talk Quantum
+            STQ Shorts
           </Link>
           <Link
             href="/all"
@@ -69,6 +69,13 @@ export default function Header() {
           </Link>
           <Link
             href="/strategy"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+           PQC
+          </Link>
+          <Link
+            href="/pqc"
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >

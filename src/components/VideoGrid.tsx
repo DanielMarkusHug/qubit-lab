@@ -11,6 +11,7 @@ const BIN_ROUTES: Record<string, string> = {
   Strategy: "/strategy",
   Intro: "/intro",
   STQ: "/stq",
+  PQC: "/pqc",
   All: "/all",
 };
 
