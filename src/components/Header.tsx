@@ -23,12 +23,13 @@ export default function Header() {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex gap-4 text-sm">
-          <Link href="/stq">Straight Talk Quantum</Link> {/* moved to beginning */}
+          <Link href="/stq">STQ Shorts</Link> {/* moved to beginning */}
           <Link href="/all">All Videos</Link>
           <Link href="/strategy">Strategy</Link>
+          <Link href="/pqc">PQC</Link>
           <Link href="/finance">Finance</Link>
           <Link href="/chemistry">Chemistry</Link>
-          <Link href="/deepdive">Tech Deep Dive</Link>
+          <Link href="/deepdive">Deep Dive</Link>
           <Link href="/intro">Intro Videos</Link>
         </nav>
 
@@ -72,14 +73,14 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-           PQC
+            Strategy
           </Link>
           <Link
             href="/pqc"
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Strategy
+            PQC
           </Link>
           <Link
             href="/finance"
@@ -100,7 +101,7 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Tech Deep Dive
+            Deep Dive
           </Link>
           <Link
             href="/intro"

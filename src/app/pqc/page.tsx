@@ -42,7 +42,7 @@ export default function PQCPage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
             <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
               <Image
-                src="/EU-Roadmap.jpeg"
+                src="/EU-Roadmap.png"
                 alt="EU PQC roadmap slide"
                 width={1600}
                 height={900}
