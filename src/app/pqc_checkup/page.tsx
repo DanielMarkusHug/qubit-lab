@@ -138,7 +138,7 @@ export default function PQCCheckupPage() {
         <section className="mb-16">
           <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
             <Image
-              src="/Org-Readiness.png"
+              src="/PQC-action.png"
               alt="Why start now: lead time and organizational readiness"
               width={1600}
               height={900}
