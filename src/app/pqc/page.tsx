@@ -111,7 +111,7 @@ export default function PQCPage() {
 
             <div className="flex flex-wrap gap-4">
               <a
-                href="/pqc-checkup"
+                href="/pqc_checkup"
                 className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold hover:bg-cyan-700 transition"
               >
                 Explore PQC Checkup
