@@ -23,18 +23,19 @@ export default function Header() {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex gap-4 text-sm">
-          <Link href="/stq">STQ Shorts</Link> {/* moved to beginning */}
+          <Link href="/stq">Shorts</Link>
           <Link href="/all">All Videos</Link>
           <Link href="/strategy">Strategy</Link>
           <Link href="/pqc">PQC</Link>
           <Link href="/finance">Finance</Link>
           <Link href="/chemistry">Chemistry</Link>
           <Link href="/deepdive">Deep Dive</Link>
-          <Link href="/intro">Intro Videos</Link>
+          <Link href="/intro">Intro</Link>
         </nav>
 
         {/* Desktop Right Menu */}
         <div className="ml-auto hidden md:flex gap-4 text-sm">
+          <Link href="/work">Work With Me</Link>
           <Link href="/about">About</Link>
           <Link href="/resources">Resources</Link>
           <Link href="/contact">Contact</Link>
@@ -80,7 +81,7 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            PQC
+            PQC - Post Quantum Cryptography
           </Link>
           <Link
             href="/finance"
@@ -101,7 +102,7 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Deep Dive
+            Deep Dive Videos
           </Link>
           <Link
             href="/intro"
@@ -110,7 +111,16 @@ export default function Header() {
           >
             Intro Videos
           </Link>
+
           <hr className="border-white/20" />
+
+          <Link
+            href="/work"
+            className="block text-cyan-300 hover:text-cyan-400 font-medium"
+            onClick={() => setMenuOpen(false)}
+          >
+            Work With Me
+          </Link>
           <Link
             href="/about"
             className="block text-white hover:text-cyan-400"

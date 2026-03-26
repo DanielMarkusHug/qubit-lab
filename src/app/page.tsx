@@ -33,12 +33,10 @@ function isVertical(v: { topic: string; image: string }) {
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Per-card expand/collapse state
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  // per-card inline player state
   const [playing, setPlaying] = useState<Record<string, boolean>>({});
   const togglePlaying = (id: string) =>
     setPlaying((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -104,12 +102,32 @@ export default function Home() {
             <h2 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500 mb-6 pb-1">
               Quantum Computing. Demystified.
             </h2>
-            <p className="text-2xl text-gray-200">
+            <p className="text-2xl text-gray-200 mb-6">
               Clear insights for business leaders, practitioners, and quantum enthusiasts.
             </p>
+            <p className="text-lg text-gray-300 leading-relaxed max-w-3xl mb-6">
+              From executive awareness and quant education to practical use-case framing
+              and PQC readiness, Qubit Lab helps organizations understand where quantum
+              matters, where it does not, and how to prepare in a structured way.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <a
+                href="/work"
+                className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
+              >
+                Work With Me
+              </a>
+              <a
+                href="/pqc"
+                className="inline-block px-6 py-3 border border-cyan-400 text-cyan-200 rounded-lg font-bold text-lg hover:bg-cyan-400/10 transition"
+              >
+                Explore PQC
+              </a>
+            </div>
           </div>
         </section>
 
+        {/* Intro Section */}
         <section className="max-w-4xl mx-auto px-6 mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-6">
             Quantum Computing. Straight Talk.
@@ -119,17 +137,76 @@ export default function Home() {
             It is designed for business leaders who need clarity on use cases, timing,
             and strategic implications, and for practitioners who want to understand
             the underlying concepts, algorithms, and code.
-            <br /><br />
+            <br />
+            <br />
             Through focused videos, practical examples, and advisory-oriented content,
             the platform connects quantum theory with real-world decision-making in
             finance, chemistry, and beyond.
           </p>
-          <a
-            href="/about"
-            className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
-          >
-            Learn more about Qubit Lab, training and advisory
-          </a>
+        </section>
+
+        {/* Work With Me Preview */}
+        <section className="max-w-6xl mx-auto px-6 mb-20">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10">
+            <div className="max-w-4xl mb-8">
+              <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-4">
+                Work With Me
+              </h2>
+              <p className="text-gray-300 text-lg leading-relaxed">
+                Qubit Lab supports organizations that want practical quantum guidance
+                rather than abstract technology talk. The strongest current focus is on
+                financial services, regulated environments, quantum education, use-case
+                framing, and post-quantum cryptography readiness.
+              </p>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-3 mb-8">
+              <div className="bg-black/20 border border-white/10 rounded-2xl p-6">
+                <h3 className="text-xl font-bold text-cyan-200 mb-3">
+                  Quantum Advisory
+                </h3>
+                <p className="text-gray-300 leading-relaxed">
+                  Structured support for organizations exploring realistic quantum use cases,
+                  PoCs, and decision paths.
+                </p>
+              </div>
+
+              <div className="bg-black/20 border border-white/10 rounded-2xl p-6">
+                <h3 className="text-xl font-bold text-cyan-200 mb-3">
+                  Quantum Education
+                </h3>
+                <p className="text-gray-300 leading-relaxed">
+                  Executive briefings, management sessions, and expert training for teams
+                  that need clear and grounded understanding.
+                </p>
+              </div>
+
+              <div className="bg-black/20 border border-white/10 rounded-2xl p-6">
+                <h3 className="text-xl font-bold text-cyan-200 mb-3">
+                  PQC Checkup
+                </h3>
+                <p className="text-gray-300 leading-relaxed">
+                  A structured starting point for assessing exposure, priorities, and
+                  planning needs in post-quantum cryptography readiness.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              <a
+                href="/work"
+                className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold hover:bg-cyan-700 transition"
+              >
+                Explore Work With Me
+              </a>
+              <a
+                href="/contact"
+                className="inline-block px-6 py-3 border border-white/15 text-gray-200 rounded-lg font-bold hover:bg-white/10 transition"
+              >
+                Contact
+              </a>
+            </div>
+          </div>
         </section>
 
         {/* Latest Videos */}
@@ -146,11 +223,10 @@ export default function Home() {
             </a>
           </div>
 
-          {/* 6 newest */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {newest6.map((v, idx) => {
               const vertical = isVertical(v);
-              const padBottom = vertical ? "177.78%" : "56.25%"; // 9:16 vs 16:9
+              const padBottom = vertical ? "177.78%" : "56.25%";
               const release = formatIsoDate(v.publishDate);
               const isExpanded = Boolean(expanded[v.id]);
               const isPlaying = Boolean(playing[v.id]);
@@ -160,7 +236,6 @@ export default function Home() {
                   key={v.id}
                   className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-lg flex flex-col h-full"
                 >
-                  {/* Thumbnail / Inline Player */}
                   <div
                     className="relative w-full"
                     style={{ paddingBottom: padBottom }}
@@ -197,7 +272,6 @@ export default function Home() {
                     )}
                   </div>
 
-                  {/* Content */}
                   <div className="p-5 flex flex-col flex-1">
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div className="text-cyan-200 font-bold">
@@ -214,7 +288,6 @@ export default function Home() {
                       {v.title}
                     </h3>
 
-                    {/* Actions */}
                     <div className="flex flex-wrap gap-2 mb-4">
                       <button
                         type="button"
@@ -234,7 +307,6 @@ export default function Home() {
                       </a>
                     </div>
 
-                    {/* Expandable description */}
                     <p
                       className={`text-gray-200 text-sm leading-relaxed mb-3 ${
                         isExpanded ? "" : "line-clamp-6"
@@ -251,7 +323,6 @@ export default function Home() {
                       {isExpanded ? "Show less" : "More"}
                     </button>
 
-                    {/* Bins as buttons */}
                     <div className="flex flex-wrap gap-2 mt-auto">
                       {(v.bins ?? []).map((b) => (
                         <a
@@ -269,7 +340,6 @@ export default function Home() {
             })}
           </div>
 
-          {/* Section buttons at end */}
           <div className="mt-10 flex flex-wrap gap-3">
             {sectionButtons.map((label) => (
               <a
