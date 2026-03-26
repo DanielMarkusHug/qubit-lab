@@ -33,7 +33,7 @@ export default function WorkWithMePage() {
             Discuss Your Situation
           </a>
           <a
-            href="/pqc"
+            href="/pqc_checkup"
             className="px-6 py-3 rounded-lg border border-cyan-400 text-cyan-300 font-semibold hover:bg-cyan-400/10 transition"
           >
             Explore PQC Checkup

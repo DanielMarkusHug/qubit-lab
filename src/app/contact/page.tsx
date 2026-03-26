@@ -21,9 +21,9 @@ export default function ContactPage() {
           step is usually a short exchange by email.
         </p>
 
-        <div className="flex flex-wrap gap-4 mb-12">
+        <div className="flex flex-wrap gap-4 mb-6">
           <a
-            href="mailto:contact@qubit-lab.ch"
+            href="mailto:contact@qubit-lab.ch?subject=Discussion%20via%20qubit-lab.ch"
             className="px-5 py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
           >
             Start the Discussion
@@ -37,9 +37,19 @@ export default function ContactPage() {
             rel="noopener noreferrer"
             className="px-5 py-3 bg-white/5 border border-white/10 text-white rounded-lg font-semibold hover:bg-white/10 transition"
           >
-            LinkedIn
+            Connect on LinkedIn
           </a>
         </div>
+
+        <p className="text-sm text-gray-400 leading-relaxed">
+          Or email directly:{" "}
+          <a
+            href="mailto:contact@qubit-lab.ch"
+            className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
+          >
+            contact@qubit-lab.ch
+          </a>
+        </p>
       </section>
 
       <section className="max-w-3xl mx-auto px-6 pb-24">
