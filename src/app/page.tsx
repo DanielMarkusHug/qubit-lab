@@ -118,7 +118,7 @@ export default function Home() {
                 Work With Me
               </a>
               <a
-                href="/pqc"
+                href="/pqc_checkup"
                 className="inline-block px-6 py-3 border border-cyan-400 text-cyan-200 rounded-lg font-bold text-lg hover:bg-cyan-400/10 transition"
               >
                 Explore PQC

@@ -73,15 +73,8 @@ export default function PQCPage() {
           </p>
 
           <p className="text-gray-300 text-lg leading-relaxed">
-            qubit-lab.ch helps clients build awareness, assess relevant
-            exposure, and define a practical starting point. For more
-            information, contact:{" "}
-            <a
-              href="mailto:contact@qubit-lab.ch"
-              className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
-            >
-              contact@qubit-lab.ch
-            </a>
+            Qubit Lab helps clients build awareness, assess relevant exposure,
+            and define a practical starting point.
           </p>
         </div>
 
@@ -97,8 +90,44 @@ export default function PQCPage() {
           </div>
         </section>
 
+        <section className="mb-16">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10">
+            <h2 className="text-3xl font-bold text-cyan-300 mb-4">
+              PQC Checkup
+            </h2>
+
+            <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-4">
+              Qubit Lab also offers a structured PQC Checkup for organizations
+              that want to move from awareness to a first practical view of
+              exposure, priorities, and planning needs.
+            </p>
+
+            <p className="text-gray-300 text-lg leading-relaxed mb-6 max-w-4xl">
+              It is designed as a practical starting point for management,
+              business, risk, legal, and technology stakeholders who need more
+              than general awareness, but are not yet ready for a full migration
+              program.
+            </p>
+
+            <div className="flex flex-wrap gap-4">
+              <a
+                href="/pqc-checkup"
+                className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold hover:bg-cyan-700 transition"
+              >
+                Explore PQC Checkup
+              </a>
+              <a
+                href="/contact"
+                className="inline-block px-6 py-3 border border-cyan-400 text-cyan-200 rounded-lg font-bold hover:bg-cyan-400/10 transition"
+              >
+                Discuss Your Situation
+              </a>
+            </div>
+          </div>
+        </section>
+
         <section>
-          <VideoGrid title="PQC Videos" videos={pqcVideos} />
+          <VideoGrid title="Related PQC Videos" videos={pqcVideos} />
         </section>
       </section>
     </AppLayout>
