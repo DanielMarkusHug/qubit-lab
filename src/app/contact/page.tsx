@@ -16,7 +16,7 @@ export default function ContactPage() {
         </p>
 
         <p className="text-gray-300 text-lg leading-relaxed mb-10">
-          Typical starting points include executive briefings, expert training,
+          Typical starting formats include management briefings, expert workshops,
           use-case discussions, and PQC Checkup conversations. The best first
           step is usually a short exchange by email.
         </p>

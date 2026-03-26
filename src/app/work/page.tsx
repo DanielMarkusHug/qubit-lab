@@ -57,9 +57,13 @@ export default function WorkWithMePage() {
           <h2 className="text-3xl font-bold text-cyan-300 mb-6">
             How I can support
           </h2>
-          <p className="text-gray-300 text-lg leading-relaxed max-w-4xl">
+          <p className="text-gray-300 text-lg leading-relaxed max-w-4xl mb-4">
             Engagements are tailored to the maturity, goals, and audience of your organization.
             In practice, most collaboration starts through one of three entry points.
+          </p>
+          <p className="text-gray-400 text-base leading-relaxed max-w-4xl">
+            Typical starting formats: management briefing, expert workshop, use-case discussion,
+            or PQC Checkup conversation.
           </p>
         </section>
 
@@ -257,7 +261,7 @@ export default function WorkWithMePage() {
               </h3>
               <p className="text-gray-300 leading-relaxed">
                 A first discussion around cryptographic exposure, planning questions,
-                and how a structured PQC checkup could look in practice.
+                and how a structured PQC Checkup could look in practice.
               </p>
             </div>
             <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
