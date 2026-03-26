@@ -32,214 +32,220 @@ export default function AboutPage() {
             </div>
 
             <p className="text-sm text-gray-400 leading-relaxed mt-3">
-              Short intro video on qubit-lab.ch trainings and services. 
+              Short introduction to qubit-lab.ch and its practical focus.
             </p>
           </div>
         </section>
-
 
         {/* Core Narrative */}
         <h2 className="text-3xl font-bold text-cyan-300 mb-6">
           Quantum Computing. Straight Talk.
         </h2>
 
-        <h3 className="text-2xl font-semibold mb-2">Who is this for?</h3>
+        <h3 className="text-2xl font-semibold mb-2">What is qubit-lab.ch?</h3>
         <p className="text-lg leading-relaxed mb-6">
-          No advanced background in mathematics or physics is required. This
-          program is designed for finance professionals, technology leaders,
-          managers, and specialists who want to understand the business impact
-          of quantum computing. Whether the goal is strategic awareness or
-          practical exploration, qubit-lab provides a structured entry point.
+          qubit-lab.ch is a platform focused on making quantum computing
+          understandable, relevant, and actionable. It connects technical
+          foundations with practical questions in business, finance, and selected
+          adjacent domains.
+        </p>
+
+        <h3 className="text-2xl font-semibold mb-2">Who is it for?</h3>
+        <p className="text-lg leading-relaxed mb-6">
+          The platform is designed for business leaders, finance professionals,
+          technology stakeholders, managers, quants, and technically curious
+          practitioners who want a realistic view of quantum computing and its
+          implications. The aim is to provide a structured entry point without
+          unnecessary hype or unnecessary jargon.
         </p>
 
         <h3 className="text-2xl font-semibold mb-2">Why now?</h3>
         <p className="text-lg leading-relaxed mb-6">
-          Quantum computing is advancing from research to early real-world
-          applications faster than expected. For corporations, the implications
-          are concrete: post-quantum security, competitive advantage, risk
-          management, and new business models. While many resources focus
-          either on abstract theory or on coding details, qubit-lab bridges the
-          gap, translating technical foundations into business relevance.
+          Quantum computing is progressing from a purely research-driven topic
+          into one that increasingly affects management thinking, security
+          planning, innovation agendas, and technology roadmaps. For
+          organizations, the implications are becoming more tangible in areas
+          such as post-quantum cryptography, strategic positioning, and the
+          evaluation of future use cases.
         </p>
 
-        <h3 className="text-2xl font-semibold mb-2">
-          What outcomes can you expect?
-        </h3>
-        <p className="text-lg leading-relaxed mb-6">
-          Participants gain a clear understanding of how quantum systems work,
-          how they differ fundamentally from classical IT, and what opportunities
-          and risks they create. Decision-makers will be equipped to integrate
-          quantum considerations into long-term strategy, while specialists can
-          explore hands-on basics with Qiskit in a guided environment.
+        <h3 className="text-2xl font-semibold mb-2">How does qubit-lab.ch approach the topic?</h3>
+        <p className="text-lg leading-relaxed mb-10">
+          The focus is on clear explanation, practical orientation, and honest
+          framing of what quantum can and cannot do today. This includes videos,
+          examples, and selected advisory-oriented material that help translate
+          technical concepts into usable insight for real stakeholders.
         </p>
       </section>
 
-      {/* From Awareness to Action */}
-      <section className="max-w-4xl mx-auto px-6 pt-6 pb-24 text-gray-200">
+      {/* How it can support */}
+      <section className="max-w-4xl mx-auto px-6 pt-4 pb-16 text-gray-200">
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10">
+          <h2 className="text-3xl font-bold text-cyan-300 mb-4">
+            How qubit-lab.ch can support
+          </h2>
+
+          <p className="text-lg leading-relaxed mb-8">
+            In addition to public content, qubit-lab.ch supports organizations
+            through practical quantum advisory, education, and PQC Checkup
+            discussions. The strongest current focus is on financial services,
+            regulated environments, expert and management education, and
+            structured readiness thinking.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-3 mb-8">
+            <div>
+              <h3 className="text-xl font-semibold text-white mb-2">
+                Quantum Advisory
+              </h3>
+              <p className="text-lg leading-relaxed text-gray-300">
+                Structured support for organizations exploring realistic use
+                cases, PoCs, and practical decision paths.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-xl font-semibold text-white mb-2">
+                Quantum Education
+              </h3>
+              <p className="text-lg leading-relaxed text-gray-300">
+                Executive briefings, management sessions, and expert training
+                for teams that need grounded understanding.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-xl font-semibold text-white mb-2">
+                PQC Checkup
+              </h3>
+              <p className="text-lg leading-relaxed text-gray-300">
+                A structured starting point for assessing exposure,
+                priorities, and planning needs in post-quantum cryptography.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-4">
+            <Link
+              href="/work"
+              className="px-5 py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
+            >
+              Explore Work With Me
+            </Link>
+            <Link
+              href="/pqc-checkup"
+              className="px-5 py-3 border border-cyan-400 text-cyan-200 rounded-lg font-semibold hover:bg-cyan-400/10 transition"
+            >
+              Explore PQC Checkup
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Training overview */}
+      <section className="max-w-4xl mx-auto px-6 pb-20 text-gray-200">
         <h2 className="text-3xl font-bold text-cyan-300 mb-4">
-          From Awareness to Action
+          Example training formats
         </h2>
+
         <p className="text-lg leading-relaxed mb-8">
-          Building awareness is only the first step. To capture value,
-          organizations need a structured approach, from educating leadership
-          to identifying use cases and managing proof-of-concepts. qubit-lab
-          supports this journey with tailored services:
+          Training formats can be adapted to the audience, context, and time
+          available. Typical formats range from management-focused overview
+          sessions to deeper workshops for expert and quant teams.
         </p>
 
-        <div className="space-y-6">
+        <div className="space-y-10">
+          {/* Management */}
           <div>
-            <h4 className="text-xl font-semibold text-white mb-1">
-              Quantum Awareness Building
-            </h4>
-            <p className="text-lg leading-relaxed">
-              Executive briefings and targeted workshops to build a shared
-              understanding across leadership and teams.
+            <h3 className="text-2xl font-semibold mb-3">
+              Management audience
+            </h3>
+
+            <a
+              href="/training-management.png"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block"
+            >
+              <div className="rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10 bg-white/5">
+                <Image
+                  src="/training-management.png"
+                  alt="Training modules overview for management audience"
+                  width={1600}
+                  height={900}
+                  className="w-full h-auto"
+                  priority={false}
+                />
+              </div>
+            </a>
+
+            <p className="text-sm text-gray-400 leading-relaxed mt-3">
+              Executive overview and decision workshop focused on realistic
+              applicability, roadmap thinking, and post-quantum readiness.
             </p>
           </div>
 
+          {/* Experts */}
           <div>
-            <h4 className="text-xl font-semibold text-white mb-1">
-              Quantum Consulting
-            </h4>
-            <p className="text-lg leading-relaxed">
-              Strategic guidance on post-quantum security, use case
-              identification, and alignment with business priorities.
-            </p>
-          </div>
+            <h3 className="text-2xl font-semibold mb-3">
+              Expert and quant audience
+            </h3>
 
-          <div>
-            <h4 className="text-xl font-semibold text-white mb-1">
-              Quantum Project Design &amp; Management
-            </h4>
-            <p className="text-lg leading-relaxed">
-              Structured design and execution of quantum initiatives, from
-              proof-of-concepts to implementation, ensuring integration into
-              existing processes.
-            </p>
-          </div>
+            <a
+              href="/training-experts.png"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block"
+            >
+              <div className="rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10 bg-white/5">
+                <Image
+                  src="/training-experts.png"
+                  alt="Training modules overview for expert and quant audience"
+                  width={1600}
+                  height={900}
+                  className="w-full h-auto"
+                />
+              </div>
+            </a>
 
-          <div>
-            <h4 className="text-xl font-semibold text-white mb-1">
-              Practical Guidance &amp; Enablement
-            </h4>
-            <p className="text-lg leading-relaxed">
-              Introductory coding demonstrations, conceptual guidance, and
-              support in overcoming hurdles, always in collaboration with
-              technical specialists.
+            <p className="text-sm text-gray-400 leading-relaxed mt-3">
+              Technical deep dive and hands-on workshops, including topics such
+              as QAOA, VQC, and QMC, with emphasis on sound reasoning, practical
+              constraints, and realistic expectations.
             </p>
           </div>
         </div>
 
-        {/* Training overview */}
-        <section className="mt-12">
-          <h2 className="text-3xl font-bold text-cyan-300 mb-4">
-            Training Modules Overview
-          </h2>
-
-          <p className="text-lg leading-relaxed mb-8">
-            Two tracks are available, one for leadership and one for expert teams.
-            Formats can be adapted to your context and time constraints.
-          </p>
-
-          <div className="space-y-10">
-            {/* Management */}
-            <div>
-              <h3 className="text-2xl font-semibold mb-3">
-                Management audience
-              </h3>
-
-              <a
-                href="/training-management.png"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block"
-              >
-                <div className="rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10 bg-white/5">
-                  <Image
-                    src="/training-management.png"
-                    alt="Training modules overview for management audience"
-                    width={1600}
-                    height={900}
-                    className="w-full h-auto"
-                    priority={false}
-                  />
-                </div>
-              </a>
-
-              <p className="text-sm text-gray-400 leading-relaxed mt-3">
-                Executive overview and decision workshop, focused on realistic applicability,
-                roadmap thinking, and post-quantum readiness.
-              </p>
-            </div>
-
-            {/* Experts */}
-            <div>
-              <h3 className="text-2xl font-semibold mb-3">
-                Expert and quant audience
-              </h3>
-
-              <a
-                href="/training-experts.png"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block"
-              >
-                <div className="rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10 bg-white/5">
-                  <Image
-                    src="/training-experts.png"
-                    alt="Training modules overview for expert and quant audience"
-                    width={1600}
-                    height={900}
-                    className="w-full h-auto"
-                  />
-                </div>
-              </a>
-
-              <p className="text-sm text-gray-400 leading-relaxed mt-3">
-                Technical deep dive plus hands-on workshops, including QAOA, VQC, and QMC,
-                with emphasis on correct reasoning, constraints, and practical limits.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-8">
-            <p className="text-lg leading-relaxed">
-              For a tailored agenda and commercial proposal, please{" "}
-              <Link
-                href="/contact"
-                className="text-cyan-300 hover:text-cyan-200 underline underline-offset-4"
-              >
-                get in touch
-              </Link>
-              .
-            </p>
-          </div>
-        </section>
-
         {/* CTA Buttons */}
-        <div className="flex flex-wrap gap-4 mt-10">
-          <a
-            href="mailto:daniel.hug@qubit-lab.ch"
-            className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
+        <div className="flex flex-wrap gap-4 mt-12">
+          <Link
+            href="/work"
+            className="px-5 py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
           >
-            📧 Email Me
+            Explore Work With Me
+          </Link>
+          <a
+            href="mailto:contact@qubit-lab.ch"
+            className="px-5 py-3 border border-white/15 text-white rounded-lg font-semibold hover:bg-white/10 transition"
+          >
+            Start the Discussion
           </a>
           <a
             href="https://www.linkedin.com/in/danielhug"
             target="_blank"
             rel="noopener noreferrer"
-            className="px-5 py-2 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
+            className="px-5 py-3 border border-white/15 text-white rounded-lg font-semibold hover:bg-white/10 transition"
           >
-            🔗 LinkedIn
+            Connect on LinkedIn
           </a>
         </div>
 
         {/* Closing line */}
         <p className="text-lg leading-relaxed mt-10">
           Quantum computing is complex, but increasingly relevant. Organizations
-          that start building awareness today will be better positioned to
-          mitigate risks, seize opportunities, and actively shape the future of
-          this technology.
+          that start building awareness and structure today will be better
+          positioned to mitigate risk, identify realistic opportunities, and
+          respond credibly as the field evolves.
         </p>
 
         {/* Legal link */}

@@ -74,7 +74,7 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Strategy
+            Quantum Strategy
           </Link>
           <Link
             href="/pqc"
@@ -88,14 +88,14 @@ export default function Header() {
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Finance
+            Quantum Finance
           </Link>
           <Link
             href="/chemistry"
             className="block text-white hover:text-cyan-400"
             onClick={() => setMenuOpen(false)}
           >
-            Chemistry
+            Quantum Chemistry
           </Link>
           <Link
             href="/deepdive"
