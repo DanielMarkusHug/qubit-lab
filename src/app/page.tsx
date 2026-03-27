@@ -10,6 +10,7 @@ const BIN_ROUTES: Record<string, string> = {
   Chemistry: "/chemistry",
   "Deep Dive": "/deepdive",
   Strategy: "/strategy",
+  PQC: "/pqc",
   Intro: "/intro",
   STQ: "/stq",
   All: "/all",
