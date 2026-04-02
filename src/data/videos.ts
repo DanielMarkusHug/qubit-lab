@@ -374,6 +374,26 @@ export const videos: Video[] = [
     ],
  
   },
+  {
+    id: "tLKa0zd6uqI",
+    title: "QAOA vs. Classical Search: How Quantum Optimization Redirects the Search",
+    description:
+    "This video visually compares a classical sequential search with quantum optimization using QAOA. While the classical approach evaluates candidates one by one, QAOA reshapes probabilities across the full solution space to guide the search toward better outcomes. The side-by-side visualization shows how both approaches behave and why quantum optimization differs fundamentally from classical candidate-by-candidate evaluation. The QAOA search shown here is based on a real QAOA run, not a mockup.",    topic: "finance",
+    number: 20,
+    year: 2026,
+    publishDate: "2026-04-02",
+    bins: ["Finance", "Deep Dive"],
+    image: "Video-Comparison.jpg",
+    tags: ["Finance", "QAOA", "NISQ"],
+    links: [
+      {
+        url: "https://youtube.com/shorts/31Fzc9ZXTQ4",
+        text: "Short Clip Version",
+      },
+
+    ],
+ 
+  },
 
   // --- Straight Talk Quantum ---
   {
