@@ -84,6 +84,34 @@ export default function PQCNavigatorPage() {
           </div>
         </section>
 
+        <section id="mobilization" className="mb-16">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10 max-w-4xl">
+            <h2 className="text-3xl font-bold text-cyan-300 mb-4">
+              PQC Mobilization
+            </h2>
+
+            <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-4">
+              A focused entry step to build awareness, align key stakeholders, and create
+              an informed basis for next-step decisions.
+            </p>
+
+            <p className="text-gray-300 text-lg leading-relaxed mb-6">
+              Best suited for organizations that first need a practical, workshop-based
+              introduction to PQC risk, management relevance, likely exposure areas, and
+              cross-functional alignment.
+            </p>
+
+            <div className="flex flex-wrap gap-4">
+              <a
+                href="/contact"
+                className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold hover:bg-cyan-700 transition"
+              >
+                Discuss PQC Mobilization
+              </a>
+            </div>
+          </div>
+        </section>
+
         <section className="mb-16">
           <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10">
             <h2 className="text-3xl font-bold text-cyan-300 mb-6">
