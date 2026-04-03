@@ -422,4 +422,17 @@ export const videos: Video[] = [
     image: "STQ-2.jpg",
     tags: ["Straight Talk", "Qubit", "Interference", "Probability Amplitude", "Phase", "Complex Numbers"],
   },
+  {
+    id: "jWiZqRxHQNw",
+    title: "QAOA Search in Action",
+    description:
+      "This short visually compares a classical sequential search with quantum optimization using QAOA. (see the full video in the finance section)",
+    topic: "stq",
+    number: 3,
+    year: 2026,
+    publishDate: "2026-04-02",
+    bins: ["STQ"],
+    image: "Video-Comparison-short.jpg",
+    tags: ["Straight Talk", "QAOA"],
+  },
 ];
