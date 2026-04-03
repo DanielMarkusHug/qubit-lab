@@ -120,18 +120,6 @@ export default function PQCNavigatorPage() {
         </section>
 
         <section className="mb-16">
-          <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
-            <Image
-              src="/PQC-Readiness.png"
-              alt="PQC readiness and planning approach"
-              width={1600}
-              height={900}
-              className="w-full h-auto"
-            />
-          </div>
-        </section>
-
-        <section className="mb-16">
           <div className="grid gap-8 md:grid-cols-2">
             <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
               <h2 className="text-2xl font-bold text-cyan-300 mb-4">
