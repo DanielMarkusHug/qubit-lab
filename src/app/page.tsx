@@ -65,11 +65,10 @@ export default function Home() {
       (b) => unique.has(b)
     );
     return ["All", ...ordered];
-    }, []);
+  }, []);
 
   return (
     <main className="relative min-h-screen text-white">
-      {/* Background Video + Overlay */}
       <video
         ref={videoRef}
         src="/background_slow.mp4"
@@ -83,11 +82,9 @@ export default function Home() {
       />
       <div className="fixed inset-0 bg-black/70 z-0" />
 
-      {/* Content */}
       <div className="relative z-20">
         <Header />
 
-        {/* Hero Section */}
         <section className="flex flex-col md:flex-row items-center max-w-6xl mx-auto px-6 pt-24 gap-8 mb-16">
           <Image
             src="/logo_new_squared2.png"
@@ -119,16 +116,15 @@ export default function Home() {
                 Work With Me
               </a>
               <a
-                href="/pqc_checkup"
+                href="/pqc-navigator"
                 className="inline-block px-6 py-3 border border-cyan-400 text-cyan-200 rounded-lg font-bold text-lg hover:bg-cyan-400/10 transition"
               >
-                Explore PQC
+                Explore PQC Navigator
               </a>
             </div>
           </div>
         </section>
 
-        {/* Intro Section */}
         <section className="max-w-4xl mx-auto px-6 mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-6">
             Quantum Computing. Straight Talk.
@@ -146,7 +142,6 @@ export default function Home() {
           </p>
         </section>
 
-        {/* Work With Me Preview */}
         <section className="max-w-6xl mx-auto px-6 mb-20">
           <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10">
             <div className="max-w-4xl mb-8">
@@ -184,11 +179,12 @@ export default function Home() {
 
               <div className="bg-black/20 border border-white/10 rounded-2xl p-6">
                 <h3 className="text-xl font-bold text-cyan-200 mb-3">
-                  PQC Checkup
+                  PQC Navigator
                 </h3>
                 <p className="text-gray-300 leading-relaxed">
-                  A structured starting point for assessing exposure, priorities, and
-                  planning needs in post-quantum cryptography readiness.
+                  A structured readiness assessment, with PQC Mobilization as the entry
+                  step, to clarify exposure, planning maturity, key gaps, and practical
+                  next steps.
                 </p>
               </div>
             </div>
@@ -210,7 +206,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Latest Videos */}
         <section className="max-w-6xl mx-auto px-6 mb-16">
           <div className="flex items-end justify-between gap-4 mb-6">
             <h2 className="text-3xl md:text-4xl font-bold text-cyan-300">

@@ -387,7 +387,7 @@ export const videos: Video[] = [
     tags: ["Finance", "QAOA", "NISQ"],
     links: [
       {
-        url: "https://youtube.com/shorts/XZB0JH2fHDY",
+        url: "https://youtube.com/shorts/jWiZqRxHQNw",
         text: "Short Clip Version",
       },
 
