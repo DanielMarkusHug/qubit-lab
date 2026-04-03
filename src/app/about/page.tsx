@@ -8,13 +8,11 @@ export default function AboutPage() {
     <AppLayout>
       <Header />
 
-      {/* Hero / Intro */}
       <section className="max-w-4xl mx-auto px-6 pt-24 text-gray-200">
         <h1 className="text-4xl font-bold text-cyan-300 mb-8">
           About qubit-lab.ch
         </h1>
 
-        {/* Intro Video */}
         <section className="max-w-4xl mx-auto px-0 pt-2 pb-12">
           <h2 className="text-2xl font-bold text-cyan-300 mb-4">
             Watch the Overview
@@ -37,7 +35,6 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* Core Narrative */}
         <h2 className="text-3xl font-bold text-cyan-300 mb-6">
           Quantum Computing. Straight Talk.
         </h2>
@@ -69,7 +66,9 @@ export default function AboutPage() {
           evaluation of future use cases.
         </p>
 
-        <h3 className="text-2xl font-semibold mb-2">How does qubit-lab.ch approach the topic?</h3>
+        <h3 className="text-2xl font-semibold mb-2">
+          How does qubit-lab.ch approach the topic?
+        </h3>
         <p className="text-lg leading-relaxed mb-10">
           The focus is on clear explanation, practical orientation, and honest
           framing of what quantum can and cannot do today. This includes videos,
@@ -78,7 +77,6 @@ export default function AboutPage() {
         </p>
       </section>
 
-      {/* How it can support */}
       <section className="max-w-4xl mx-auto px-6 pt-4 pb-16 text-gray-200">
         <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10">
           <h2 className="text-3xl font-bold text-cyan-300 mb-4">
@@ -87,8 +85,8 @@ export default function AboutPage() {
 
           <p className="text-lg leading-relaxed mb-8">
             In addition to public content, qubit-lab.ch supports organizations
-            through practical quantum advisory, education, and PQC Checkup
-            discussions. The strongest current focus is on financial services,
+            through practical quantum advisory, education, and concrete PQC
+            offerings. The strongest current focus is on financial services,
             regulated environments, expert and management education, and
             structured readiness thinking.
           </p>
@@ -116,11 +114,11 @@ export default function AboutPage() {
 
             <div>
               <h3 className="text-xl font-semibold text-white mb-2">
-                PQC Checkup
+                PQC
               </h3>
               <p className="text-lg leading-relaxed text-gray-300">
-                A structured starting point for assessing exposure,
-                priorities, and planning needs in post-quantum cryptography.
+                Concrete offerings for post-quantum cryptography, including
+                PQC Mobilization and PQC Navigator.
               </p>
             </div>
           </div>
@@ -133,16 +131,15 @@ export default function AboutPage() {
               Explore Work With Me
             </Link>
             <Link
-              href="/pqc-checkup"
+              href="/pqc-navigator"
               className="px-5 py-3 border border-cyan-400 text-cyan-200 rounded-lg font-semibold hover:bg-cyan-400/10 transition"
             >
-              Explore PQC Checkup
+              Explore PQC Offering
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Training overview */}
       <section className="max-w-4xl mx-auto px-6 pb-20 text-gray-200">
         <h2 className="text-3xl font-bold text-cyan-300 mb-4">
           Example training formats
@@ -155,7 +152,6 @@ export default function AboutPage() {
         </p>
 
         <div className="space-y-10">
-          {/* Management */}
           <div>
             <h3 className="text-2xl font-semibold mb-3">
               Management audience
@@ -185,7 +181,6 @@ export default function AboutPage() {
             </p>
           </div>
 
-          {/* Experts */}
           <div>
             <h3 className="text-2xl font-semibold mb-3">
               Expert and quant audience
@@ -216,7 +211,6 @@ export default function AboutPage() {
           </div>
         </div>
 
-        {/* CTA Buttons */}
         <div className="flex flex-wrap gap-4 mt-12">
           <Link
             href="/work"
@@ -240,7 +234,6 @@ export default function AboutPage() {
           </a>
         </div>
 
-        {/* Closing line */}
         <p className="text-lg leading-relaxed mt-10">
           Quantum computing is complex, but increasingly relevant. Organizations
           that start building awareness and structure today will be better
@@ -248,7 +241,6 @@ export default function AboutPage() {
           respond credibly as the field evolves.
         </p>
 
-        {/* Legal link */}
         <p className="text-sm text-gray-400 leading-relaxed mt-8">
           Legal notice, terms of use, and privacy information are available{" "}
           <Link

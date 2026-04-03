@@ -20,7 +20,7 @@ export default function WorkWithMePage() {
           Qubit Lab supports organizations that want to understand where quantum matters,
           how to prepare, and how to turn interest into a credible next step.
           The focus is on practical relevance rather than hype: executive awareness,
-          structured evaluation of use cases, expert training, and PQC readiness.
+          structured evaluation of use cases, expert training, and concrete PQC offerings.
           Particular emphasis is placed on financial services and regulated environments,
           while selected adjacent topics can also be supported.
         </p>
@@ -33,18 +33,18 @@ export default function WorkWithMePage() {
             Discuss Your Situation
           </a>
           <a
-            href="/pqc_checkup"
+            href="/pqc-navigator"
             className="px-6 py-3 rounded-lg border border-cyan-400 text-cyan-300 font-semibold hover:bg-cyan-400/10 transition"
           >
-            Explore PQC Checkup
+            Explore PQC Offering
           </a>
         </div>
 
         <div className="mb-16">
           <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
             <Image
-              src="/HNDL-TNFL.png"
-              alt="PQC risks already active today: long-lived confidentiality risk and long-lived trust risk"
+              src="/PQC-Direction-Liability.png"
+              alt="PQC direction is emerging and liability exists today"
               width={1600}
               height={900}
               className="w-full h-auto"
@@ -63,7 +63,7 @@ export default function WorkWithMePage() {
           </p>
           <p className="text-gray-400 text-base leading-relaxed max-w-4xl">
             Typical starting formats: management briefing, expert workshop, use-case discussion,
-            or PQC Checkup conversation.
+            or a concrete PQC conversation.
           </p>
         </section>
 
@@ -113,6 +113,7 @@ export default function WorkWithMePage() {
               <li>management briefings</li>
               <li>quant and expert training</li>
               <li>tailored workshops</li>
+              <li>hands-on support around first PoCs and examples</li>
             </ul>
             <h4 className="text-white font-semibold mb-2">Typical outcomes</h4>
             <ul className="text-gray-300 space-y-2 list-disc list-inside">
@@ -125,29 +126,27 @@ export default function WorkWithMePage() {
 
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
             <h3 className="text-2xl font-bold text-cyan-300 mb-3">
-              PQC Checkup
+              PQC
             </h3>
             <p className="text-gray-200 font-semibold mb-4">
-              A structured starting point for post-quantum cryptography readiness
+              Concrete offerings for post-quantum cryptography readiness
             </p>
             <p className="text-gray-300 leading-relaxed mb-4">
-              For organizations that want to move from broad awareness to a first structured
-              view of exposure, priorities, and planning needs.
+              For organizations that want a more practical and structured approach
+              to PQC, with offerings that range from initial mobilization to a
+              broader readiness assessment.
             </p>
-            <h4 className="text-white font-semibold mb-2">Focus areas</h4>
+            <h4 className="text-white font-semibold mb-2">Offerings</h4>
             <ul className="text-gray-300 space-y-2 list-disc list-inside mb-4">
-              <li>current-state awareness</li>
-              <li>cryptographic exposure and dependency mapping</li>
-              <li>long-term confidentiality considerations</li>
-              <li>prioritization of action fields</li>
-              <li>management-ready decision support</li>
+              <li>PQC Mobilization</li>
+              <li>PQC Navigator</li>
             </ul>
-            <h4 className="text-white font-semibold mb-2">Typical outcomes</h4>
+            <h4 className="text-white font-semibold mb-2">Typical focus</h4>
             <ul className="text-gray-300 space-y-2 list-disc list-inside">
-              <li>structured overview of relevant risks and dependencies</li>
-              <li>clearer understanding of where analysis should start</li>
-              <li>prioritized next steps</li>
-              <li>basis for a broader assessment or implementation planning</li>
+              <li>stakeholder alignment and awareness on PQC risk</li>
+              <li>cryptographic exposure and dependency visibility</li>
+              <li>planning maturity, gaps, and decision points</li>
+              <li>practical management options and next steps</li>
             </ul>
           </div>
         </section>
@@ -155,8 +154,8 @@ export default function WorkWithMePage() {
         <div className="mb-20">
           <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
             <Image
-              src="/PQC-Readiness.png"
-              alt="PQC readiness and implementation planning approach"
+              src="/PQC-Offerings.png"
+              alt="PQC Mobilization and PQC Navigator offering structure"
               width={1600}
               height={900}
               className="w-full h-auto"
@@ -257,11 +256,12 @@ export default function WorkWithMePage() {
             </div>
             <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
               <h3 className="text-xl font-bold text-white mb-2">
-                PQC Checkup Discussion
+                PQC Discussion
               </h3>
               <p className="text-gray-300 leading-relaxed">
                 A first discussion around cryptographic exposure, planning questions,
-                and how a structured PQC Checkup could look in practice.
+                stakeholder alignment, and whether PQC Mobilization or PQC Navigator
+                is the better fit.
               </p>
             </div>
             <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
