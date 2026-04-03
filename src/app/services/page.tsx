@@ -2,14 +2,14 @@ import Image from "next/image";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
 
-export default function WorkWithMePage() {
+export default function ServicesPage() {
   return (
     <AppLayout>
       <Header />
 
       <section className="max-w-6xl mx-auto px-6 pt-24 pb-20">
         <h1 className="text-4xl font-bold text-cyan-300 mb-6">
-          Work With Me
+          Services
         </h1>
 
         <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-6">
@@ -55,7 +55,7 @@ export default function WorkWithMePage() {
 
         <section className="mb-16">
           <h2 className="text-3xl font-bold text-cyan-300 mb-6">
-            How I can support
+            How qubit-lab.ch can support
           </h2>
           <p className="text-gray-300 text-lg leading-relaxed max-w-4xl mb-4">
             Engagements are tailored to the maturity, goals, and audience of your organization.
@@ -202,7 +202,7 @@ export default function WorkWithMePage() {
 
         <section className="mb-12">
           <h2 className="text-3xl font-bold text-cyan-300 mb-6">
-            How I work
+            Approach
           </h2>
           <p className="text-gray-300 text-lg leading-relaxed mb-4 max-w-4xl">
             The approach is pragmatic, structured, and tailored to the audience.
@@ -305,7 +305,7 @@ export default function WorkWithMePage() {
             href="/contact"
             className="inline-block px-6 py-3 rounded-lg bg-cyan-400 text-black font-semibold hover:bg-cyan-300 transition"
           >
-            Contact Me
+            Start the Conversation
           </a>
         </section>
       </section>

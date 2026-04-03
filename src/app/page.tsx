@@ -16,7 +16,7 @@ const BIN_ROUTES: Record<string, string> = {
   All: "/all",
 };
 
-function formatIsoDate(iso: string | null): string {
+function formatIsoDate(iso: string | null) {
   if (!iso) return "";
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
@@ -110,10 +110,10 @@ export default function Home() {
             </p>
             <div className="flex flex-wrap gap-4">
               <a
-                href="/work"
+                href="/services"
                 className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold text-lg hover:bg-cyan-700 transition"
               >
-                Work With Me
+                Services
               </a>
               <a
                 href="/pqc-navigator"
@@ -146,7 +146,7 @@ export default function Home() {
           <div className="bg-white/5 border border-white/10 rounded-2xl p-8 md:p-10">
             <div className="max-w-4xl mb-8">
               <h2 className="text-3xl md:text-4xl font-bold text-cyan-300 mb-4">
-                Work With Me
+                Services
               </h2>
               <p className="text-gray-300 text-lg leading-relaxed">
                 Qubit Lab supports organizations that want practical quantum guidance
@@ -191,16 +191,16 @@ export default function Home() {
 
             <div className="flex flex-wrap gap-4">
               <a
-                href="/work"
+                href="/services"
                 className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold hover:bg-cyan-700 transition"
               >
-                Explore Work With Me
+                Explore Services
               </a>
               <a
                 href="/contact"
                 className="inline-block px-6 py-3 border border-white/15 text-gray-200 rounded-lg font-bold hover:bg-white/10 transition"
               >
-                Contact
+                Start the Conversation
               </a>
             </div>
           </div>

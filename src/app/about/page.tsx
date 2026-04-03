@@ -125,10 +125,10 @@ export default function AboutPage() {
 
           <div className="flex flex-wrap gap-4">
             <Link
-              href="/work"
+              href="/services"
               className="px-5 py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
             >
-              Explore Work With Me
+              Explore Services
             </Link>
             <Link
               href="/pqc-navigator"
@@ -213,16 +213,16 @@ export default function AboutPage() {
 
         <div className="flex flex-wrap gap-4 mt-12">
           <Link
-            href="/work"
+            href="/services"
             className="px-5 py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 transition"
           >
-            Explore Work With Me
+            Explore Services
           </Link>
           <a
             href="mailto:contact@qubit-lab.ch"
             className="px-5 py-3 border border-white/15 text-white rounded-lg font-semibold hover:bg-white/10 transition"
           >
-            Start the Discussion
+            Start the Conversation
           </a>
           <a
             href="https://www.linkedin.com/in/danielhug"

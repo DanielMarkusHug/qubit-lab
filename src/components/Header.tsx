@@ -35,7 +35,7 @@ export default function Header() {
 
         {/* Desktop Right Menu */}
         <div className="ml-auto hidden md:flex gap-4 text-sm">
-          <Link href="/work">Work With Me</Link>
+          <Link href="/services">Services</Link>
           <Link href="/about">About</Link>
           <Link href="/resources">Resources</Link>
           <Link href="/contact">Contact</Link>
@@ -115,11 +115,11 @@ export default function Header() {
           <hr className="border-white/20" />
 
           <Link
-            href="/work"
+            href="/services"
             className="block text-cyan-300 hover:text-cyan-400 font-medium"
             onClick={() => setMenuOpen(false)}
           >
-            Work With Me
+            Services
           </Link>
           <Link
             href="/about"

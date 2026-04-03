@@ -40,10 +40,10 @@ export default function PQCNavigatorPage() {
             Discuss PQC Navigator
           </a>
           <a
-            href="/work"
+            href="/services"
             className="inline-block px-6 py-3 border border-cyan-400 text-cyan-200 rounded-lg font-bold hover:bg-cyan-400/10 transition"
           >
-            Back to Work With Me
+            Back to Services
           </a>
         </div>
 
@@ -213,7 +213,7 @@ export default function PQCNavigatorPage() {
               href="/contact"
               className="inline-block px-6 py-3 bg-cyan-600 text-white rounded-lg font-bold hover:bg-cyan-700 transition"
             >
-              Contact Me
+              Start the Conversation
             </a>
             <a
               href="/pqc"
