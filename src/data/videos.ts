@@ -435,4 +435,17 @@ export const videos: Video[] = [
     image: "Video-Comparison-short.jpg",
     tags: ["Straight Talk", "QAOA"],
   },
+  {
+    id: "AvD4zzsurng",
+    title: "QAOA Today: How Far Can NISQ Hardware Really Go? (as of April 2026)",
+    description:
+      "QAOA is often presented as a promising approach for tackling complex optimization problems. But its real value depends on what today’s hardware can actually support. Current NISQ devices come with strict limitations: noise, limited connectivity, and shallow circuit depths. These are not minor details, they fundamentally shape what QAOA can and cannot achieve in practice. This video takes a grounded look at these constraints and translates them into realistic expectations. Not as a final verdict, but as a clearer picture of where we stand today and what remains out of reach.",
+    topic: "stq",
+    number: 4,
+    year: 2026,
+    publishDate: "2026-04-10",
+    bins: ["STQ", "Deep Dive", "Finance"],
+    image: "STQ-4.jpg",
+    tags: ["Straight Talk", "QAOA", "NISQ", "Hardware"],
+  },
 ];
