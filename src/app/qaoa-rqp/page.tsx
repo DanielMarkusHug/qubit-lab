@@ -200,13 +200,13 @@ function formatRuntimeInputs(value: unknown) {
   const iterations = record.iterations;
   const restarts = record.restarts;
 
-  return [
+  const parts = [
     layers !== undefined ? `layers=${layers}` : null,
     iterations !== undefined ? `iterations=${iterations}` : null,
     restarts !== undefined ? `restarts=${restarts}` : null,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(", ") : "n/a";
 }
 
 function metricValueClass(kind: "number" | "text", subtle: boolean) {
@@ -249,8 +249,10 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-800 py-2 text-sm">
-      <span className="text-gray-400">{label}</span>
-      <span className="text-gray-100 text-right break-words">{value ?? "n/a"}</span>
+      <span className="text-gray-400 shrink-0">{label}</span>
+      <span className="text-gray-100 text-right break-words max-w-[70%] min-w-0">
+        {value ?? "n/a"}
+      </span>
     </div>
   );
 }
@@ -340,6 +342,14 @@ function getSourceLabel(block: CandidateRow) {
   return "";
 }
 
+function hasQuantumResult(summary?: ReportingSummaryBlock) {
+  return Boolean(summary?.available);
+}
+
+function quantumPlaceholderText(summary?: ReportingSummaryBlock) {
+  return summary?.status ?? "Disabled / Not available";
+}
+
 function CandidateTable({
   rows,
   currencyCode,
@@ -363,7 +373,7 @@ function CandidateTable({
             <th className="py-2 pr-4">Budget gap</th>
             <th className="py-2 pr-4">Return</th>
             <th className="py-2 pr-4">Volatility</th>
-            <th className="py-2 pr-4">Sharpe ratio (proxy)</th>
+            <th className="py-2 pr-4">Sharpe ratio</th>
           </tr>
         </thead>
         <tbody>
@@ -452,6 +462,7 @@ export default function QaoaRqpPage() {
   const solverComparison = reporting?.solver_comparison ?? [];
   const quantumSamples = reporting?.quantum_samples ?? [];
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
+
   const chartEntries = [
     ["Risk / Return / Sharpe ratio", charts.risk_return_sharpe],
     ["Risk / Return / QUBO", charts.risk_return_qubo],
@@ -652,7 +663,10 @@ export default function QaoaRqpPage() {
     ["Budget", formatCurrency(diagnostics.budget_usd, currencyCode)],
     [
       "Fixed invested amount",
-      formatCurrency(reportingSummary?.fixed_invested_usd ?? metrics.fixed_usd, currencyCode),
+      formatCurrency(
+        reportingSummary?.fixed_invested_usd ?? metrics.fixed_usd,
+        currencyCode
+      ),
     ],
     [
       "Variable selectable universe",
@@ -970,72 +984,69 @@ export default function QaoaRqpPage() {
                 )}
 
                 {result && !result.error && (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
-                      <MetricCard
-                        label="Objective"
-                        value={formatNumber(
-                          classicalSummary?.objective ?? result.objective,
-                          4
-                        )}
-                      />
-                      <MetricCard
-                        label="QUBO value"
-                        value={formatNumber(
-                          classicalSummary?.qubo_value ?? result.qubo_value,
-                          6
-                        )}
-                      />
-                      <MetricCard
-                        label="Selected amount"
-                        value={formatCurrency(
-                          classicalSummary?.selected_usd ?? result.selected_usd,
-                          currencyCode
-                        )}
-                      />
-                      <MetricCard
-                        label="Budget gap"
-                        value={formatCurrency(
-                          classicalSummary?.budget_gap ?? result.budget_gap,
-                          currencyCode
-                        )}
-                      />
-                      <MetricCard
-                        label="Return proxy"
-                        value={formatNumber(
-                          classicalSummary?.portfolio_return ??
-                            metrics.portfolio_return,
-                          3
-                        )}
-                      />
-                      <MetricCard
-                        label="Volatility"
-                        value={formatNumber(
-                          classicalSummary?.portfolio_vol ?? metrics.portfolio_vol,
-                          3
-                        )}
-                      />
-                      <MetricCard
-                        label="Sharpe ratio (proxy)"
-                        value={formatNumber(
-                          classicalSummary?.sharpe_like ?? metrics.sharpe_like,
-                          3
-                        )}
-                      />
-                      <MetricCard
-                        label="Bitstring"
-                        value={formatText(
-                          classicalSummary?.best_bitstring ?? result.best_bitstring
-                        )}
-                        kind="text"
-                      />
-                      <MetricCard
-                        label="Source"
-                        value={formatText(classicalSummary?.source ?? result.solver)}
-                        kind="text"
-                      />
-                    </div>
-                  </>
+                  <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
+                    <MetricCard
+                      label="Objective"
+                      value={formatNumber(
+                        classicalSummary?.objective ?? result.objective,
+                        4
+                      )}
+                    />
+                    <MetricCard
+                      label="QUBO value"
+                      value={formatNumber(
+                        classicalSummary?.qubo_value ?? result.qubo_value,
+                        6
+                      )}
+                    />
+                    <MetricCard
+                      label="Selected amount"
+                      value={formatCurrency(
+                        classicalSummary?.selected_usd ?? result.selected_usd,
+                        currencyCode
+                      )}
+                    />
+                    <MetricCard
+                      label="Budget gap"
+                      value={formatCurrency(
+                        classicalSummary?.budget_gap ?? result.budget_gap,
+                        currencyCode
+                      )}
+                    />
+                    <MetricCard
+                      label="Return proxy"
+                      value={formatNumber(
+                        classicalSummary?.portfolio_return ?? metrics.portfolio_return,
+                        3
+                      )}
+                    />
+                    <MetricCard
+                      label="Volatility"
+                      value={formatNumber(
+                        classicalSummary?.portfolio_vol ?? metrics.portfolio_vol,
+                        3
+                      )}
+                    />
+                    <MetricCard
+                      label="Sharpe ratio"
+                      value={formatNumber(
+                        classicalSummary?.sharpe_like ?? metrics.sharpe_like,
+                        3
+                      )}
+                    />
+                    <MetricCard
+                      label="Bitstring"
+                      value={formatText(
+                        classicalSummary?.best_bitstring ?? result.best_bitstring
+                      )}
+                      kind="text"
+                    />
+                    <MetricCard
+                      label="Source"
+                      value={formatText(classicalSummary?.source ?? result.solver)}
+                      kind="text"
+                    />
+                  </div>
                 )}
               </Panel>
 
@@ -1070,7 +1081,7 @@ export default function QaoaRqpPage() {
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
-                    label="Sharpe ratio (proxy)"
+                    label="Sharpe ratio"
                     value={formatNumber(quantumSummary?.sharpe_like, 3)}
                     subtle={!quantumSummary?.available}
                   />
@@ -1118,7 +1129,7 @@ export default function QaoaRqpPage() {
 
             {result && !result.error && (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <Panel title="Portfolio Metrics">
+                <Panel title="Classical Portfolio Metrics">
                   <InfoRow
                     label="Cash weight"
                     value={formatPercent(
@@ -1141,8 +1152,7 @@ export default function QaoaRqpPage() {
                   <InfoRow
                     label="Portfolio return"
                     value={formatNumber(
-                      classicalSummary?.portfolio_return ??
-                        metrics.portfolio_return,
+                      classicalSummary?.portfolio_return ?? metrics.portfolio_return,
                       4
                     )}
                   />
@@ -1154,7 +1164,7 @@ export default function QaoaRqpPage() {
                     )}
                   />
                   <InfoRow
-                    label="Sharpe ratio (proxy)"
+                    label="Sharpe ratio"
                     value={formatNumber(
                       classicalSummary?.sharpe_like ?? metrics.sharpe_like,
                       4
@@ -1162,22 +1172,65 @@ export default function QaoaRqpPage() {
                   />
                   <InfoRow
                     label="Budget-normalized return"
-                    value={formatNumber(
-                      metrics.portfolio_return_budget_normalized,
-                      4
-                    )}
+                    value={formatNumber(metrics.portfolio_return_budget_normalized, 4)}
                   />
                   <InfoRow
                     label="Budget-normalized volatility"
                     value={formatNumber(metrics.portfolio_vol_budget_normalized, 4)}
                   />
                   <InfoRow
-                    label="Budget-normalized Sharpe ratio (proxy)"
+                    label="Budget-normalized Sharpe ratio"
                     value={formatNumber(metrics.sharpe_like_budget_normalized, 4)}
                   />
                 </Panel>
 
-                <Panel title="Objective / QUBO Breakdown">
+                <Panel title="Quantum Portfolio Metrics">
+                  {hasQuantumResult(quantumSummary) ? (
+                    <>
+                      <InfoRow
+                        label="Cash weight"
+                        value={formatPercent(quantumSummary?.cash_weight, 3)}
+                      />
+                      <InfoRow
+                        label="Selected amount"
+                        value={formatCurrency(quantumSummary?.selected_usd, currencyCode)}
+                      />
+                      <InfoRow
+                        label="Budget gap"
+                        value={formatCurrency(quantumSummary?.budget_gap, currencyCode)}
+                      />
+                      <InfoRow
+                        label="Portfolio return"
+                        value={formatNumber(quantumSummary?.portfolio_return, 4)}
+                      />
+                      <InfoRow
+                        label="Portfolio volatility"
+                        value={formatNumber(quantumSummary?.portfolio_vol, 4)}
+                      />
+                      <InfoRow
+                        label="Sharpe ratio"
+                        value={formatNumber(quantumSummary?.sharpe_like, 4)}
+                      />
+                      <InfoRow
+                        label="Probability"
+                        value={formatNumber(quantumSummary?.probability, 6)}
+                      />
+                    </>
+                  ) : (
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-gray-400">
+                      <div className="font-semibold text-gray-300 mb-1">
+                        {quantumPlaceholderText(quantumSummary)}
+                      </div>
+                      <div>
+                        Quantum portfolio metrics will be populated from the best
+                        QUBO candidate within the exported QAOA sample set once
+                        QAOA execution is enabled.
+                      </div>
+                    </div>
+                  )}
+                </Panel>
+
+                <Panel title="Classical Objective / QUBO Breakdown">
                   <InfoRow
                     label="Return term"
                     value={formatNumber(
@@ -1216,11 +1269,48 @@ export default function QaoaRqpPage() {
                     value={formatPercent(reportingSummary?.risk_free_rate, 2)}
                   />
                 </Panel>
+
+                <Panel title="Quantum Objective / QUBO Breakdown">
+                  {hasQuantumResult(quantumSummary) ? (
+                    <>
+                      <InfoRow
+                        label="Return term"
+                        value={formatNumber(quantumSummary?.return_term, 6)}
+                      />
+                      <InfoRow
+                        label="Risk term"
+                        value={formatNumber(quantumSummary?.risk_term, 6)}
+                      />
+                      <InfoRow
+                        label="Budget term"
+                        value={formatNumber(quantumSummary?.budget_term, 6)}
+                      />
+                      <InfoRow
+                        label="QUBO value"
+                        value={formatNumber(quantumSummary?.qubo_value, 6)}
+                      />
+                      <InfoRow
+                        label="Probability"
+                        value={formatNumber(quantumSummary?.probability, 6)}
+                      />
+                    </>
+                  ) : (
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-gray-400">
+                      <div className="font-semibold text-gray-300 mb-1">
+                        {quantumPlaceholderText(quantumSummary)}
+                      </div>
+                      <div>
+                        Quantum QUBO terms will be populated from QAOA_Samples
+                        and QAOA_Best_QUBO once quantum execution is enabled.
+                      </div>
+                    </div>
+                  )}
+                </Panel>
               </div>
             )}
 
             {portfolioContents.length > 0 && (
-              <Panel title="Portfolio Contents">
+              <Panel title="Classical Portfolio Contents">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="text-gray-400 border-b border-slate-700">
@@ -1275,6 +1365,24 @@ export default function QaoaRqpPage() {
                     </tbody>
                   </table>
                 </div>
+              </Panel>
+            )}
+
+            {result && !result.error && (
+              <Panel title="Quantum Portfolio Contents">
+                {hasQuantumResult(quantumSummary) ? (
+                  <p className="text-gray-400 text-sm">
+                    Quantum portfolio contents will be displayed here once the
+                    backend returns portfolio rows tagged for the selected
+                    quantum best-QUBO candidate.
+                  </p>
+                ) : (
+                  <p className="text-gray-400 text-sm">
+                    No quantum portfolio contents are available in the current
+                    cloud version. This section will use the best QUBO candidate
+                    within exported QAOA samples once QAOA execution is enabled.
+                  </p>
+                )}
               </Panel>
             )}
 
@@ -1372,13 +1480,16 @@ export default function QaoaRqpPage() {
                       value={formatText(reportingSummary?.qaoa_candidate_count ?? 0)}
                     />
                     <InfoRow
-                      label="QAOA status"
-                      value={formatText(reportingSummary?.qaoa_status)}
-                    />
-                    <InfoRow
                       label="QAOA p"
                       value={formatText(reportingSummary?.qaoa_p)}
                     />
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm">
+                  <div className="text-gray-400 mb-1">QAOA status</div>
+                  <div className="text-gray-100 break-words">
+                    {formatText(reportingSummary?.qaoa_status)}
                   </div>
                 </div>
               </Panel>
