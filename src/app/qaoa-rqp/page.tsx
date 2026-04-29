@@ -261,17 +261,32 @@ function Panel({
   title,
   children,
   className = "",
+  tone = "cyan",
 }: {
   title: string;
   children: React.ReactNode;
   className?: string;
+  tone?: "cyan" | "amber";
 }) {
+  const titleClass = tone === "amber" ? "text-amber-300" : "text-cyan-200";
+  const borderClass =
+    tone === "amber" ? "border-amber-900/60" : "border-cyan-900/60";
+
   return (
     <div
-      className={`rounded-2xl border border-cyan-900/60 bg-slate-950/70 p-5 shadow-lg ${className}`}
+      className={`rounded-2xl border ${borderClass} bg-slate-950/70 p-5 shadow-lg ${className}`}
     >
-      <h2 className="text-xl font-bold text-cyan-200 mb-4">{title}</h2>
+      <h2 className={`text-xl font-bold mb-4 ${titleClass}`}>{title}</h2>
       {children}
+    </div>
+  );
+}
+
+function QuantumPlaceholder({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-amber-900/60 bg-amber-950/20 p-4 text-sm text-amber-100/80">
+      <div className="font-semibold text-amber-200 mb-1">{title}</div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -1050,7 +1065,7 @@ export default function QaoaRqpPage() {
                 )}
               </Panel>
 
-              <Panel title="Quantum Result Summary">
+              <Panel title="Quantum Result Summary" tone="amber">
                 <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
                   <MetricCard
                     label="Status"
@@ -1184,7 +1199,7 @@ export default function QaoaRqpPage() {
                   />
                 </Panel>
 
-                <Panel title="Quantum Portfolio Metrics">
+                <Panel title="Quantum Portfolio Metrics" tone="amber">
                   {hasQuantumResult(quantumSummary) ? (
                     <>
                       <InfoRow
@@ -1217,16 +1232,11 @@ export default function QaoaRqpPage() {
                       />
                     </>
                   ) : (
-                    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-gray-400">
-                      <div className="font-semibold text-gray-300 mb-1">
-                        {quantumPlaceholderText(quantumSummary)}
-                      </div>
-                      <div>
-                        Quantum portfolio metrics will be populated from the best
-                        QUBO candidate within the exported QAOA sample set once
-                        QAOA execution is enabled.
-                      </div>
-                    </div>
+                    <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
+                      Quantum portfolio metrics will be populated from the best
+                      QUBO candidate within the exported QAOA sample set once
+                      QAOA execution is enabled.
+                    </QuantumPlaceholder>
                   )}
                 </Panel>
 
@@ -1270,7 +1280,7 @@ export default function QaoaRqpPage() {
                   />
                 </Panel>
 
-                <Panel title="Quantum Objective / QUBO Breakdown">
+                <Panel title="Quantum Objective / QUBO Breakdown" tone="amber">
                   {hasQuantumResult(quantumSummary) ? (
                     <>
                       <InfoRow
@@ -1295,15 +1305,10 @@ export default function QaoaRqpPage() {
                       />
                     </>
                   ) : (
-                    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-gray-400">
-                      <div className="font-semibold text-gray-300 mb-1">
-                        {quantumPlaceholderText(quantumSummary)}
-                      </div>
-                      <div>
-                        Quantum QUBO terms will be populated from QAOA_Samples
-                        and QAOA_Best_QUBO once quantum execution is enabled.
-                      </div>
-                    </div>
+                    <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
+                      Quantum QUBO terms will be populated from QAOA_Samples and
+                      QAOA_Best_QUBO once quantum execution is enabled.
+                    </QuantumPlaceholder>
                   )}
                 </Panel>
               </div>
@@ -1369,7 +1374,7 @@ export default function QaoaRqpPage() {
             )}
 
             {result && !result.error && (
-              <Panel title="Quantum Portfolio Contents">
+              <Panel title="Quantum Portfolio Contents" tone="amber">
                 {hasQuantumResult(quantumSummary) ? (
                   <p className="text-gray-400 text-sm">
                     Quantum portfolio contents will be displayed here once the
@@ -1377,11 +1382,11 @@ export default function QaoaRqpPage() {
                     quantum best-QUBO candidate.
                   </p>
                 ) : (
-                  <p className="text-gray-400 text-sm">
+                  <QuantumPlaceholder title="No quantum portfolio contents">
                     No quantum portfolio contents are available in the current
                     cloud version. This section will use the best QUBO candidate
                     within exported QAOA samples once QAOA execution is enabled.
-                  </p>
+                  </QuantumPlaceholder>
                 )}
               </Panel>
             )}
@@ -1400,7 +1405,7 @@ export default function QaoaRqpPage() {
             )}
 
             {result && !result.error && (
-              <Panel title="Top Quantum Candidates">
+              <Panel title="Top Quantum Candidates" tone="amber">
                 {qaoaBestQubo.length > 0 || quantumSamples.length > 0 ? (
                   <CandidateTable
                     rows={qaoaBestQubo.length > 0 ? qaoaBestQubo : quantumSamples}
@@ -1408,11 +1413,11 @@ export default function QaoaRqpPage() {
                     showProbability
                   />
                 ) : (
-                  <p className="text-gray-400 text-sm">
+                  <QuantumPlaceholder title="No QAOA samples available">
                     No QAOA samples are available in the current cloud version.
                     This section will show the best QUBO candidates from exported
                     QAOA samples once quantum execution is enabled.
-                  </p>
+                  </QuantumPlaceholder>
                 )}
               </Panel>
             )}
