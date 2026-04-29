@@ -282,7 +282,13 @@ function Panel({
   );
 }
 
-function QuantumPlaceholder({ title, children }: { title: string; children: React.ReactNode }) {
+function QuantumPlaceholder({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-xl border border-amber-900/60 bg-amber-950/20 p-4 text-sm text-amber-100/80">
       <div className="font-semibold text-amber-200 mb-1">{title}</div>
@@ -576,20 +582,28 @@ export default function QaoaRqpPage() {
     setEtaBasisSec(previousEstimate ?? null);
 
     try {
-      if (mode !== "classical_only") {
-        addLog("QAOA execution is currently disabled in this cloud version.");
+      if (mode === "qaoa_limited") {
+        addLog("Running QAOA limited mode...");
+      }
+
+      if (mode === "qaoa") {
+        addLog("Full QAOA mode is currently disabled. Use qaoa_limited.");
       }
 
       addLog("Uploading Excel file...");
       setProgressMessage(
         mode === "classical_only"
           ? "Running classical optimization..."
-          : "Submitting selected mode to backend..."
+          : mode === "qaoa_limited"
+            ? "Running QAOA limited mode..."
+            : "Submitting selected mode to backend..."
       );
       addLog(
         mode === "classical_only"
           ? "Running classical optimization..."
-          : "Submitting selected mode to backend..."
+          : mode === "qaoa_limited"
+            ? "Running QAOA limited mode..."
+            : "Submitting selected mode to backend..."
       );
 
       const formData = new FormData();
@@ -714,9 +728,9 @@ export default function QaoaRqpPage() {
           service hosted on Cloud Run.
           <br />
           <br />
-          The current cloud version runs the controlled classical path. QAOA
-          modes remain disabled until the quantum execution path is re-enabled
-          safely.
+          The current cloud version supports the controlled classical path and a
+          tester-only qaoa_limited mode for small workbooks. Full QAOA remains
+          disabled until the broader quantum execution path is validated.
         </p>
 
         <ProgressBar
@@ -825,10 +839,18 @@ export default function QaoaRqpPage() {
                 <option value="qaoa">qaoa</option>
               </select>
 
-              {mode !== "classical_only" && (
+              {mode === "qaoa_limited" && (
+                <div className="mb-4 rounded-xl border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-100">
+                  QAOA limited mode is enabled for tester keys and small
+                  workbooks. Use a small input first, for example the supersmall
+                  workbook.
+                </div>
+              )}
+
+              {mode === "qaoa" && (
                 <div className="mb-4 rounded-xl border border-yellow-700 bg-yellow-950/30 p-3 text-sm text-yellow-100">
-                  QAOA execution is currently disabled in this cloud version.
-                  The backend will return a controlled message.
+                  Full QAOA mode is still disabled. Use qaoa_limited for the
+                  controlled test path.
                 </div>
               )}
 
@@ -960,8 +982,8 @@ export default function QaoaRqpPage() {
               </label>
 
               <p className="mb-2 text-xs leading-relaxed text-gray-500">
-                QAOA controls are prepared for the quantum execution path. The
-                current cloud version runs the controlled classical path.
+                QAOA limited mode is available for controlled tester-key runs on
+                small workbooks. Full QAOA remains disabled for now.
               </p>
               <p className="mb-5 text-xs leading-relaxed text-gray-500">
                 QAOA shots are used only when sampling mode is active; exact
@@ -1117,7 +1139,7 @@ export default function QaoaRqpPage() {
                 <p className="mt-4 text-sm leading-relaxed text-gray-400">
                   {quantumSummary?.future_source
                     ? `Future source: ${quantumSummary.future_source}.`
-                    : "This block is prepared to display the best QUBO result from exported quantum samples once the QAOA execution path is re-enabled."}
+                    : "This block displays the best QUBO result from exported quantum samples when qaoa_limited is run successfully."}
                 </p>
               </Panel>
             </div>
@@ -1235,7 +1257,7 @@ export default function QaoaRqpPage() {
                     <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
                       Quantum portfolio metrics will be populated from the best
                       QUBO candidate within the exported QAOA sample set once
-                      QAOA execution is enabled.
+                      qaoa_limited runs successfully.
                     </QuantumPlaceholder>
                   )}
                 </Panel>
@@ -1307,7 +1329,7 @@ export default function QaoaRqpPage() {
                   ) : (
                     <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
                       Quantum QUBO terms will be populated from QAOA_Samples and
-                      QAOA_Best_QUBO once quantum execution is enabled.
+                      QAOA_Best_QUBO once qaoa_limited runs successfully.
                     </QuantumPlaceholder>
                   )}
                 </Panel>
@@ -1384,8 +1406,9 @@ export default function QaoaRqpPage() {
                 ) : (
                   <QuantumPlaceholder title="No quantum portfolio contents">
                     No quantum portfolio contents are available in the current
-                    cloud version. This section will use the best QUBO candidate
-                    within exported QAOA samples once QAOA execution is enabled.
+                    response. This section will use the best QUBO candidate
+                    within exported QAOA samples once the backend provides the
+                    corresponding portfolio rows.
                   </QuantumPlaceholder>
                 )}
               </Panel>
@@ -1414,9 +1437,9 @@ export default function QaoaRqpPage() {
                   />
                 ) : (
                   <QuantumPlaceholder title="No QAOA samples available">
-                    No QAOA samples are available in the current cloud version.
-                    This section will show the best QUBO candidates from exported
-                    QAOA samples once quantum execution is enabled.
+                    No QAOA samples are available in the current response. This
+                    section will show the best QUBO candidates from exported
+                    QAOA samples once qaoa_limited completes successfully.
                   </QuantumPlaceholder>
                 )}
               </Panel>
