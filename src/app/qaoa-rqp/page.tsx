@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
 
@@ -58,6 +58,7 @@ type Reporting = {
     classical_result_summary?: ReportingSummaryBlock;
     quantum_result_summary?: ReportingSummaryBlock;
 
+    currency_code?: string;
     decision_variables?: number;
     decision_state_space?: string;
     fixed_asset_blocks?: number;
@@ -161,12 +162,13 @@ function formatNumber(value: unknown, digits = 3) {
   });
 }
 
-function formatUsd(value: unknown) {
+function formatCurrency(value: unknown, currencyCode = "USD") {
   const number = getNumber(value);
   if (number === undefined) return "n/a";
+
   return number.toLocaleString("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: currencyCode,
     maximumFractionDigits: 0,
   });
 }
@@ -182,6 +184,7 @@ function formatPercent(value: unknown, digits = 2) {
 function formatText(value: unknown, fallback = "n/a") {
   if (value === null || value === undefined || value === "") return fallback;
   if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
@@ -190,25 +193,49 @@ function formatQuboShape(value: unknown) {
   return formatText(value);
 }
 
+function formatRuntimeInputs(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "n/a";
+  const record = value as Record<string, unknown>;
+  const layers = record.layers ?? record.p;
+  const iterations = record.iterations;
+  const restarts = record.restarts;
+
+  return [
+    layers !== undefined ? `layers=${layers}` : null,
+    iterations !== undefined ? `iterations=${iterations}` : null,
+    restarts !== undefined ? `restarts=${restarts}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function metricValueClass(kind: "number" | "text", subtle: boolean) {
+  if (kind === "text") {
+    return `text-base font-semibold leading-snug break-words ${
+      subtle ? "text-gray-300" : "text-cyan-100"
+    }`;
+  }
+
+  return `text-2xl font-bold leading-tight break-words ${
+    subtle ? "text-gray-300" : "text-cyan-200"
+  }`;
+}
+
 function MetricCard({
   label,
   value,
   subtle = false,
+  kind = "number",
 }: {
   label: string;
   value: string;
   subtle?: boolean;
+  kind?: "number" | "text";
 }) {
   return (
-    <div className="rounded-xl bg-slate-900/80 border border-slate-700 p-4">
-      <div className="text-gray-400 text-sm">{label}</div>
-      <div
-        className={`text-2xl font-bold break-words ${
-          subtle ? "text-gray-300" : "text-cyan-200"
-        }`}
-      >
-        {value}
-      </div>
+    <div className="rounded-xl bg-slate-900/80 border border-slate-700 p-4 min-w-0">
+      <div className="text-gray-400 text-sm mb-1">{label}</div>
+      <div className={metricValueClass(kind, subtle)}>{value}</div>
     </div>
   );
 }
@@ -260,11 +287,66 @@ function ChartImage({ title, src }: { title: string; src: string }) {
   );
 }
 
+function ProgressBar({
+  visible,
+  progress,
+  message,
+  etaSeconds,
+}: {
+  visible: boolean;
+  progress: number;
+  message: string;
+  etaSeconds?: number;
+}) {
+  if (!visible) return null;
+
+  return (
+    <div className="mb-6 rounded-2xl border border-cyan-900/60 bg-slate-950/80 p-4 shadow-lg">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="text-sm font-semibold text-cyan-100">{message}</div>
+        <div className="text-sm text-gray-400">
+          {etaSeconds !== undefined && etaSeconds > 0
+            ? `Estimated remaining: ~${Math.ceil(etaSeconds)} sec`
+            : "Running..."}
+        </div>
+      </div>
+      <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800">
+        <div
+          className="h-full rounded-full bg-cyan-400 transition-all duration-500"
+          style={{ width: `${Math.max(5, Math.min(progress, 100))}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function getBitIndexLabel(block: CandidateRow) {
+  const role = String(block.decision_role ?? "").toLowerCase();
+  if (role === "fixed") return "fixed";
+  return formatText(block.variable_bit_index);
+}
+
+function getRankLabel(block: CandidateRow) {
+  const role = String(block.decision_role ?? "").toLowerCase();
+  if (block.rank !== undefined && block.rank !== null) return formatText(block.rank);
+  if (role === "fixed") return "fixed";
+  return "";
+}
+
+function getSourceLabel(block: CandidateRow) {
+  const role = String(block.decision_role ?? "").toLowerCase();
+  if (block.source !== undefined && block.source !== null) return formatText(block.source);
+  if (role === "fixed") return "fixed";
+  return "";
+}
+
 function CandidateTable({
   rows,
+  currencyCode,
   showProbability = false,
 }: {
   rows: CandidateRow[];
+  currencyCode: string;
   showProbability?: boolean;
 }) {
   return (
@@ -277,11 +359,11 @@ function CandidateTable({
             <th className="py-2 pr-4">Bitstring</th>
             {showProbability && <th className="py-2 pr-4">Probability</th>}
             <th className="py-2 pr-4">QUBO</th>
-            <th className="py-2 pr-4">Selected USD</th>
+            <th className="py-2 pr-4">Selected amount</th>
             <th className="py-2 pr-4">Budget gap</th>
             <th className="py-2 pr-4">Return</th>
             <th className="py-2 pr-4">Volatility</th>
-            <th className="py-2 pr-4">Sharpe-like</th>
+            <th className="py-2 pr-4">Sharpe ratio (proxy)</th>
           </tr>
         </thead>
         <tbody>
@@ -305,10 +387,10 @@ function CandidateTable({
                 {formatNumber(candidate.qubo_value ?? candidate.qubo_reconstructed, 6)}
               </td>
               <td className="py-2 pr-4 text-gray-300">
-                {formatUsd(candidate.selected_usd)}
+                {formatCurrency(candidate.selected_usd, currencyCode)}
               </td>
               <td className="py-2 pr-4 text-gray-300">
-                {formatUsd(candidate.budget_gap)}
+                {formatCurrency(candidate.budget_gap, currencyCode)}
               </td>
               <td className="py-2 pr-4 text-gray-300">
                 {formatNumber(candidate.portfolio_return, 4)}
@@ -338,11 +420,20 @@ export default function QaoaRqpPage() {
   const [iterations, setIterations] = useState(80);
   const [restarts, setRestarts] = useState(1);
   const [warmStart, setWarmStart] = useState(false);
+  const [budgetLambda, setBudgetLambda] = useState(50);
+  const [riskLambda, setRiskLambda] = useState(6);
+  const [riskFreeRate, setRiskFreeRate] = useState(0.04);
+  const [qaoaShots, setQaoaShots] = useState(4096);
+  const [restartPerturbation, setRestartPerturbation] = useState(0.05);
 
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [etaBasisSec, setEtaBasisSec] = useState<number | null>(null);
 
   const diagnostics = result?.diagnostics ?? {};
   const metrics = result?.portfolio_metrics ?? {};
@@ -351,6 +442,8 @@ export default function QaoaRqpPage() {
   const reportingSummary = reporting?.summary;
   const classicalSummary = reportingSummary?.classical_result_summary;
   const quantumSummary = reportingSummary?.quantum_result_summary;
+  const currencyCode = reportingSummary?.currency_code ?? "USD";
+
   const charts = reporting?.charts ?? {};
   const classicalCandidates =
     reporting?.classical_candidates ?? result?.top_candidates ?? [];
@@ -360,7 +453,7 @@ export default function QaoaRqpPage() {
   const quantumSamples = reporting?.quantum_samples ?? [];
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
   const chartEntries = [
-    ["Risk / Return / Sharpe", charts.risk_return_sharpe],
+    ["Risk / Return / Sharpe ratio", charts.risk_return_sharpe],
     ["Risk / Return / QUBO", charts.risk_return_qubo],
     ["QUBO Breakdown", charts.qubo_breakdown],
     ["Solver Comparison", charts.solver_comparison],
@@ -373,6 +466,27 @@ export default function QaoaRqpPage() {
     return !!file && !loading;
   }, [file, loading]);
 
+  const estimatedRemainingSec = useMemo(() => {
+    if (!loading || runStartedAt === null || etaBasisSec === null) return undefined;
+    const elapsed = (Date.now() - runStartedAt) / 1000;
+    return Math.max(etaBasisSec - elapsed, 0);
+  }, [loading, runStartedAt, etaBasisSec, progress]);
+
+  useEffect(() => {
+    if (!loading) return;
+
+    const interval = window.setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 90) return prev;
+        if (prev < 25) return prev + 4;
+        if (prev < 60) return prev + 2;
+        return prev + 0.75;
+      });
+    }, 700);
+
+    return () => window.clearInterval(interval);
+  }, [loading]);
+
   function addLog(message: string) {
     const timestamp = new Date().toLocaleTimeString();
     setLogs((prev) => [`[${timestamp}] ${message}`, ...prev].slice(0, 80));
@@ -381,6 +495,10 @@ export default function QaoaRqpPage() {
   async function checkLicense() {
     setLoading(true);
     setResult(null);
+    setProgress(10);
+    setProgressMessage("Checking license status...");
+    setRunStartedAt(Date.now());
+    setEtaBasisSec(null);
 
     try {
       addLog("Checking license status...");
@@ -402,11 +520,17 @@ export default function QaoaRqpPage() {
       addLog(
         `License active: ${data.display_name ?? data.usage_level ?? "unknown level"}`
       );
+      setProgress(100);
     } catch (err) {
       addLog(`License check failed: ${err instanceof Error ? err.message : String(err)}`);
       setLicense(null);
     } finally {
-      setLoading(false);
+      window.setTimeout(() => {
+        setLoading(false);
+        setProgress(0);
+        setProgressMessage("");
+        setRunStartedAt(null);
+      }, 400);
     }
   }
 
@@ -418,6 +542,12 @@ export default function QaoaRqpPage() {
 
     setLoading(true);
     setResult(null);
+    setProgress(5);
+    setProgressMessage("Uploading Excel file...");
+    setRunStartedAt(Date.now());
+
+    const previousEstimate = getNumber(diagnostics.estimated_runtime_sec);
+    setEtaBasisSec(previousEstimate ?? null);
 
     try {
       if (mode !== "classical_only") {
@@ -425,6 +555,11 @@ export default function QaoaRqpPage() {
       }
 
       addLog("Uploading Excel file...");
+      setProgressMessage(
+        mode === "classical_only"
+          ? "Running classical optimization..."
+          : "Submitting selected mode to backend..."
+      );
       addLog(
         mode === "classical_only"
           ? "Running classical optimization..."
@@ -439,6 +574,11 @@ export default function QaoaRqpPage() {
       formData.append("iterations", String(iterations));
       formData.append("restarts", String(restarts));
       formData.append("warm_start", String(warmStart));
+      formData.append("lambda_budget", String(budgetLambda));
+      formData.append("lambda_variance", String(riskLambda));
+      formData.append("risk_free_rate", String(riskFreeRate));
+      formData.append("qaoa_shots", String(qaoaShots));
+      formData.append("restart_perturbation", String(restartPerturbation));
 
       const res = await fetch(`${API_URL}/run-qaoa`, {
         method: "POST",
@@ -451,10 +591,22 @@ export default function QaoaRqpPage() {
 
       if (!res.ok || data.status === "error") {
         addLog(`Run failed: ${data?.error?.message ?? res.statusText}`);
+        setProgress(100);
         return;
       }
 
+      if (data?.diagnostics?.estimated_runtime_sec !== undefined) {
+        addLog(
+          `Estimated runtime: ${formatNumber(
+            data.diagnostics.estimated_runtime_sec,
+            3
+          )} sec`
+        );
+      }
+
       addLog(`Run completed. Best bitstring: ${data.best_bitstring ?? "n/a"}`);
+      setProgressMessage("Run completed.");
+      setProgress(100);
 
       if (data.license) {
         setLicense(data.license);
@@ -462,7 +614,13 @@ export default function QaoaRqpPage() {
     } catch (err) {
       addLog(`Run failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setLoading(false);
+      window.setTimeout(() => {
+        setLoading(false);
+        setProgress(0);
+        setProgressMessage("");
+        setRunStartedAt(null);
+        setEtaBasisSec(null);
+      }, 600);
     }
   }
 
@@ -488,17 +646,17 @@ export default function QaoaRqpPage() {
         metrics.num_variable_options,
     ],
     [
-      "Unique tickers / assets",
+      "Unique tickers referenced",
       reportingSummary?.unique_tickers ?? diagnostics.assets_referenced_by_options,
     ],
-    ["Budget USD", formatUsd(diagnostics.budget_usd)],
+    ["Budget", formatCurrency(diagnostics.budget_usd, currencyCode)],
     [
-      "Fixed invested USD",
-      formatUsd(reportingSummary?.fixed_invested_usd ?? metrics.fixed_usd),
+      "Fixed invested amount",
+      formatCurrency(reportingSummary?.fixed_invested_usd ?? metrics.fixed_usd, currencyCode),
     ],
     [
-      "Variable universe USD",
-      formatUsd(reportingSummary?.variable_candidate_usd_universe),
+      "Variable selectable universe",
+      formatCurrency(reportingSummary?.variable_candidate_usd_universe, currencyCode),
     ],
     ["QUBO shape", formatQuboShape(diagnostics.qubo_shape)],
     [
@@ -514,14 +672,14 @@ export default function QaoaRqpPage() {
     <AppLayout>
       <Header />
 
-      <section className="max-w-screen-2xl mx-auto px-6 xl:px-10 pt-24 pb-16">
+      <section className="max-w-[1920px] mx-auto px-4 sm:px-6 xl:px-10 2xl:px-14 pt-24 pb-16">
         <h1 className="text-4xl font-bold text-cyan-300 mb-3">QAOA RQP</h1>
 
         <p className="text-cyan-100 text-lg font-semibold mb-5">
           Excel-to-Quantum portfolio optimization prototype.
         </p>
 
-        <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-8 max-w-5xl">
+        <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-8 max-w-6xl">
           Rapid Quantum Prototype for portfolio optimization. Upload an Excel
           configuration, select the optimization settings, and run the backend
           service hosted on Cloud Run.
@@ -532,8 +690,15 @@ export default function QaoaRqpPage() {
           safely.
         </p>
 
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          <div className="xl:col-span-3 space-y-6">
+        <ProgressBar
+          visible={loading}
+          progress={progress}
+          message={progressMessage}
+          etaSeconds={estimatedRemainingSec}
+        />
+
+        <div className="grid grid-cols-1 2xl:grid-cols-12 gap-6">
+          <div className="2xl:col-span-3 space-y-6">
             <Panel title="Access">
               <label className="block text-sm text-gray-300 mb-2">
                 License key
@@ -612,6 +777,10 @@ export default function QaoaRqpPage() {
                     />
                   ))}
                 </div>
+                <p className="mt-3 text-xs leading-relaxed text-gray-500">
+                  Fixed blocks are included in every portfolio. Only variable
+                  blocks become QUBO decision variables / qubits.
+                </p>
               </div>
             </Panel>
 
@@ -647,7 +816,7 @@ export default function QaoaRqpPage() {
                 <option value="full">full</option>
               </select>
 
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">
                     Layers
@@ -686,6 +855,69 @@ export default function QaoaRqpPage() {
                     className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">
+                    QAOA shots
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={qaoaShots}
+                    onChange={(e) => setQaoaShots(Number(e.target.value))}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">
+                    Budget lambda
+                  </label>
+                  <input
+                    type="number"
+                    value={budgetLambda}
+                    onChange={(e) => setBudgetLambda(Number(e.target.value))}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">
+                    Risk lambda
+                  </label>
+                  <input
+                    type="number"
+                    value={riskLambda}
+                    onChange={(e) => setRiskLambda(Number(e.target.value))}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">
+                    Risk-free rate
+                  </label>
+                  <input
+                    type="number"
+                    step={0.001}
+                    value={riskFreeRate}
+                    onChange={(e) => setRiskFreeRate(Number(e.target.value))}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">
+                    Restart perturbation
+                  </label>
+                  <input
+                    type="number"
+                    step={0.01}
+                    value={restartPerturbation}
+                    onChange={(e) => setRestartPerturbation(Number(e.target.value))}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                  />
+                </div>
               </div>
 
               <label className="flex items-center gap-3 text-sm text-gray-300 mb-4">
@@ -698,9 +930,13 @@ export default function QaoaRqpPage() {
                 Warm start
               </label>
 
-              <p className="mb-5 text-xs leading-relaxed text-gray-500">
+              <p className="mb-2 text-xs leading-relaxed text-gray-500">
                 QAOA controls are prepared for the quantum execution path. The
                 current cloud version runs the controlled classical path.
+              </p>
+              <p className="mb-5 text-xs leading-relaxed text-gray-500">
+                QAOA shots are used only when sampling mode is active; exact
+                mode ignores shots.
               </p>
 
               <button
@@ -713,8 +949,8 @@ export default function QaoaRqpPage() {
             </Panel>
           </div>
 
-          <div className="xl:col-span-9 space-y-6">
-            <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+          <div className="2xl:col-span-9 space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <Panel title="Classical Result Summary">
                 {!result && (
                   <p className="text-gray-400">
@@ -735,7 +971,7 @@ export default function QaoaRqpPage() {
 
                 {result && !result.error && (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
                       <MetricCard
                         label="Objective"
                         value={formatNumber(
@@ -751,15 +987,17 @@ export default function QaoaRqpPage() {
                         )}
                       />
                       <MetricCard
-                        label="Selected USD"
-                        value={formatUsd(
-                          classicalSummary?.selected_usd ?? result.selected_usd
+                        label="Selected amount"
+                        value={formatCurrency(
+                          classicalSummary?.selected_usd ?? result.selected_usd,
+                          currencyCode
                         )}
                       />
                       <MetricCard
                         label="Budget gap"
-                        value={formatUsd(
-                          classicalSummary?.budget_gap ?? result.budget_gap
+                        value={formatCurrency(
+                          classicalSummary?.budget_gap ?? result.budget_gap,
+                          currencyCode
                         )}
                       />
                       <MetricCard
@@ -778,7 +1016,7 @@ export default function QaoaRqpPage() {
                         )}
                       />
                       <MetricCard
-                        label="Sharpe-like"
+                        label="Sharpe ratio (proxy)"
                         value={formatNumber(
                           classicalSummary?.sharpe_like ?? metrics.sharpe_like,
                           3
@@ -789,27 +1027,27 @@ export default function QaoaRqpPage() {
                         value={formatText(
                           classicalSummary?.best_bitstring ?? result.best_bitstring
                         )}
+                        kind="text"
+                      />
+                      <MetricCard
+                        label="Source"
+                        value={formatText(classicalSummary?.source ?? result.solver)}
+                        kind="text"
                       />
                     </div>
-
-                    <p className="mt-4 text-sm text-gray-400">
-                      Source:{" "}
-                      <span className="text-gray-200">
-                        {formatText(classicalSummary?.source ?? result.solver)}
-                      </span>
-                    </p>
                   </>
                 )}
               </Panel>
 
               <Panel title="Quantum Result Summary">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
                   <MetricCard
                     label="Status"
                     value={formatText(
                       quantumSummary?.status ?? "Disabled / Not available"
                     )}
                     subtle={!quantumSummary?.available}
+                    kind="text"
                   />
                   <MetricCard
                     label="QUBO value"
@@ -817,13 +1055,13 @@ export default function QaoaRqpPage() {
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
-                    label="Selected USD"
-                    value={formatUsd(quantumSummary?.selected_usd)}
+                    label="Selected amount"
+                    value={formatCurrency(quantumSummary?.selected_usd, currencyCode)}
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
                     label="Budget gap"
-                    value={formatUsd(quantumSummary?.budget_gap)}
+                    value={formatCurrency(quantumSummary?.budget_gap, currencyCode)}
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
@@ -832,7 +1070,7 @@ export default function QaoaRqpPage() {
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
-                    label="Sharpe-like"
+                    label="Sharpe ratio (proxy)"
                     value={formatNumber(quantumSummary?.sharpe_like, 3)}
                     subtle={!quantumSummary?.available}
                   />
@@ -840,11 +1078,13 @@ export default function QaoaRqpPage() {
                     label="Bitstring"
                     value={formatText(quantumSummary?.best_bitstring)}
                     subtle={!quantumSummary?.available}
+                    kind="text"
                   />
                   <MetricCard
                     label="Source"
                     value={formatText(quantumSummary?.source)}
                     subtle={!quantumSummary?.available}
+                    kind="text"
                   />
                 </div>
 
@@ -857,7 +1097,7 @@ export default function QaoaRqpPage() {
             </div>
 
             <Panel title="Log" className="w-full">
-              <div className="h-64 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-4 font-mono text-sm text-gray-300">
+              <div className="h-72 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-4 font-mono text-sm text-gray-300">
                 {logs.length === 0 ? (
                   <div className="text-gray-500">No log entries yet.</div>
                 ) : (
@@ -886,14 +1126,17 @@ export default function QaoaRqpPage() {
                       3
                     )}
                   />
-                  <InfoRow label="Fixed USD" value={formatUsd(metrics.fixed_usd)} />
                   <InfoRow
-                    label="Variable selected USD"
-                    value={formatUsd(metrics.variable_selected_usd)}
+                    label="Fixed amount"
+                    value={formatCurrency(metrics.fixed_usd, currencyCode)}
                   />
                   <InfoRow
-                    label="Max position USD"
-                    value={formatUsd(metrics.max_position_usd)}
+                    label="Variable selected amount"
+                    value={formatCurrency(metrics.variable_selected_usd, currencyCode)}
+                  />
+                  <InfoRow
+                    label="Max position amount"
+                    value={formatCurrency(metrics.max_position_usd, currencyCode)}
                   />
                   <InfoRow
                     label="Portfolio return"
@@ -911,7 +1154,7 @@ export default function QaoaRqpPage() {
                     )}
                   />
                   <InfoRow
-                    label="Sharpe-like"
+                    label="Sharpe ratio (proxy)"
                     value={formatNumber(
                       classicalSummary?.sharpe_like ?? metrics.sharpe_like,
                       4
@@ -929,7 +1172,7 @@ export default function QaoaRqpPage() {
                     value={formatNumber(metrics.portfolio_vol_budget_normalized, 4)}
                   />
                   <InfoRow
-                    label="Budget-normalized Sharpe-like"
+                    label="Budget-normalized Sharpe ratio (proxy)"
                     value={formatNumber(metrics.sharpe_like_budget_normalized, 4)}
                   />
                 </Panel>
@@ -986,6 +1229,7 @@ export default function QaoaRqpPage() {
                         <th className="py-2 pr-4">Source</th>
                         <th className="py-2 pr-4">Ticker</th>
                         <th className="py-2 pr-4">Company</th>
+                        <th className="py-2 pr-4">Role</th>
                         <th className="py-2 pr-4">Option</th>
                         <th className="py-2 pr-4">Cost</th>
                         <th className="py-2 pr-4">Shares</th>
@@ -997,10 +1241,10 @@ export default function QaoaRqpPage() {
                       {portfolioContents.map((block, idx) => (
                         <tr key={idx} className="border-b border-slate-800">
                           <td className="py-2 pr-4 text-gray-300">
-                            {formatText(block.rank)}
+                            {getRankLabel(block)}
                           </td>
                           <td className="py-2 pr-4 text-gray-400">
-                            {formatText(block.source)}
+                            {getSourceLabel(block)}
                           </td>
                           <td className="py-2 pr-4 text-cyan-200">
                             {formatText(block.Ticker)}
@@ -1009,10 +1253,13 @@ export default function QaoaRqpPage() {
                             {formatText(block.Company)}
                           </td>
                           <td className="py-2 pr-4 text-gray-300">
+                            {formatText(block.decision_role)}
+                          </td>
+                          <td className="py-2 pr-4 text-gray-300">
                             {formatText(block["Option Label"])}
                           </td>
                           <td className="py-2 pr-4 text-gray-300">
-                            {formatUsd(block["Approx Cost USD"])}
+                            {formatCurrency(block["Approx Cost USD"], currencyCode)}
                           </td>
                           <td className="py-2 pr-4 text-gray-300">
                             {formatText(block.Shares)}
@@ -1021,7 +1268,7 @@ export default function QaoaRqpPage() {
                             {formatText(block.decision_id)}
                           </td>
                           <td className="py-2 pr-4 text-gray-400">
-                            {formatText(block.variable_bit_index)}
+                            {getBitIndexLabel(block)}
                           </td>
                         </tr>
                       ))}
@@ -1034,7 +1281,7 @@ export default function QaoaRqpPage() {
             {result && !result.error && (
               <Panel title="Top Classical Candidates">
                 {classicalCandidates.length > 0 ? (
-                  <CandidateTable rows={classicalCandidates} />
+                  <CandidateTable rows={classicalCandidates} currencyCode={currencyCode} />
                 ) : (
                   <p className="text-gray-400 text-sm">
                     Use standard/full response level to display classical
@@ -1049,6 +1296,7 @@ export default function QaoaRqpPage() {
                 {qaoaBestQubo.length > 0 || quantumSamples.length > 0 ? (
                   <CandidateTable
                     rows={qaoaBestQubo.length > 0 ? qaoaBestQubo : quantumSamples}
+                    currencyCode={currencyCode}
                     showProbability
                   />
                 ) : (
@@ -1063,13 +1311,13 @@ export default function QaoaRqpPage() {
 
             {solverComparison.length > 0 && (
               <Panel title="Solver Comparison">
-                <CandidateTable rows={solverComparison} />
+                <CandidateTable rows={solverComparison} currencyCode={currencyCode} />
               </Panel>
             )}
 
             {result && !result.error && (
               <Panel title="Diagnostics">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-8">
                   <div>
                     <InfoRow
                       label="Actual runtime"
@@ -1086,12 +1334,12 @@ export default function QaoaRqpPage() {
                       label="Runtime ratio"
                       value={formatNumber(diagnostics.runtime_ratio, 2)}
                     />
-                    <InfoRow
-                      label="Runtime inputs"
-                      value={formatText(diagnostics.runtime_inputs)}
-                    />
                   </div>
                   <div>
+                    <InfoRow
+                      label="Runtime inputs"
+                      value={formatRuntimeInputs(diagnostics.runtime_inputs)}
+                    />
                     <InfoRow
                       label="Usage level"
                       value={formatText(diagnostics.usage_level)}
@@ -1100,6 +1348,8 @@ export default function QaoaRqpPage() {
                       label="Model version"
                       value={formatText(result.model_version)}
                     />
+                  </div>
+                  <div>
                     <InfoRow
                       label="QUBO shape"
                       value={formatQuboShape(diagnostics.qubo_shape)}
@@ -1108,8 +1358,6 @@ export default function QaoaRqpPage() {
                       label="QUBO nonzero entries"
                       value={formatText(diagnostics.qubo_nonzero_entries)}
                     />
-                  </div>
-                  <div>
                     <InfoRow
                       label="Classical candidates"
                       value={formatText(
@@ -1117,6 +1365,8 @@ export default function QaoaRqpPage() {
                           diagnostics.classical_candidate_count
                       )}
                     />
+                  </div>
+                  <div>
                     <InfoRow
                       label="QAOA candidates"
                       value={formatText(reportingSummary?.qaoa_candidate_count ?? 0)}
