@@ -154,6 +154,51 @@ type RunResult = {
   };
 };
 
+type InspectWorkbookSummary = {
+  decision_variables?: number;
+  n_qubits?: number;
+  decision_state_space?: string;
+  fixed_asset_blocks?: number;
+  variable_asset_blocks?: number;
+  unique_tickers?: number;
+  budget?: number;
+  currency_code?: string;
+  fixed_invested_amount?: number;
+  variable_candidate_universe?: number;
+  qubo_shape?: number[];
+  assets_referenced_by_options?: number;
+  settings_count?: number;
+};
+
+type RuntimeEstimate = {
+  mode?: string;
+  estimated_runtime_sec?: number;
+  max_estimated_runtime_sec?: number;
+  within_limit?: boolean;
+  limit_source?: string;
+  basis?: {
+    n_qubits?: number;
+    layers?: number;
+    iterations?: number;
+    restarts?: number;
+    warm_start?: boolean;
+  };
+};
+
+type InspectResult = {
+  status?: string;
+  filename?: string;
+  license?: LicenseStatus;
+  workbook_summary?: InspectWorkbookSummary;
+  runtime_estimate?: RuntimeEstimate;
+  diagnostics?: Record<string, unknown>;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  };
+};
+
 const API_URL =
   process.env.NEXT_PUBLIC_QAOA_RQP_API_URL ??
   "https://qaoa-rqp-api-186148318189.europe-west6.run.app";
@@ -545,6 +590,7 @@ function CandidateTable({
 
 export default function QaoaRqpPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
+  const inspectAbortControllerRef = useRef<AbortController | null>(null);
 
   const [apiKey, setApiKey] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -564,6 +610,9 @@ export default function QaoaRqpPage() {
 
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [inspectResult, setInspectResult] = useState<InspectResult | null>(null);
+  const [inspecting, setInspecting] = useState(false);
+
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -578,7 +627,13 @@ export default function QaoaRqpPage() {
   const reportingSummary = reporting?.summary;
   const classicalSummary = reportingSummary?.classical_result_summary;
   const quantumSummary = reportingSummary?.quantum_result_summary;
-  const currencyCode = reportingSummary?.currency_code ?? "USD";
+
+  const inspectSummary = inspectResult?.workbook_summary;
+  const inspectRuntimeEstimate = inspectResult?.runtime_estimate;
+  const inspectDiagnostics = inspectResult?.diagnostics ?? {};
+
+  const currencyCode =
+    reportingSummary?.currency_code ?? inspectSummary?.currency_code ?? "USD";
 
   const charts = reporting?.charts ?? {};
   const classicalCandidates =
@@ -588,7 +643,11 @@ export default function QaoaRqpPage() {
   const solverComparison = reporting?.solver_comparison ?? [];
   const quantumSamples = reporting?.quantum_samples ?? [];
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
-  const backendOptimizationLogs = getStringArray(diagnostics.logs);
+
+  const backendOptimizationLogs =
+    getStringArray(diagnostics.logs).length > 0
+      ? getStringArray(diagnostics.logs)
+      : getStringArray(inspectDiagnostics.logs);
 
   const chartEntries = [
     ["Risk / Return / Sharpe ratio", charts.risk_return_sharpe],
@@ -601,27 +660,38 @@ export default function QaoaRqpPage() {
   ][];
 
   const canRun = useMemo(() => {
-    return !!file && !loading;
-  }, [file, loading]);
+    return !!file && !loading && !inspecting;
+  }, [file, loading, inspecting]);
 
   const knownQubits = useMemo(() => {
     return getNumber(
       reportingSummary?.decision_variables ??
         result?.binary_variables ??
         diagnostics.n_qubits ??
-        diagnostics.binary_variables
+        diagnostics.binary_variables ??
+        inspectSummary?.decision_variables ??
+        inspectSummary?.n_qubits
     );
-  }, [reportingSummary, result, diagnostics]);
+  }, [reportingSummary, result, diagnostics, inspectSummary]);
 
   const runtimeCap = useMemo(() => {
     if (mode === "qaoa_limited") {
-      return getQaoaLimitedLimits(license)?.max_estimated_runtime_sec;
+      return (
+        inspectRuntimeEstimate?.max_estimated_runtime_sec ??
+        getQaoaLimitedLimits(license)?.max_estimated_runtime_sec
+      );
     }
 
-    return getGeneralLimits(license)?.max_estimated_runtime_sec;
-  }, [license, mode]);
+    return (
+      inspectRuntimeEstimate?.max_estimated_runtime_sec ??
+      getGeneralLimits(license)?.max_estimated_runtime_sec
+    );
+  }, [license, mode, inspectRuntimeEstimate]);
 
   const preRunEstimateSec = useMemo(() => {
+    const backendEstimate = getNumber(inspectRuntimeEstimate?.estimated_runtime_sec);
+    if (backendEstimate !== undefined) return backendEstimate;
+
     return estimateRuntimeSeconds({
       mode,
       qubits: knownQubits,
@@ -631,7 +701,16 @@ export default function QaoaRqpPage() {
       warmStart,
       runtimeCap,
     });
-  }, [mode, knownQubits, layers, iterations, restarts, warmStart, runtimeCap]);
+  }, [
+    inspectRuntimeEstimate,
+    mode,
+    knownQubits,
+    layers,
+    iterations,
+    restarts,
+    warmStart,
+    runtimeCap,
+  ]);
 
   const estimatedRemainingSec = useMemo(() => {
     if (!loading || runStartedAt === null || etaBasisSec === null) return undefined;
@@ -654,6 +733,34 @@ export default function QaoaRqpPage() {
     return () => window.clearInterval(interval);
   }, [loading]);
 
+  useEffect(() => {
+    if (!file) {
+      setInspectResult(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      inspectWorkbook();
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    file,
+    apiKey,
+    mode,
+    responseLevel,
+    layers,
+    iterations,
+    restarts,
+    warmStart,
+    budgetLambda,
+    riskLambda,
+    riskFreeRate,
+    qaoaShots,
+    restartPerturbation,
+  ]);
+
   function addLog(message: string) {
     const timestamp = new Date().toLocaleTimeString();
     setLogs((prev) => [`[${timestamp}] ${message}`, ...prev].slice(0, 80));
@@ -664,6 +771,86 @@ export default function QaoaRqpPage() {
       abortControllerRef.current.abort();
       addLog("Stop requested by user.");
       setProgressMessage("Stopping request...");
+    }
+  }
+
+  async function inspectWorkbook() {
+    if (!file) {
+      setInspectResult(null);
+      return;
+    }
+
+    if (inspectAbortControllerRef.current) {
+      inspectAbortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    inspectAbortControllerRef.current = controller;
+    setInspecting(true);
+
+    try {
+      addLog("Inspecting workbook...");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("mode", mode);
+      formData.append("response_level", responseLevel);
+      formData.append("layers", String(layers));
+      formData.append("iterations", String(iterations));
+      formData.append("restarts", String(restarts));
+      formData.append("warm_start", String(warmStart));
+      formData.append("lambda_budget", String(budgetLambda));
+      formData.append("lambda_variance", String(riskLambda));
+      formData.append("risk_free_rate", String(riskFreeRate));
+      formData.append("qaoa_shots", String(qaoaShots));
+      formData.append("restart_perturbation", String(restartPerturbation));
+
+      const res = await fetch(`${API_URL}/inspect-workbook`, {
+        method: "POST",
+        headers: apiKey ? { "X-API-Key": apiKey } : {},
+        body: formData,
+        signal: controller.signal,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.status === "error") {
+        setInspectResult(data);
+        addLog(`Workbook inspection failed: ${data?.error?.message ?? res.statusText}`);
+        return;
+      }
+
+      setInspectResult(data);
+
+      if (data.license) {
+        setLicense(data.license);
+      }
+
+      const n =
+        data?.workbook_summary?.decision_variables ??
+        data?.workbook_summary?.n_qubits ??
+        "n/a";
+
+      const eta = data?.runtime_estimate?.estimated_runtime_sec;
+
+      addLog(
+        `Workbook inspected. Decision variables: ${n}. Runtime estimate: ${
+          eta !== undefined ? formatSeconds(eta) : "n/a"
+        }.`
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        addLog("Workbook inspection stopped.");
+      } else {
+        addLog(
+          `Workbook inspection failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      }
+    } finally {
+      inspectAbortControllerRef.current = null;
+      setInspecting(false);
     }
   }
 
@@ -839,38 +1026,60 @@ export default function QaoaRqpPage() {
       reportingSummary?.decision_variables ??
         result?.binary_variables ??
         diagnostics.n_qubits ??
-        diagnostics.binary_variables,
+        diagnostics.binary_variables ??
+        inspectSummary?.decision_variables ??
+        inspectSummary?.n_qubits,
     ],
-    ["Decision state space", reportingSummary?.decision_state_space],
+    [
+      "Decision state space",
+      reportingSummary?.decision_state_space ?? inspectSummary?.decision_state_space,
+    ],
     [
       "Fixed asset blocks",
       reportingSummary?.fixed_asset_blocks ??
         diagnostics.fixed_options ??
-        metrics.num_fixed_options,
+        metrics.num_fixed_options ??
+        inspectSummary?.fixed_asset_blocks,
     ],
     [
       "Variable asset blocks",
       reportingSummary?.variable_asset_blocks ??
         diagnostics.variable_options ??
-        metrics.num_variable_options,
+        metrics.num_variable_options ??
+        inspectSummary?.variable_asset_blocks,
     ],
     [
       "Unique tickers referenced",
-      reportingSummary?.unique_tickers ?? diagnostics.assets_referenced_by_options,
+      reportingSummary?.unique_tickers ??
+        diagnostics.assets_referenced_by_options ??
+        inspectSummary?.unique_tickers ??
+        inspectSummary?.assets_referenced_by_options,
     ],
-    ["Budget", formatCurrency(diagnostics.budget_usd, currencyCode)],
+    [
+      "Budget",
+      formatCurrency(diagnostics.budget_usd ?? inspectSummary?.budget, currencyCode),
+    ],
     [
       "Fixed invested amount",
       formatCurrency(
-        reportingSummary?.fixed_invested_usd ?? metrics.fixed_usd,
+        reportingSummary?.fixed_invested_usd ??
+          metrics.fixed_usd ??
+          inspectSummary?.fixed_invested_amount,
         currencyCode
       ),
     ],
     [
       "Variable selectable universe",
-      formatCurrency(reportingSummary?.variable_candidate_usd_universe, currencyCode),
+      formatCurrency(
+        reportingSummary?.variable_candidate_usd_universe ??
+          inspectSummary?.variable_candidate_universe,
+        currencyCode
+      ),
     ],
-    ["QUBO shape", formatQuboShape(diagnostics.qubo_shape)],
+    [
+      "QUBO shape",
+      formatQuboShape(diagnostics.qubo_shape ?? inspectSummary?.qubo_shape),
+    ],
     [
       "Classical candidates",
       reportingSummary?.classical_candidate_count ??
@@ -878,6 +1087,7 @@ export default function QaoaRqpPage() {
     ],
     ["QAOA candidates", reportingSummary?.qaoa_candidate_count ?? 0],
     ["Top N exported", reportingSummary?.top_n_exported],
+    ["Settings loaded", inspectSummary?.settings_count],
   ];
 
   return (
@@ -1005,7 +1215,12 @@ export default function QaoaRqpPage() {
               <input
                 type="file"
                 accept=".xlsx"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  const selectedFile = e.target.files?.[0] ?? null;
+                  setFile(selectedFile);
+                  setResult(null);
+                  setInspectResult(null);
+                }}
                 className="w-full text-sm text-gray-200 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-4 file:py-2 file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
               />
 
@@ -1019,11 +1234,25 @@ export default function QaoaRqpPage() {
                 <h3 className="text-sm font-semibold text-cyan-100 mb-2">
                   Workbook Summary
                 </h3>
-                {!result && (
-                  <p className="text-xs text-gray-500 mb-2">
-                    Detailed workbook metrics are available after a run.
+
+                {inspecting && (
+                  <p className="text-xs text-amber-200 mb-2">
+                    Inspecting workbook and recalculating runtime estimate...
                   </p>
                 )}
+
+                {!result && !inspectResult && !inspecting && (
+                  <p className="text-xs text-gray-500 mb-2">
+                    Workbook metrics are available after file inspection.
+                  </p>
+                )}
+
+                {inspectResult?.error && (
+                  <p className="text-xs text-red-200 mb-2">
+                    Inspection failed: {inspectResult.error.message ?? "unknown error"}
+                  </p>
+                )}
+
                 <div>
                   {workbookSummary.map(([label, value]) => (
                     <InfoRow
@@ -1031,7 +1260,7 @@ export default function QaoaRqpPage() {
                       label={String(label)}
                       value={
                         value === undefined || value === "n/a"
-                          ? "available after run"
+                          ? "available after inspection"
                           : String(value)
                       }
                     />
@@ -1088,6 +1317,15 @@ export default function QaoaRqpPage() {
                 <div className="text-xs font-semibold text-cyan-100 mb-2">
                   Pre-run runtime estimate
                 </div>
+
+                <button
+                  onClick={inspectWorkbook}
+                  disabled={!file || inspecting || loading}
+                  className="mb-3 w-full rounded-lg border border-cyan-800 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-cyan-100 hover:bg-slate-900 disabled:text-gray-500 disabled:border-slate-800"
+                >
+                  {inspecting ? "Recalculating..." : "Recalculate estimate"}
+                </button>
+
                 <InfoRow
                   label="Estimated runtime"
                   value={
@@ -1099,18 +1337,39 @@ export default function QaoaRqpPage() {
                 <InfoRow
                   label="Estimate basis"
                   value={
-                    knownQubits !== undefined
-                      ? `${knownQubits} qubits, ${layers} layers, ${iterations} iterations, ${restarts} restarts`
-                      : `license/input not yet known, using fallback estimate`
+                    inspectRuntimeEstimate?.basis
+                      ? `${inspectRuntimeEstimate.basis.n_qubits ?? knownQubits ?? "n/a"} qubits, ${
+                          inspectRuntimeEstimate.basis.layers ?? layers
+                        } layers, ${
+                          inspectRuntimeEstimate.basis.iterations ?? iterations
+                        } iterations, ${
+                          inspectRuntimeEstimate.basis.restarts ?? restarts
+                        } restarts, warm_start=${String(
+                          inspectRuntimeEstimate.basis.warm_start ?? warmStart
+                        )}`
+                      : knownQubits !== undefined
+                        ? `${knownQubits} qubits, ${layers} layers, ${iterations} iterations, ${restarts} restarts`
+                        : "waiting for workbook inspection"
+                  }
+                />
+                <InfoRow label="Runtime cap" value={formatSeconds(runtimeCap)} />
+                <InfoRow
+                  label="Within backend limit"
+                  value={
+                    inspectRuntimeEstimate?.within_limit === undefined
+                      ? "n/a"
+                      : inspectRuntimeEstimate.within_limit
+                        ? "yes"
+                        : "no"
                   }
                 />
                 <InfoRow
-                  label="Runtime cap"
-                  value={formatSeconds(runtimeCap)}
+                  label="Limit source"
+                  value={formatText(inspectRuntimeEstimate?.limit_source)}
                 />
                 <p className="mt-2 text-xs leading-relaxed text-gray-500">
-                  This is a rough frontend estimate. The backend remains the
-                  authority for acceptance, runtime checks, and actual execution.
+                  This estimate is provided by the backend after workbook inspection.
+                  The backend remains the authority for runtime checks and execution.
                 </p>
               </div>
 
@@ -1406,8 +1665,8 @@ export default function QaoaRqpPage() {
               <div className="h-72 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-4 font-mono text-sm text-gray-300">
                 {backendOptimizationLogs.length === 0 ? (
                   <div className="text-gray-500">
-                    Backend optimization logs are available when the backend
-                    returns diagnostics.logs, usually with full response level.
+                    Backend optimization logs are available after workbook inspection
+                    or after a run.
                   </div>
                 ) : (
                   backendOptimizationLogs.map((line, idx) => (
