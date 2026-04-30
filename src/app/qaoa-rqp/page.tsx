@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
 
@@ -255,6 +255,49 @@ function getQaoaLimitedLimits(license?: LicenseStatus | null): LimitBlock | unde
   return license?.qaoa_limited_limits ?? license?.limits?.qaoa_limited;
 }
 
+function getStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item));
+}
+
+function estimateRuntimeSeconds({
+  mode,
+  qubits,
+  layers,
+  iterations,
+  restarts,
+  warmStart,
+  runtimeCap,
+}: {
+  mode: string;
+  qubits?: number;
+  layers: number;
+  iterations: number;
+  restarts: number;
+  warmStart: boolean;
+  runtimeCap?: number;
+}) {
+  if (mode === "classical_only") {
+    const base = qubits !== undefined ? Math.max(2, qubits * 0.25) : 5;
+    return Math.min(base, runtimeCap ?? 60);
+  }
+
+  if (mode === "qaoa_full") return undefined;
+
+  const q = qubits ?? 10;
+  const qubitFactor = Math.pow(2, Math.max(q - 7, 0) / 2.2);
+  const layerFactor = Math.max(layers, 1);
+  const iterationFactor = Math.max(iterations, 1) / 30;
+  const restartFactor = Math.max(restarts, 1);
+  const warmStartFactor = warmStart ? 1.15 : 1.0;
+
+  const estimate =
+    8 * qubitFactor * layerFactor * iterationFactor * restartFactor * warmStartFactor;
+
+  if (runtimeCap !== undefined) return Math.min(Math.max(estimate, 3), runtimeCap);
+  return Math.max(estimate, 3);
+}
+
 function metricValueClass(kind: "number" | "text", subtle: boolean) {
   if (kind === "text") {
     return `text-base font-semibold leading-snug break-words ${
@@ -361,24 +404,38 @@ function ProgressBar({
   progress,
   message,
   etaSeconds,
+  onStop,
 }: {
   visible: boolean;
   progress: number;
   message: string;
   etaSeconds?: number;
+  onStop?: () => void;
 }) {
   if (!visible) return null;
 
   return (
     <div className="mb-6 rounded-2xl border border-cyan-900/60 bg-slate-950/80 p-4 shadow-lg">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div className="text-sm font-semibold text-cyan-100">{message}</div>
-        <div className="text-sm text-gray-400">
-          {etaSeconds !== undefined && etaSeconds > 0
-            ? `Estimated remaining: ~${Math.ceil(etaSeconds)} sec`
-            : "Running..."}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-cyan-100">{message}</div>
+          <div className="text-sm text-gray-400">
+            {etaSeconds !== undefined && etaSeconds > 0
+              ? `Estimated remaining: ~${Math.ceil(etaSeconds)} sec`
+              : "Running..."}
+          </div>
         </div>
+
+        {onStop && (
+          <button
+            onClick={onStop}
+            className="rounded-lg border border-red-800 bg-red-950/60 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/70"
+          >
+            Stop request
+          </button>
+        )}
       </div>
+
       <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800">
         <div
           className="h-full rounded-full bg-cyan-400 transition-all duration-500"
@@ -487,6 +544,8 @@ function CandidateTable({
 }
 
 export default function QaoaRqpPage() {
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const [apiKey, setApiKey] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
@@ -529,6 +588,7 @@ export default function QaoaRqpPage() {
   const solverComparison = reporting?.solver_comparison ?? [];
   const quantumSamples = reporting?.quantum_samples ?? [];
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
+  const backendOptimizationLogs = getStringArray(diagnostics.logs);
 
   const chartEntries = [
     ["Risk / Return / Sharpe ratio", charts.risk_return_sharpe],
@@ -543,6 +603,35 @@ export default function QaoaRqpPage() {
   const canRun = useMemo(() => {
     return !!file && !loading;
   }, [file, loading]);
+
+  const knownQubits = useMemo(() => {
+    return getNumber(
+      reportingSummary?.decision_variables ??
+        result?.binary_variables ??
+        diagnostics.n_qubits ??
+        diagnostics.binary_variables
+    );
+  }, [reportingSummary, result, diagnostics]);
+
+  const runtimeCap = useMemo(() => {
+    if (mode === "qaoa_limited") {
+      return getQaoaLimitedLimits(license)?.max_estimated_runtime_sec;
+    }
+
+    return getGeneralLimits(license)?.max_estimated_runtime_sec;
+  }, [license, mode]);
+
+  const preRunEstimateSec = useMemo(() => {
+    return estimateRuntimeSeconds({
+      mode,
+      qubits: knownQubits,
+      layers,
+      iterations,
+      restarts,
+      warmStart,
+      runtimeCap,
+    });
+  }, [mode, knownQubits, layers, iterations, restarts, warmStart, runtimeCap]);
 
   const estimatedRemainingSec = useMemo(() => {
     if (!loading || runStartedAt === null || etaBasisSec === null) return undefined;
@@ -570,7 +659,18 @@ export default function QaoaRqpPage() {
     setLogs((prev) => [`[${timestamp}] ${message}`, ...prev].slice(0, 80));
   }
 
+  function stopCurrentRequest() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      addLog("Stop requested by user.");
+      setProgressMessage("Stopping request...");
+    }
+  }
+
   async function checkLicense() {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setResult(null);
     setProgress(10);
@@ -584,6 +684,7 @@ export default function QaoaRqpPage() {
       const res = await fetch(`${API_URL}/license-status`, {
         method: "GET",
         headers: apiKey ? { "X-API-Key": apiKey } : {},
+        signal: controller.signal,
       });
 
       const data = await res.json();
@@ -600,9 +701,14 @@ export default function QaoaRqpPage() {
       );
       setProgress(100);
     } catch (err) {
-      addLog(`License check failed: ${err instanceof Error ? err.message : String(err)}`);
-      setLicense(null);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        addLog("License check stopped.");
+      } else {
+        addLog(`License check failed: ${err instanceof Error ? err.message : String(err)}`);
+        setLicense(null);
+      }
     } finally {
+      abortControllerRef.current = null;
       window.setTimeout(() => {
         setLoading(false);
         setProgress(0);
@@ -618,14 +724,15 @@ export default function QaoaRqpPage() {
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setResult(null);
     setProgress(5);
     setProgressMessage("Uploading Excel file...");
     setRunStartedAt(Date.now());
-
-    const previousEstimate = getNumber(diagnostics.estimated_runtime_sec);
-    setEtaBasisSec(previousEstimate ?? null);
+    setEtaBasisSec(preRunEstimateSec ?? null);
 
     try {
       if (mode === "qaoa_limited") {
@@ -670,6 +777,7 @@ export default function QaoaRqpPage() {
         method: "POST",
         headers: apiKey ? { "X-API-Key": apiKey } : {},
         body: formData,
+        signal: controller.signal,
       });
 
       const data = await res.json();
@@ -690,6 +798,15 @@ export default function QaoaRqpPage() {
         );
       }
 
+      if (data?.diagnostics?.actual_runtime_sec !== undefined) {
+        addLog(
+          `Actual runtime: ${formatNumber(
+            data.diagnostics.actual_runtime_sec,
+            3
+          )} sec`
+        );
+      }
+
       addLog(`Run completed. Best bitstring: ${data.best_bitstring ?? "n/a"}`);
       setProgressMessage("Run completed.");
       setProgress(100);
@@ -698,8 +815,14 @@ export default function QaoaRqpPage() {
         setLicense(data.license);
       }
     } catch (err) {
-      addLog(`Run failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        addLog("Run stopped by user.");
+        setProgressMessage("Run stopped.");
+      } else {
+        addLog(`Run failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
+      abortControllerRef.current = null;
       window.setTimeout(() => {
         setLoading(false);
         setProgress(0);
@@ -784,6 +907,7 @@ export default function QaoaRqpPage() {
           progress={progress}
           message={progressMessage}
           etaSeconds={estimatedRemainingSec}
+          onStop={stopCurrentRequest}
         />
 
         <div className="grid grid-cols-1 2xl:grid-cols-12 gap-6">
@@ -959,6 +1083,36 @@ export default function QaoaRqpPage() {
                 <option value="standard">standard</option>
                 <option value="full">full</option>
               </select>
+
+              <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-sm">
+                <div className="text-xs font-semibold text-cyan-100 mb-2">
+                  Pre-run runtime estimate
+                </div>
+                <InfoRow
+                  label="Estimated runtime"
+                  value={
+                    preRunEstimateSec === undefined
+                      ? "disabled / future job mode"
+                      : `~${formatSeconds(preRunEstimateSec)}`
+                  }
+                />
+                <InfoRow
+                  label="Estimate basis"
+                  value={
+                    knownQubits !== undefined
+                      ? `${knownQubits} qubits, ${layers} layers, ${iterations} iterations, ${restarts} restarts`
+                      : `license/input not yet known, using fallback estimate`
+                  }
+                />
+                <InfoRow
+                  label="Runtime cap"
+                  value={formatSeconds(runtimeCap)}
+                />
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                  This is a rough frontend estimate. The backend remains the
+                  authority for acceptance, runtime checks, and actual execution.
+                </p>
+              </div>
 
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
@@ -1238,12 +1392,29 @@ export default function QaoaRqpPage() {
               </Panel>
             </div>
 
-            <Panel title="Log" className="w-full">
+            <Panel title="Client Log" className="w-full">
               <div className="h-72 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-4 font-mono text-sm text-gray-300">
                 {logs.length === 0 ? (
                   <div className="text-gray-500">No log entries yet.</div>
                 ) : (
                   logs.map((line, idx) => <div key={idx}>{line}</div>)
+                )}
+              </div>
+            </Panel>
+
+            <Panel title="Backend Optimization Log" className="w-full">
+              <div className="h-72 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-4 font-mono text-sm text-gray-300">
+                {backendOptimizationLogs.length === 0 ? (
+                  <div className="text-gray-500">
+                    Backend optimization logs are available when the backend
+                    returns diagnostics.logs, usually with full response level.
+                  </div>
+                ) : (
+                  backendOptimizationLogs.map((line, idx) => (
+                    <div key={idx}>
+                      <span className="text-gray-500">{idx + 1}.</span> {line}
+                    </div>
+                  ))
                 )}
               </div>
             </Panel>
