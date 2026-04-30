@@ -1792,7 +1792,7 @@ export default function QaoaRqpPage() {
                   </div>
                 </div>
 
-                {getCircuitValue(circuit, "reason") && (
+                {formatText(getCircuitValue(circuit, "reason"), "") !== "" && (
                   <p className="mt-4 text-sm text-gray-400">
                     {formatText(getCircuitValue(circuit, "reason"))}
                   </p>
