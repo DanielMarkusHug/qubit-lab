@@ -4,8 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
 
+type LimitBlock = {
+  max_qubits?: number;
+  max_layers?: number;
+  max_iterations?: number;
+  max_restarts?: number;
+  max_upload_mb?: number;
+  max_estimated_runtime_sec?: number;
+};
+
 type LicenseStatus = {
   authenticated: boolean;
+  key_id?: string;
   name?: string;
   email?: string;
   organization?: string;
@@ -16,15 +26,13 @@ type LicenseStatus = {
   max_runs?: number;
   used_runs?: number;
   remaining_runs?: number;
+  max_estimated_runtime_sec?: number;
   allowed_modes?: string[];
   allowed_response_levels?: string[];
-  limits?: {
-    max_qubits?: number;
-    max_layers?: number;
-    max_iterations?: number;
-    max_restarts?: number;
-    max_upload_mb?: number;
-    max_estimated_runtime_sec?: number;
+  general_limits?: LimitBlock;
+  qaoa_limited_limits?: LimitBlock;
+  limits?: LimitBlock & {
+    qaoa_limited?: LimitBlock;
   };
 };
 
@@ -207,6 +215,44 @@ function formatRuntimeInputs(value: unknown) {
   ].filter(Boolean);
 
   return parts.length > 0 ? parts.join(", ") : "n/a";
+}
+
+function formatSeconds(value: unknown) {
+  const number = getNumber(value);
+  if (number === undefined) return "n/a";
+
+  if (number < 60) return `${Math.round(number)} sec`;
+  if (number < 3600) return `${Math.round(number / 60)} min`;
+
+  const hours = number / 3600;
+  return `${hours.toLocaleString("en-US", { maximumFractionDigits: 1 })} h`;
+}
+
+function formatLimitBlock(limits?: LimitBlock) {
+  if (!limits) return "n/a";
+
+  const parts = [
+    limits.max_qubits !== undefined ? `${limits.max_qubits} qubits` : null,
+    limits.max_layers !== undefined ? `${limits.max_layers} layers` : null,
+    limits.max_iterations !== undefined
+      ? `${limits.max_iterations} iterations`
+      : null,
+    limits.max_restarts !== undefined ? `${limits.max_restarts} restarts` : null,
+    limits.max_upload_mb !== undefined ? `${limits.max_upload_mb} MB upload` : null,
+    limits.max_estimated_runtime_sec !== undefined
+      ? `${formatSeconds(limits.max_estimated_runtime_sec)} runtime`
+      : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(", ") : "n/a";
+}
+
+function getGeneralLimits(license?: LicenseStatus | null): LimitBlock | undefined {
+  return license?.general_limits ?? license?.limits;
+}
+
+function getQaoaLimitedLimits(license?: LicenseStatus | null): LimitBlock | undefined {
+  return license?.qaoa_limited_limits ?? license?.limits?.qaoa_limited;
 }
 
 function metricValueClass(kind: "number" | "text", subtle: boolean) {
@@ -586,8 +632,8 @@ export default function QaoaRqpPage() {
         addLog("Running QAOA limited mode...");
       }
 
-      if (mode === "qaoa") {
-        addLog("Full QAOA mode is currently disabled. Use qaoa_limited.");
+      if (mode === "qaoa_full") {
+        addLog("QAOA full mode is currently disabled. Use qaoa_limited.");
       }
 
       addLog("Uploading Excel file...");
@@ -729,8 +775,8 @@ export default function QaoaRqpPage() {
           <br />
           <br />
           The current cloud version supports the controlled classical path and a
-          tester-only qaoa_limited mode for small workbooks. Full QAOA remains
-          disabled until the broader quantum execution path is validated.
+          key-limited qaoa_limited mode. Full QAOA remains disabled until the
+          future job-based execution path is implemented.
         </p>
 
         <ProgressBar
@@ -763,22 +809,69 @@ export default function QaoaRqpPage() {
               </button>
 
               {license && (
-                <div className="mt-4 rounded-xl bg-slate-900/80 border border-slate-700 p-4 text-sm text-gray-200 space-y-1">
-                  <div>
-                    <span className="text-gray-400">Level:</span>{" "}
-                    {license.display_name ?? license.usage_level}
+                <div className="mt-4 rounded-xl bg-slate-900/80 border border-slate-700 p-4 text-sm text-gray-200">
+                  <div className="space-y-1">
+                    <InfoRow label="Key ID" value={formatText(license.key_id)} />
+                    <InfoRow
+                      label="Level"
+                      value={formatText(license.display_name ?? license.usage_level)}
+                    />
+                    <InfoRow label="Status" value={formatText(license.status)} />
+                    <InfoRow label="Name" value={formatText(license.name)} />
+                    <InfoRow
+                      label="Organization"
+                      value={formatText(license.organization)}
+                    />
+                    <InfoRow label="Expires" value={formatText(license.expires_at)} />
+                    <InfoRow label="Max runs" value={formatText(license.max_runs)} />
+                    <InfoRow label="Used runs" value={formatText(license.used_runs)} />
+                    <InfoRow
+                      label="Remaining runs"
+                      value={formatText(license.remaining_runs)}
+                    />
+                    <InfoRow
+                      label="Max runtime"
+                      value={formatSeconds(
+                        license.max_estimated_runtime_sec ??
+                          getGeneralLimits(license)?.max_estimated_runtime_sec
+                      )}
+                    />
                   </div>
-                  <div>
-                    <span className="text-gray-400">Status:</span>{" "}
-                    {license.status}
+
+                  <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
+                    <div className="text-xs font-semibold text-cyan-100 mb-2">
+                      General limits
+                    </div>
+                    <div className="text-xs leading-relaxed text-gray-300 break-words">
+                      {formatLimitBlock(getGeneralLimits(license))}
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-gray-400">Remaining runs:</span>{" "}
-                    {license.remaining_runs ?? "n/a"}
+
+                  <div className="mt-3 rounded-xl border border-amber-900/60 bg-amber-950/20 p-3">
+                    <div className="text-xs font-semibold text-amber-200 mb-2">
+                      QAOA limited limits
+                    </div>
+                    <div className="text-xs leading-relaxed text-amber-100/80 break-words">
+                      {formatLimitBlock(getQaoaLimitedLimits(license))}
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-gray-400">Max qubits:</span>{" "}
-                    {license.limits?.max_qubits ?? "n/a"}
+
+                  <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
+                    <div className="text-xs font-semibold text-cyan-100 mb-2">
+                      Allowed modes
+                    </div>
+                    <div className="text-xs leading-relaxed text-gray-300 break-words">
+                      {formatText(license.allowed_modes)}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
+                    <div className="text-xs font-semibold text-cyan-100 mb-2">
+                      Response levels
+                    </div>
+                    <div className="text-xs leading-relaxed text-gray-300 break-words">
+                      {formatText(license.allowed_response_levels)}
+                    </div>
                   </div>
                 </div>
               )}
@@ -836,21 +929,21 @@ export default function QaoaRqpPage() {
               >
                 <option value="classical_only">classical_only</option>
                 <option value="qaoa_limited">qaoa_limited</option>
-                <option value="qaoa">qaoa</option>
+                <option value="qaoa_full">qaoa_full disabled</option>
               </select>
 
               {mode === "qaoa_limited" && (
                 <div className="mb-4 rounded-xl border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-100">
-                  QAOA limited mode is enabled for tester keys and small
-                  workbooks. Use a small input first, for example the supersmall
-                  workbook.
+                  QAOA limited mode runs the controlled synchronous QAOA path.
+                  The effective limits depend on the active license key.
                 </div>
               )}
 
-              {mode === "qaoa" && (
+              {mode === "qaoa_full" && (
                 <div className="mb-4 rounded-xl border border-yellow-700 bg-yellow-950/30 p-3 text-sm text-yellow-100">
-                  Full QAOA mode is still disabled. Use qaoa_limited for the
-                  controlled test path.
+                  QAOA full mode is reserved for the future job-based execution
+                  path and is disabled for now. Use qaoa_limited for current
+                  cloud runs.
                 </div>
               )}
 
@@ -982,8 +1075,9 @@ export default function QaoaRqpPage() {
               </label>
 
               <p className="mb-2 text-xs leading-relaxed text-gray-500">
-                QAOA limited mode is available for controlled tester-key runs on
-                small workbooks. Full QAOA remains disabled for now.
+                QAOA limited mode is available for controlled key-based runs.
+                Full QAOA remains disabled for now and will later use a
+                job-based flow.
               </p>
               <p className="mb-5 text-xs leading-relaxed text-gray-500">
                 QAOA shots are used only when sampling mode is active; exact
