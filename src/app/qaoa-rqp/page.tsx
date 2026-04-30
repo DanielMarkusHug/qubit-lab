@@ -103,10 +103,15 @@ type Reporting = {
   solver_comparison?: CandidateRow[];
   portfolio_contents?: CandidateRow[];
   optimization_history?: CandidateRow[];
+  circuit?: Record<string, unknown>;
   charts?: {
     risk_return_sharpe?: string | null;
     risk_return_qubo?: string | null;
     qubo_breakdown?: string | null;
+    qubo_breakdown_classical?: string | null;
+    qubo_breakdown_quantum?: string | null;
+    optimization_history?: string | null;
+    circuit_overview?: string | null;
     solver_comparison?: string | null;
     [key: string]: string | null | undefined;
   };
@@ -303,6 +308,14 @@ function getQaoaLimitedLimits(license?: LicenseStatus | null): LimitBlock | unde
 function getStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => String(item));
+}
+
+function getCircuitValue(circuit: unknown, key: string) {
+  if (!circuit || typeof circuit !== "object" || Array.isArray(circuit)) {
+    return undefined;
+  }
+
+  return (circuit as Record<string, unknown>)[key];
 }
 
 function estimateRuntimeSeconds({
@@ -636,6 +649,8 @@ export default function QaoaRqpPage() {
     reportingSummary?.currency_code ?? inspectSummary?.currency_code ?? "USD";
 
   const charts = reporting?.charts ?? {};
+  const circuit = reporting?.circuit ?? diagnostics.circuit;
+
   const classicalCandidates =
     reporting?.classical_candidates ?? result?.top_candidates ?? [];
   const portfolioContents =
@@ -652,7 +667,13 @@ export default function QaoaRqpPage() {
   const chartEntries = [
     ["Risk / Return / Sharpe ratio", charts.risk_return_sharpe],
     ["Risk / Return / QUBO", charts.risk_return_qubo],
-    ["QUBO Breakdown", charts.qubo_breakdown],
+    [
+      "QUBO Breakdown - Classical",
+      charts.qubo_breakdown_classical ?? charts.qubo_breakdown,
+    ],
+    ["QUBO Breakdown - Quantum by QUBO", charts.qubo_breakdown_quantum],
+    ["Optimization History", charts.optimization_history],
+    ["Circuit Overview", charts.circuit_overview],
     ["Solver Comparison", charts.solver_comparison],
   ].filter(([, src]) => typeof src === "string" && src.length > 0) as [
     string,
@@ -1597,14 +1618,6 @@ export default function QaoaRqpPage() {
               <Panel title="Quantum Result Summary" tone="amber">
                 <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
                   <MetricCard
-                    label="Status"
-                    value={formatText(
-                      quantumSummary?.status ?? "Disabled / Not available"
-                    )}
-                    subtle={!quantumSummary?.available}
-                    kind="text"
-                  />
-                  <MetricCard
                     label="QUBO value"
                     value={formatNumber(quantumSummary?.qubo_value, 6)}
                     subtle={!quantumSummary?.available}
@@ -1620,13 +1633,23 @@ export default function QaoaRqpPage() {
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
-                    label="Probability"
-                    value={formatNumber(quantumSummary?.probability, 6)}
+                    label="Return proxy"
+                    value={formatNumber(quantumSummary?.portfolio_return, 3)}
+                    subtle={!quantumSummary?.available}
+                  />
+                  <MetricCard
+                    label="Volatility"
+                    value={formatNumber(quantumSummary?.portfolio_vol, 3)}
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
                     label="Sharpe ratio"
                     value={formatNumber(quantumSummary?.sharpe_like, 3)}
+                    subtle={!quantumSummary?.available}
+                  />
+                  <MetricCard
+                    label="Probability"
+                    value={formatNumber(quantumSummary?.probability, 6)}
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
@@ -1685,6 +1708,91 @@ export default function QaoaRqpPage() {
                     <ChartImage key={title} title={title} src={src} />
                   ))}
                 </div>
+              </Panel>
+            )}
+
+            {result && !result.error && circuit && (
+              <Panel title="Circuit Overview" tone="amber">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8">
+                  <div>
+                    <InfoRow
+                      label="Available"
+                      value={formatText(getCircuitValue(circuit, "available"))}
+                    />
+                    <InfoRow
+                      label="Qubits"
+                      value={formatText(getCircuitValue(circuit, "n_qubits"))}
+                    />
+                    <InfoRow
+                      label="Layers"
+                      value={formatText(getCircuitValue(circuit, "layers"))}
+                    />
+                    <InfoRow
+                      label="Mixer type"
+                      value={formatText(getCircuitValue(circuit, "mixer_type"))}
+                    />
+                    <InfoRow
+                      label="Shots mode"
+                      value={formatText(getCircuitValue(circuit, "shots_mode"))}
+                    />
+                    <InfoRow
+                      label="QAOA shots"
+                      value={formatText(getCircuitValue(circuit, "qaoa_shots"))}
+                    />
+                  </div>
+
+                  <div>
+                    <InfoRow
+                      label="Cost terms"
+                      value={formatText(getCircuitValue(circuit, "cost_terms"))}
+                    />
+                    <InfoRow
+                      label="QUBO nonzero entries"
+                      value={formatText(getCircuitValue(circuit, "qubo_nonzero_entries"))}
+                    />
+                    <InfoRow
+                      label="1Q cost terms"
+                      value={formatText(getCircuitValue(circuit, "one_qubit_cost_terms"))}
+                    />
+                    <InfoRow
+                      label="2Q cost terms"
+                      value={formatText(getCircuitValue(circuit, "two_qubit_cost_terms"))}
+                    />
+                    <InfoRow
+                      label="1Q gates"
+                      value={formatText(getCircuitValue(circuit, "one_qubit_gates"))}
+                    />
+                    <InfoRow
+                      label="2Q gates"
+                      value={formatText(getCircuitValue(circuit, "two_qubit_gates"))}
+                    />
+                  </div>
+
+                  <div>
+                    <InfoRow
+                      label="Total gates"
+                      value={formatText(getCircuitValue(circuit, "total_gates"))}
+                    />
+                    <InfoRow
+                      label="Sequential 2Q depth"
+                      value={formatText(getCircuitValue(circuit, "sequential_2q_depth"))}
+                    />
+                    <InfoRow
+                      label="Estimated circuit depth"
+                      value={formatText(getCircuitValue(circuit, "estimated_circuit_depth"))}
+                    />
+                    <InfoRow
+                      label="Estimated counts"
+                      value={formatText(getCircuitValue(circuit, "counts_are_estimated"))}
+                    />
+                  </div>
+                </div>
+
+                {getCircuitValue(circuit, "reason") && (
+                  <p className="mt-4 text-sm text-gray-400">
+                    {formatText(getCircuitValue(circuit, "reason"))}
+                  </p>
+                )}
               </Panel>
             )}
 
