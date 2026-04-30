@@ -1120,10 +1120,10 @@ export default function QaoaRqpPage() {
       <Header />
 
       <section className="max-w-[1920px] mx-auto px-4 sm:px-6 xl:px-10 2xl:px-14 pt-24 pb-16">
-        <h1 className="text-4xl font-bold text-cyan-300 mb-3">QAOA RQP</h1>
+        <h1 className="text-4xl font-bold text-cyan-300 mb-3">Quantum Portfolio Optimizer</h1>
 
         <p className="text-cyan-100 text-lg font-semibold mb-5">
-          Excel-to-Quantum portfolio optimization prototype.
+          Excel-to-Quantum portfolio optimization tool based on the QAOA algorithm.
         </p>
 
         <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-8 max-w-6xl">
@@ -1134,7 +1134,8 @@ export default function QaoaRqpPage() {
           <br />
           The current cloud version supports the controlled classical path and a
           key-limited qaoa_limited mode. Full QAOA remains disabled until the
-          future job-based execution path is implemented.
+          future job-based execution path is implemented. 
+          The offline version of the tool can also handle multi-hour or multi-day optimizations.
         </p>
 
         <ProgressBar
