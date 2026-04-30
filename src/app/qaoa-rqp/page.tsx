@@ -649,7 +649,11 @@ export default function QaoaRqpPage() {
     reportingSummary?.currency_code ?? inspectSummary?.currency_code ?? "USD";
 
   const charts = reporting?.charts ?? {};
-  const circuit = reporting?.circuit ?? diagnostics.circuit;
+  const circuit =
+    reporting?.circuit ??
+    (diagnostics.circuit && typeof diagnostics.circuit === "object" && !Array.isArray(diagnostics.circuit)
+      ? (diagnostics.circuit as Record<string, unknown>)
+      : undefined);
 
   const classicalCandidates =
     reporting?.classical_candidates ?? result?.top_candidates ?? [];
@@ -1711,7 +1715,7 @@ export default function QaoaRqpPage() {
               </Panel>
             )}
 
-            {result && !result.error && circuit && (
+            {result && !result.error && circuit !== undefined && (
               <Panel title="Circuit Overview" tone="amber">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8">
                   <div>
