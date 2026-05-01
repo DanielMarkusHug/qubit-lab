@@ -468,9 +468,7 @@ function buildPortfolioFromBitstring(rows: CandidateRow[], bitstringValue?: stri
     const bitIndex = getVariableBitIndex(row);
     if (bitIndex === undefined) return false;
 
-    const zeroBasedIndex = bitIndex >= 1 ? bitIndex - 1 : bitIndex;
-
-    return bitstring[zeroBasedIndex] === "1";
+    return bitstring[bitIndex] === "1";
   });
 }
 
