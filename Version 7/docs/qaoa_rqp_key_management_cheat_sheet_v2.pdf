@@ -1,0 +1,354 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [7 0 R 9 0 R 11 0 R 13 0 R 15 0 R 17 0 R] /Count 6 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+6 0 obj
+<< /Length 3156 >>
+stream
+BT /F2 17 Tf 42 806 Td (QAOA RQP Key Management Cheat Sheet v2) Tj ET
+BT /F1 8 Tf 42 771 Td (Updated for Version 7.0.16.) Tj ET
+BT /F1 8 Tf 42 753 Td (This sheet covers Firestore key management, usage logs, authenticated run locks,) Tj ET
+BT /F1 8 Tf 42 742 Td (and the anonymous public-demo concurrency gate.) Tj ET
+BT /F2 11 Tf 42 719 Td (1. Admin Environment) Tj ET
+BT /F1 8 Tf 42 697 Td (Run admin commands from the repository root:) Tj ET
+BT /F3 7 Tf 42 672 Td (cd "/Users/danielhug/code/qubit-lab/QAOA-Optimizer") Tj ET
+BT /F1 8 Tf 42 649 Td (For Firestore admin actions, use the same secret that the Cloud Run service uses:) Tj ET
+BT /F3 7 Tf 42 624 Td (export KEY_HASH_SECRET="replace-with-production-secret") Tj ET
+BT /F3 7 Tf 42 615 Td (export QAOA_FIRESTORE_PROJECT_ID="your-gcp-project-id"   # optional if ADC already knows) Tj ET
+BT /F3 7 Tf 42 606 Td ( it) Tj ET
+BT /F1 8 Tf 42 583 Td (Default Firestore collections:) Tj ET
+BT /F3 7 Tf 42 558 Td (qaoa_keys) Tj ET
+BT /F3 7 Tf 42 549 Td (qaoa_usage_events) Tj ET
+BT /F3 7 Tf 42 540 Td (qaoa_public_run_state) Tj ET
+BT /F3 7 Tf 42 531 Td (qaoa_public_run_locks) Tj ET
+BT /F1 8 Tf 42 508 Td (Production Cloud Run should use:) Tj ET
+BT /F3 7 Tf 42 483 Td (QAOA_RQP_LOCAL_DEV=0) Tj ET
+BT /F3 7 Tf 42 474 Td (QAOA_KEY_STORE=firestore) Tj ET
+BT /F3 7 Tf 42 465 Td (QAOA_LEDGER_STORE=firestore) Tj ET
+BT /F3 7 Tf 42 456 Td (KEY_HASH_SECRET=...) Tj ET
+BT /F1 8 Tf 42 433 Td (Do not use `QAOA_RQP_LOCAL_DEV=1` for external demos.) Tj ET
+BT /F2 11 Tf 42 410 Td (2. Create A Firestore API Key) Tj ET
+BT /F1 8 Tf 42 388 Td (Create a key record. The raw API key is generated and printed exactly once.) Tj ET
+BT /F1 8 Tf 42 377 Td (Only the HMAC-SHA256 hash is stored in Firestore.) Tj ET
+BT /F3 7 Tf 42 352 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" create \\) Tj ET
+BT /F3 7 Tf 42 343 Td (  --key-id customer-demo-001 \\) Tj ET
+BT /F3 7 Tf 42 334 Td (  --name "Customer Name" \\) Tj ET
+BT /F3 7 Tf 42 325 Td (  --email "customer@example.com" \\) Tj ET
+BT /F3 7 Tf 42 316 Td (  --organization "Customer Org" \\) Tj ET
+BT /F3 7 Tf 42 307 Td (  --usage-level tester \\) Tj ET
+BT /F3 7 Tf 42 298 Td (  --max-runs 100 \\) Tj ET
+BT /F3 7 Tf 42 289 Td (  --expires-at "2026-12-31T23:59:59Z" \\) Tj ET
+BT /F3 7 Tf 42 280 Td (  --created-by "admin@example.com") Tj ET
+BT /F1 8 Tf 42 257 Td (Optional:) Tj ET
+BT /F3 7 Tf 42 232 Td (  --display-name "Customer Demo" \\) Tj ET
+BT /F3 7 Tf 42 223 Td (  --notes "Pilot access" \\) Tj ET
+BT /F3 7 Tf 42 214 Td (  --prefix qlab \\) Tj ET
+BT /F3 7 Tf 42 205 Td (  --max-parallel-runs 1 \\) Tj ET
+BT /F3 7 Tf 42 196 Td (  --force) Tj ET
+BT /F1 8 Tf 42 173 Td (`--max-parallel-runs` defaults to `1`. Existing keys without this field are) Tj ET
+BT /F1 8 Tf 42 162 Td (treated as one active run maximum and idle status.) Tj ET
+BT /F2 11 Tf 42 139 Td (3. Inspect And Manage Keys) Tj ET
+BT /F1 8 Tf 42 117 Td (List keys:) Tj ET
+BT /F3 7 Tf 42 92 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" list --limit 100) Tj ET
+BT /F1 7 Tf 42 24 Td (QAOA RQP Key Management Cheat Sheet v2 - Version 7.0.16) Tj ET
+BT /F1 7 Tf 520 24 Td (Page 1/6) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 3181 >>
+stream
+BT /F1 8 Tf 42 806 Td (Show one key without showing its hash:) Tj ET
+BT /F3 7 Tf 42 781 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" show \\) Tj ET
+BT /F3 7 Tf 42 772 Td (  --key-id customer-demo-001) Tj ET
+BT /F1 8 Tf 42 749 Td (Show one key with the stored hash only when explicitly needed:) Tj ET
+BT /F3 7 Tf 42 724 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" show \\) Tj ET
+BT /F3 7 Tf 42 715 Td (  --key-id customer-demo-001 \\) Tj ET
+BT /F3 7 Tf 42 706 Td (  --show-hash) Tj ET
+BT /F1 8 Tf 42 683 Td (Inspect a raw API key without printing it back:) Tj ET
+BT /F3 7 Tf 42 658 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" inspect \\) Tj ET
+BT /F3 7 Tf 42 649 Td (  --api-key "PASTE-RAW-KEY-HERE") Tj ET
+BT /F1 8 Tf 42 626 Td (Revoke or reactivate a key:) Tj ET
+BT /F3 7 Tf 42 601 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" revoke \\) Tj ET
+BT /F3 7 Tf 42 592 Td (  --key-id customer-demo-001) Tj ET
+BT /F3 7 Tf 42 574 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" activate \\) Tj ET
+BT /F3 7 Tf 42 565 Td (  --key-id customer-demo-001) Tj ET
+BT /F2 11 Tf 42 537 Td (4. Authenticated Per-Key Run Locks) Tj ET
+BT /F1 8 Tf 42 515 Td (Authenticated `/run-qaoa` requests use a per-key run lock. Different keys can) Tj ET
+BT /F1 8 Tf 42 504 Td (run in parallel. A second simultaneous run for the same key is rejected with:) Tj ET
+BT /F3 7 Tf 42 479 Td (active_run_exists) Tj ET
+BT /F1 8 Tf 42 456 Td (Firestore key lock fields:) Tj ET
+BT /F3 7 Tf 42 431 Td (max_parallel_runs) Tj ET
+BT /F3 7 Tf 42 422 Td (active_run_id) Tj ET
+BT /F3 7 Tf 42 413 Td (active_run_started_at) Tj ET
+BT /F3 7 Tf 42 404 Td (active_run_status) Tj ET
+BT /F3 7 Tf 42 395 Td (active_run_user_agent) Tj ET
+BT /F3 7 Tf 42 386 Td (active_run_ip) Tj ET
+BT /F1 8 Tf 42 363 Td (Missing fields are safe:) Tj ET
+BT /F3 7 Tf 42 338 Td (max_parallel_runs -> 1) Tj ET
+BT /F3 7 Tf 42 329 Td (active_run_id -> none) Tj ET
+BT /F3 7 Tf 42 320 Td (active_run_started_at -> none) Tj ET
+BT /F3 7 Tf 42 311 Td (active_run_status -> idle) Tj ET
+BT /F1 8 Tf 42 288 Td (Manual recovery command for a stuck key lock:) Tj ET
+BT /F3 7 Tf 42 263 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" clear-lock \\) Tj ET
+BT /F3 7 Tf 42 254 Td (  --key-id customer-demo-001 \\) Tj ET
+BT /F3 7 Tf 42 245 Td (  --confirm) Tj ET
+BT /F1 8 Tf 42 222 Td (Without `--confirm`, the command prints a warning and does not modify Firestore.) Tj ET
+BT /F2 11 Tf 42 199 Td (5. Public Demo Access Without A Key) Tj ET
+BT /F1 8 Tf 42 177 Td (Anonymous users still do not need an API key. They map to `public_demo`.) Tj ET
+BT /F1 8 Tf 42 159 Td (`public_demo` is intentionally small:) Tj ET
+BT /F3 7 Tf 42 134 Td (max_qubits: 8) Tj ET
+BT /F3 7 Tf 42 125 Td (qaoa_limited max_layers: 1) Tj ET
+BT /F3 7 Tf 42 116 Td (qaoa_limited max_iterations: 10) Tj ET
+BT /F3 7 Tf 42 107 Td (qaoa_limited max_restarts: 1) Tj ET
+BT /F3 7 Tf 42 98 Td (max_estimated_runtime_sec: 60) Tj ET
+BT /F3 7 Tf 42 89 Td (max_parallel_runs: 5) Tj ET
+BT /F1 7 Tf 42 24 Td (QAOA RQP Key Management Cheat Sheet v2 - Version 7.0.16) Tj ET
+BT /F1 7 Tf 520 24 Td (Page 2/6) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 2999 >>
+stream
+BT /F1 8 Tf 42 806 Td (Only anonymous/public_demo `/run-qaoa` executions acquire a public slot.) Tj ET
+BT /F1 8 Tf 42 788 Td (These endpoints do not acquire public slots:) Tj ET
+BT /F3 7 Tf 42 763 Td (/license-status) Tj ET
+BT /F3 7 Tf 42 754 Td (/inspect-workbook) Tj ET
+BT /F3 7 Tf 42 745 Td (/capabilities) Tj ET
+BT /F1 8 Tf 42 722 Td (Authenticated keys do not use the public semaphore. They use the per-key lock.) Tj ET
+BT /F2 11 Tf 42 699 Td (6. Public Demo Concurrency Gate) Tj ET
+BT /F1 8 Tf 42 677 Td (Firestore state document:) Tj ET
+BT /F3 7 Tf 42 652 Td (qaoa_public_run_state/global) Tj ET
+BT /F1 8 Tf 42 629 Td (It stores:) Tj ET
+BT /F3 7 Tf 42 604 Td (active_count) Tj ET
+BT /F3 7 Tf 42 595 Td (max_parallel_runs) Tj ET
+BT /F3 7 Tf 42 586 Td (updated_at) Tj ET
+BT /F1 8 Tf 42 563 Td (Active public locks:) Tj ET
+BT /F3 7 Tf 42 538 Td (qaoa_public_run_locks/{run_id}) Tj ET
+BT /F1 8 Tf 42 515 Td (Each lock stores safe run metadata:) Tj ET
+BT /F3 7 Tf 42 490 Td (run_id) Tj ET
+BT /F3 7 Tf 42 481 Td (usage_level = public_demo) Tj ET
+BT /F3 7 Tf 42 472 Td (status = running) Tj ET
+BT /F3 7 Tf 42 463 Td (started_at) Tj ET
+BT /F3 7 Tf 42 454 Td (stale_after_sec) Tj ET
+BT /F3 7 Tf 42 445 Td (mode) Tj ET
+BT /F3 7 Tf 42 436 Td (response_level) Tj ET
+BT /F3 7 Tf 42 427 Td (filename) Tj ET
+BT /F3 7 Tf 42 418 Td (estimated_runtime_sec) Tj ET
+BT /F3 7 Tf 42 409 Td (n_qubits) Tj ET
+BT /F3 7 Tf 42 400 Td (client_ip_hash) Tj ET
+BT /F3 7 Tf 42 391 Td (user_agent_hash) Tj ET
+BT /F1 8 Tf 42 368 Td (Raw IP addresses and raw user agents are not stored.) Tj ET
+BT /F1 8 Tf 42 350 Td (If all 5 public slots are busy, `/run-qaoa` rejects immediately with HTTP 429:) Tj ET
+BT /F3 7 Tf 42 325 Td ({) Tj ET
+BT /F3 7 Tf 42 316 Td (  "status": "error",) Tj ET
+BT /F3 7 Tf 42 307 Td (  "error": {) Tj ET
+BT /F3 7 Tf 42 298 Td (    "code": "public_demo_capacity_exceeded",) Tj ET
+BT /F3 7 Tf 42 289 Td (    "message": "The public demo is currently busy. Please try again in a few minutes.",) Tj ET
+BT /F3 7 Tf 42 280 Td (    "details": {) Tj ET
+BT /F3 7 Tf 42 271 Td (      "usage_level": "public_demo",) Tj ET
+BT /F3 7 Tf 42 262 Td (      "active_public_runs": 5,) Tj ET
+BT /F3 7 Tf 42 253 Td (      "max_parallel_public_runs": 5) Tj ET
+BT /F3 7 Tf 42 244 Td (    }) Tj ET
+BT /F3 7 Tf 42 235 Td (  }) Tj ET
+BT /F3 7 Tf 42 226 Td (}) Tj ET
+BT /F1 8 Tf 42 203 Td (This rejection does not start optimization and does not consume usage.) Tj ET
+BT /F2 11 Tf 42 180 Td (7. Usage Logs And Public Run Views) Tj ET
+BT /F1 8 Tf 42 158 Td (List recent events for one authenticated key:) Tj ET
+BT /F3 7 Tf 42 133 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" usage \\) Tj ET
+BT /F3 7 Tf 42 124 Td (  --key-id customer-demo-001 \\) Tj ET
+BT /F3 7 Tf 42 115 Td (  --limit 20) Tj ET
+BT /F1 8 Tf 42 92 Td (List recent usage events across all keys, including public demo:) Tj ET
+BT /F1 7 Tf 42 24 Td (QAOA RQP Key Management Cheat Sheet v2 - Version 7.0.16) Tj ET
+BT /F1 7 Tf 520 24 Td (Page 3/6) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Length 3126 >>
+stream
+BT /F3 7 Tf 42 806 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" runs \\) Tj ET
+BT /F3 7 Tf 42 797 Td (  --days 30 \\) Tj ET
+BT /F3 7 Tf 42 788 Td (  --limit 50) Tj ET
+BT /F1 8 Tf 42 765 Td (List public-demo events from the last month:) Tj ET
+BT /F3 7 Tf 42 740 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" runs \\) Tj ET
+BT /F3 7 Tf 42 731 Td (  --days 30 \\) Tj ET
+BT /F3 7 Tf 42 722 Td (  --usage-level public_demo \\) Tj ET
+BT /F3 7 Tf 42 713 Td (  --limit 100) Tj ET
+BT /F1 8 Tf 42 690 Td (List capacity rejections, if any:) Tj ET
+BT /F3 7 Tf 42 665 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" runs \\) Tj ET
+BT /F3 7 Tf 42 656 Td (  --days 30 \\) Tj ET
+BT /F3 7 Tf 42 647 Td (  --usage-level public_demo \\) Tj ET
+BT /F3 7 Tf 42 638 Td (  --status rejected \\) Tj ET
+BT /F3 7 Tf 42 629 Td (  --limit 100) Tj ET
+BT /F1 8 Tf 42 606 Td (Summarize recent usage:) Tj ET
+BT /F3 7 Tf 42 581 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" usage-summary \\) Tj ET
+BT /F3 7 Tf 42 572 Td (  --days 30) Tj ET
+BT /F1 8 Tf 42 549 Td (The summary includes:) Tj ET
+BT /F3 7 Tf 42 524 Td (total_runs) Tj ET
+BT /F3 7 Tf 42 515 Td (completed_runs) Tj ET
+BT /F3 7 Tf 42 506 Td (rejected_runs) Tj ET
+BT /F3 7 Tf 42 497 Td (failed_runs) Tj ET
+BT /F3 7 Tf 42 488 Td (consumed_runs) Tj ET
+BT /F3 7 Tf 42 479 Td (public_demo totals) Tj ET
+BT /F3 7 Tf 42 470 Td (authenticated totals) Tj ET
+BT /F3 7 Tf 42 461 Td (by_usage_level) Tj ET
+BT /F3 7 Tf 42 452 Td (by_key_id) Tj ET
+BT /F3 7 Tf 42 443 Td (by_error_code) Tj ET
+BT /F1 8 Tf 42 420 Td (Show current public-demo semaphore state and active public locks:) Tj ET
+BT /F3 7 Tf 42 395 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" public-status \\) Tj ET
+BT /F3 7 Tf 42 386 Td (  --limit 20) Tj ET
+BT /F2 11 Tf 42 358 Td (8. Usage Event Fields) Tj ET
+BT /F1 8 Tf 42 336 Td (`qaoa_usage_events` stores safe metadata, for example:) Tj ET
+BT /F3 7 Tf 42 311 Td (run_id) Tj ET
+BT /F3 7 Tf 42 302 Td (key_id) Tj ET
+BT /F3 7 Tf 42 293 Td (usage_level) Tj ET
+BT /F3 7 Tf 42 284 Td (timestamp) Tj ET
+BT /F3 7 Tf 42 275 Td (status) Tj ET
+BT /F3 7 Tf 42 266 Td (mode) Tj ET
+BT /F3 7 Tf 42 257 Td (response_level) Tj ET
+BT /F3 7 Tf 42 248 Td (filename) Tj ET
+BT /F3 7 Tf 42 239 Td (binary_variables / n_qubits) Tj ET
+BT /F3 7 Tf 42 230 Td (layers) Tj ET
+BT /F3 7 Tf 42 221 Td (iterations) Tj ET
+BT /F3 7 Tf 42 212 Td (restarts) Tj ET
+BT /F3 7 Tf 42 203 Td (warm_start) Tj ET
+BT /F3 7 Tf 42 194 Td (qaoa_shots) Tj ET
+BT /F3 7 Tf 42 185 Td (estimated_runtime_sec) Tj ET
+BT /F3 7 Tf 42 176 Td (actual_runtime_sec) Tj ET
+BT /F3 7 Tf 42 167 Td (runtime_ratio) Tj ET
+BT /F3 7 Tf 42 158 Td (error_code) Tj ET
+BT /F3 7 Tf 42 149 Td (error_message) Tj ET
+BT /F3 7 Tf 42 140 Td (service_version) Tj ET
+BT /F3 7 Tf 42 131 Td (consumed_run) Tj ET
+BT /F1 8 Tf 42 108 Td (Public/no-key runs use:) Tj ET
+BT /F3 7 Tf 42 83 Td (usage_level = public_demo) Tj ET
+BT /F3 7 Tf 42 74 Td (key_id = anonymous) Tj ET
+BT /F1 7 Tf 42 24 Td (QAOA RQP Key Management Cheat Sheet v2 - Version 7.0.16) Tj ET
+BT /F1 7 Tf 520 24 Td (Page 4/6) Tj ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 12 0 R >>
+endobj
+14 0 obj
+<< /Length 3028 >>
+stream
+BT /F1 8 Tf 42 799 Td (Useful filters:) Tj ET
+BT /F3 7 Tf 42 774 Td (Public runs: usage_level == public_demo) Tj ET
+BT /F3 7 Tf 42 765 Td (Capacity rejections: error_code == public_demo_capacity_exceeded) Tj ET
+BT /F3 7 Tf 42 756 Td (Per-key usage: key_id == customer-demo-001) Tj ET
+BT /F2 11 Tf 42 728 Td (9. Run Consumption Rules) Tj ET
+BT /F1 8 Tf 42 706 Td (Consumes one run:) Tj ET
+BT /F3 7 Tf 42 681 Td (Successful completed authenticated optimization) Tj ET
+BT /F1 8 Tf 42 658 Td (Does not consume a run:) Tj ET
+BT /F3 7 Tf 42 633 Td (Invalid key) Tj ET
+BT /F3 7 Tf 42 624 Td (Expired, revoked, suspended key) Tj ET
+BT /F3 7 Tf 42 615 Td (Run limit exceeded) Tj ET
+BT /F3 7 Tf 42 606 Td (Policy rejection) Tj ET
+BT /F3 7 Tf 42 597 Td (Qubit/runtime limit rejection) Tj ET
+BT /F3 7 Tf 42 588 Td (Response level rejection) Tj ET
+BT /F3 7 Tf 42 579 Td (qaoa_full disabled) Tj ET
+BT /F3 7 Tf 42 570 Td (active_run_exists) Tj ET
+BT /F3 7 Tf 42 561 Td (public_demo_capacity_exceeded) Tj ET
+BT /F3 7 Tf 42 552 Td (Invalid workbook before execution) Tj ET
+BT /F3 7 Tf 42 543 Td (Internal failure after execution starts) Tj ET
+BT /F1 8 Tf 42 520 Td (Public/no-key usage is tracked in usage events and controlled by concurrency,) Tj ET
+BT /F1 8 Tf 42 509 Td (not by a per-user run counter.) Tj ET
+BT /F2 11 Tf 42 486 Td (10. Security Notes) Tj ET
+BT /F1 8 Tf 42 464 Td (Never store or log raw API keys.) Tj ET
+BT /F1 8 Tf 42 446 Td (Firestore `qaoa_keys` stores only:) Tj ET
+BT /F3 7 Tf 42 421 Td (key_id) Tj ET
+BT /F3 7 Tf 42 412 Td (key_hash) Tj ET
+BT /F3 7 Tf 42 403 Td (usage_level) Tj ET
+BT /F3 7 Tf 42 394 Td (status) Tj ET
+BT /F3 7 Tf 42 385 Td (identity metadata) Tj ET
+BT /F3 7 Tf 42 376 Td (max_runs / used_runs / remaining_runs) Tj ET
+BT /F3 7 Tf 42 367 Td (run-lock fields) Tj ET
+BT /F3 7 Tf 42 358 Td (optional limits) Tj ET
+BT /F1 8 Tf 42 335 Td (The raw API key is printed exactly once by the create command. After that, it) Tj ET
+BT /F1 8 Tf 42 324 Td (cannot be recovered from Firestore.) Tj ET
+BT /F1 8 Tf 42 306 Td (Use the same `KEY_HASH_SECRET` for:) Tj ET
+BT /F3 7 Tf 42 281 Td (Cloud Run API validation) Tj ET
+BT /F3 7 Tf 42 272 Td (key_admin_firestore.py create) Tj ET
+BT /F3 7 Tf 42 263 Td (key_admin_firestore.py inspect) Tj ET
+BT /F1 8 Tf 42 240 Td (Changing `KEY_HASH_SECRET` invalidates existing hashes unless keys are recreated.) Tj ET
+BT /F2 11 Tf 42 217 Td (11. Common Checks) Tj ET
+BT /F1 8 Tf 42 195 Td (Check that public capacity appears in capabilities:) Tj ET
+BT /F3 7 Tf 42 170 Td (curl "$SERVICE_URL/capabilities" | python3 -m json.tool) Tj ET
+BT /F1 8 Tf 42 147 Td (Check current public status:) Tj ET
+BT /F3 7 Tf 42 122 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" public-status) Tj ET
+BT /F1 8 Tf 42 99 Td (Check last 30 days of public runs:) Tj ET
+BT /F3 7 Tf 42 74 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" runs \\) Tj ET
+BT /F1 7 Tf 42 24 Td (QAOA RQP Key Management Cheat Sheet v2 - Version 7.0.16) Tj ET
+BT /F1 7 Tf 520 24 Td (Page 5/6) Tj ET
+endstream
+endobj
+15 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 14 0 R >>
+endobj
+16 0 obj
+<< /Length 786 >>
+stream
+BT /F3 7 Tf 42 806 Td (  --days 30 \\) Tj ET
+BT /F3 7 Tf 42 797 Td (  --usage-level public_demo) Tj ET
+BT /F1 8 Tf 42 774 Td (Check aggregate usage:) Tj ET
+BT /F3 7 Tf 42 749 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" usage-summary \\) Tj ET
+BT /F3 7 Tf 42 740 Td (  --days 30) Tj ET
+BT /F1 8 Tf 42 717 Td (Clear a stuck authenticated key lock only after confirming no run is really) Tj ET
+BT /F1 8 Tf 42 706 Td (still active:) Tj ET
+BT /F3 7 Tf 42 681 Td (.venv/bin/python "Version 7/scripts/key_admin_firestore.py" clear-lock \\) Tj ET
+BT /F3 7 Tf 42 672 Td (  --key-id customer-demo-001 \\) Tj ET
+BT /F3 7 Tf 42 663 Td (  --confirm) Tj ET
+BT /F1 7 Tf 42 24 Td (QAOA RQP Key Management Cheat Sheet v2 - Version 7.0.16) Tj ET
+BT /F1 7 Tf 520 24 Td (Page 6/6) Tj ET
+endstream
+endobj
+17 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 16 0 R >>
+endobj
+xref
+0 18
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000155 00000 n 
+0000000225 00000 n 
+0000000300 00000 n 
+0000000368 00000 n 
+0000003576 00000 n 
+0000003722 00000 n 
+0000006955 00000 n 
+0000007101 00000 n 
+0000010153 00000 n 
+0000010301 00000 n 
+0000013480 00000 n 
+0000013628 00000 n 
+0000016709 00000 n 
+0000016857 00000 n 
+0000017695 00000 n 
+trailer
+<< /Size 18 /Root 1 0 R >>
+startxref
+17843
+%%EOF
