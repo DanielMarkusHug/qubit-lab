@@ -13,6 +13,45 @@ type LimitBlock = {
   max_estimated_runtime_sec?: number;
 };
 
+type EffectiveSettings = {
+  response_level?: string | null;
+  layers?: number | null;
+  p?: number | null;
+  iterations?: number | null;
+  restarts?: number | null;
+  warm_start?: boolean | null;
+  qaoa_shots?: number | null;
+  qaoa_shots_display?: string | number | null;
+  shots_mode?: string | null;
+  lambda_budget?: number | null;
+  budget_lambda?: number | null;
+  lambda_variance?: number | null;
+  risk_lambda?: number | null;
+  variance_lambda?: number | null;
+  risk_free_rate?: number | null;
+  restart_perturbation?: number | null;
+};
+
+type Diagnostics = Record<string, unknown> & {
+  logs?: string[];
+  effective_settings?: EffectiveSettings;
+  runtime_inputs?: Record<string, unknown>;
+  circuit?: Record<string, unknown>;
+  estimated_runtime_sec?: number;
+  actual_runtime_sec?: number;
+  runtime_ratio?: number;
+  usage_level?: string;
+  n_qubits?: number;
+  binary_variables?: number;
+  qubo_shape?: number[];
+  qubo_nonzero_entries?: number;
+  classical_candidate_count?: number;
+  assets_referenced_by_options?: number;
+  budget_usd?: number;
+  fixed_options?: number;
+  variable_options?: number;
+};
+
 type LicenseStatus = {
   authenticated: boolean;
   key_id?: string;
@@ -130,7 +169,7 @@ type RunResult = {
   budget_gap?: number;
   run_id?: string;
   license?: LicenseStatus;
-  diagnostics?: Record<string, unknown>;
+  diagnostics?: Diagnostics;
   components?: Record<string, unknown>;
   best_candidate?: Record<string, unknown>;
   top_candidates?: CandidateRow[];
@@ -196,7 +235,7 @@ type InspectResult = {
   license?: LicenseStatus;
   workbook_summary?: InspectWorkbookSummary;
   runtime_estimate?: RuntimeEstimate;
-  diagnostics?: Record<string, unknown>;
+  diagnostics?: Diagnostics;
   error?: {
     code?: string;
     message?: string;
@@ -208,8 +247,20 @@ const API_URL =
   process.env.NEXT_PUBLIC_QAOA_RQP_API_URL ??
   "https://qaoa-rqp-api-186148318189.europe-west6.run.app";
 
+const USER_GUIDE_URL = "/qaoa-rqp/QAOA_RQP_Quick_User_Guide.pdf";
+const DEMO_EXCEL_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo.xlsx";
+
 function getNumber(value: unknown): number | undefined {
   return typeof value === "number" && !Number.isNaN(value) ? value : undefined;
+}
+
+function getBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true") return true;
+    if (value.toLowerCase() === "false") return false;
+  }
+  return undefined;
 }
 
 function formatNumber(value: unknown, digits = 3) {
@@ -307,7 +358,9 @@ function getQaoaLimitedLimits(license?: LicenseStatus | null): LimitBlock | unde
 
 function getStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item));
+  return value.map((item) =>
+    String(item).replaceAll("Refresh with yfinance", "Refresh of Data")
+  );
 }
 
 function getCircuitValue(circuit: unknown, key: string) {
@@ -316,6 +369,50 @@ function getCircuitValue(circuit: unknown, key: string) {
   }
 
   return (circuit as Record<string, unknown>)[key];
+}
+
+function getRecordValue(record: unknown, key: string) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return undefined;
+  }
+  return (record as Record<string, unknown>)[key];
+}
+
+function getEffectiveSetting(diagnostics: Diagnostics | undefined, key: string) {
+  return getRecordValue(diagnostics?.effective_settings, key);
+}
+
+function getShotsMode(...sources: Array<Diagnostics | undefined>) {
+  for (const diagnostics of sources) {
+    const effectiveShotsMode = formatText(
+      getEffectiveSetting(diagnostics, "shots_mode"),
+      ""
+    );
+    if (effectiveShotsMode) return effectiveShotsMode;
+
+    const circuit = diagnostics?.circuit;
+    const circuitShotsMode = formatText(getCircuitValue(circuit, "shots_mode"), "");
+    if (circuitShotsMode) return circuitShotsMode;
+  }
+
+  return "";
+}
+
+function getQaoaShotsDisplay(...sources: Array<Diagnostics | undefined>) {
+  for (const diagnostics of sources) {
+    const display = getEffectiveSetting(diagnostics, "qaoa_shots_display");
+    if (display !== undefined && display !== null && display !== "") {
+      return String(display);
+    }
+
+    const shotsMode = getShotsMode(diagnostics);
+    if (shotsMode === "exact") return "exact";
+
+    const shots = getEffectiveSetting(diagnostics, "qaoa_shots");
+    if (shots !== undefined && shots !== null) return String(shots);
+  }
+
+  return "";
 }
 
 function estimateRuntimeSeconds({
@@ -358,12 +455,12 @@ function estimateRuntimeSeconds({
 
 function metricValueClass(kind: "number" | "text", subtle: boolean) {
   if (kind === "text") {
-    return `text-base font-semibold leading-snug break-words ${
+    return `text-sm font-semibold leading-snug break-words ${
       subtle ? "text-gray-300" : "text-cyan-100"
     }`;
   }
 
-  return `text-2xl font-bold leading-tight break-words ${
+  return `text-xl font-bold leading-tight break-words ${
     subtle ? "text-gray-300" : "text-cyan-200"
   }`;
 }
@@ -380,8 +477,8 @@ function MetricCard({
   kind?: "number" | "text";
 }) {
   return (
-    <div className="rounded-xl bg-slate-900/80 border border-slate-700 p-4 min-w-0">
-      <div className="text-gray-400 text-sm mb-1">{label}</div>
+    <div className="rounded-xl bg-slate-900/80 border border-slate-700 p-3 min-w-0">
+      <div className="text-gray-400 text-xs mb-1">{label}</div>
       <div className={metricValueClass(kind, subtle)}>{value}</div>
     </div>
   );
@@ -395,7 +492,7 @@ function InfoRow({
   value: string | number | undefined;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-slate-800 py-2 text-sm">
+    <div className="flex items-start justify-between gap-3 border-b border-slate-800 py-1.5 text-xs">
       <span className="text-gray-400 shrink-0">{label}</span>
       <span className="text-gray-100 text-right break-words max-w-[70%] min-w-0">
         {value ?? "n/a"}
@@ -421,9 +518,9 @@ function Panel({
 
   return (
     <div
-      className={`rounded-2xl border ${borderClass} bg-slate-950/70 p-5 shadow-lg ${className}`}
+      className={`rounded-2xl border ${borderClass} bg-slate-950/70 p-3 shadow-lg ${className}`}
     >
-      <h2 className={`text-xl font-bold mb-4 ${titleClass}`}>{title}</h2>
+      <h2 className={`text-lg font-bold mb-3 ${titleClass}`}>{title}</h2>
       {children}
     </div>
   );
@@ -437,7 +534,7 @@ function QuantumPlaceholder({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-amber-900/60 bg-amber-950/20 p-4 text-sm text-amber-100/80">
+    <div className="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-100/80">
       <div className="font-semibold text-amber-200 mb-1">{title}</div>
       <div>{children}</div>
     </div>
@@ -446,8 +543,8 @@ function QuantumPlaceholder({
 
 function ChartImage({ title, src }: { title: string; src: string }) {
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-4">
-      <h3 className="text-sm font-semibold text-cyan-100 mb-3">{title}</h3>
+    <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3">
+      <h3 className="text-xs font-semibold text-cyan-100 mb-2">{title}</h3>
       <img
         src={src}
         alt={title}
@@ -473,11 +570,11 @@ function ProgressBar({
   if (!visible) return null;
 
   return (
-    <div className="mb-6 rounded-2xl border border-cyan-900/60 bg-slate-950/80 p-4 shadow-lg">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="mb-4 rounded-2xl border border-cyan-900/60 bg-slate-950/80 p-3 shadow-lg">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <div className="text-sm font-semibold text-cyan-100">{message}</div>
-          <div className="text-sm text-gray-400">
+          <div className="text-xs text-gray-400">
             {etaSeconds !== undefined && etaSeconds > 0
               ? `Estimated remaining: ~${Math.ceil(etaSeconds)} sec`
               : "Running..."}
@@ -487,14 +584,14 @@ function ProgressBar({
         {onStop && (
           <button
             onClick={onStop}
-            className="rounded-lg border border-red-800 bg-red-950/60 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/70"
+            className="rounded-lg border border-red-800 bg-red-950/60 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-900/70"
           >
             Stop request
           </button>
         )}
       </div>
 
-      <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800">
+      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-800">
         <div
           className="h-full rounded-full bg-cyan-400 transition-all duration-500"
           style={{ width: `${Math.max(5, Math.min(progress, 100))}%` }}
@@ -504,24 +601,34 @@ function ProgressBar({
   );
 }
 
+function ErrorBox({ error }: { error?: RunResult["error"] | InspectResult["error"] }) {
+  if (!error) return null;
+
+  return (
+    <div className="rounded-xl border border-red-800 bg-red-950/40 p-3 text-red-100">
+      <div className="font-semibold text-sm">{error.code ?? "Error"}</div>
+      <div className="text-xs mt-1">
+        {error.message ?? "The backend rejected this request."}
+      </div>
+
+      {error.details && Object.keys(error.details).length > 0 && (
+        <div className="mt-3 rounded-lg border border-red-900/70 bg-black/20 p-2">
+          <div className="text-xs font-semibold text-red-200 mb-1">Details</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+            {Object.entries(error.details).map(([key, value]) => (
+              <InfoRow key={key} label={key} value={formatText(value)} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getBitIndexLabel(block: CandidateRow) {
   const role = String(block.decision_role ?? "").toLowerCase();
   if (role === "fixed") return "fixed";
   return formatText(block.variable_bit_index);
-}
-
-function getRankLabel(block: CandidateRow) {
-  const role = String(block.decision_role ?? "").toLowerCase();
-  if (block.rank !== undefined && block.rank !== null) return formatText(block.rank);
-  if (role === "fixed") return "fixed";
-  return "";
-}
-
-function getSourceLabel(block: CandidateRow) {
-  const role = String(block.decision_role ?? "").toLowerCase();
-  if (block.source !== undefined && block.source !== null) return formatText(block.source);
-  if (role === "fixed") return "fixed";
-  return "";
 }
 
 function hasQuantumResult(summary?: ReportingSummaryBlock) {
@@ -543,54 +650,54 @@ function CandidateTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm text-left">
+      <table className="w-full text-xs text-left">
         <thead className="text-gray-400 border-b border-slate-700">
           <tr>
-            <th className="py-2 pr-4">Rank</th>
-            <th className="py-2 pr-4">Source</th>
-            <th className="py-2 pr-4">Bitstring</th>
-            {showProbability && <th className="py-2 pr-4">Probability</th>}
-            <th className="py-2 pr-4">QUBO</th>
-            <th className="py-2 pr-4">Selected amount</th>
-            <th className="py-2 pr-4">Budget gap</th>
-            <th className="py-2 pr-4">Return</th>
-            <th className="py-2 pr-4">Volatility</th>
-            <th className="py-2 pr-4">Sharpe ratio</th>
+            <th className="py-1.5 pr-3">Rank</th>
+            <th className="py-1.5 pr-3">Source</th>
+            <th className="py-1.5 pr-3">Bitstring</th>
+            {showProbability && <th className="py-1.5 pr-3">Probability</th>}
+            <th className="py-1.5 pr-3">QUBO</th>
+            <th className="py-1.5 pr-3">Selected amount</th>
+            <th className="py-1.5 pr-3">Budget gap</th>
+            <th className="py-1.5 pr-3">Return</th>
+            <th className="py-1.5 pr-3">Volatility</th>
+            <th className="py-1.5 pr-3">Sharpe ratio</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((candidate, idx) => (
             <tr key={idx} className="border-b border-slate-800">
-              <td className="py-2 pr-4 text-gray-300">
+              <td className="py-1.5 pr-3 text-gray-300">
                 {formatText(candidate.rank ?? idx + 1)}
               </td>
-              <td className="py-2 pr-4 text-gray-400">
+              <td className="py-1.5 pr-3 text-gray-400">
                 {formatText(candidate.source ?? candidate.solver)}
               </td>
-              <td className="py-2 pr-4 font-mono text-cyan-200">
+              <td className="py-1.5 pr-3 font-mono text-cyan-200">
                 {formatText(candidate.bitstring)}
               </td>
               {showProbability && (
-                <td className="py-2 pr-4 text-gray-300">
+                <td className="py-1.5 pr-3 text-gray-300">
                   {formatNumber(candidate.probability, 6)}
                 </td>
               )}
-              <td className="py-2 pr-4 text-gray-300">
+              <td className="py-1.5 pr-3 text-gray-300">
                 {formatNumber(candidate.qubo_value ?? candidate.qubo_reconstructed, 6)}
               </td>
-              <td className="py-2 pr-4 text-gray-300">
+              <td className="py-1.5 pr-3 text-gray-300">
                 {formatCurrency(candidate.selected_usd, currencyCode)}
               </td>
-              <td className="py-2 pr-4 text-gray-300">
+              <td className="py-1.5 pr-3 text-gray-300">
                 {formatCurrency(candidate.budget_gap, currencyCode)}
               </td>
-              <td className="py-2 pr-4 text-gray-300">
+              <td className="py-1.5 pr-3 text-gray-300">
                 {formatNumber(candidate.portfolio_return, 4)}
               </td>
-              <td className="py-2 pr-4 text-gray-300">
+              <td className="py-1.5 pr-3 text-gray-300">
                 {formatNumber(candidate.portfolio_vol, 4)}
               </td>
-              <td className="py-2 pr-4 text-gray-300">
+              <td className="py-1.5 pr-3 text-gray-300">
                 {formatNumber(candidate.sharpe_like, 4)}
               </td>
             </tr>
@@ -604,12 +711,13 @@ function CandidateTable({
 export default function QaoaRqpPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const inspectAbortControllerRef = useRef<AbortController | null>(null);
+  const settingsTouchedRef = useRef(false);
 
   const [apiKey, setApiKey] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
   const [mode, setMode] = useState("classical_only");
-  const [responseLevel, setResponseLevel] = useState("compact");
+  const [responseLevel, setResponseLevel] = useState("full");
 
   const [layers, setLayers] = useState(1);
   const [iterations, setIterations] = useState(80);
@@ -620,6 +728,7 @@ export default function QaoaRqpPage() {
   const [riskFreeRate, setRiskFreeRate] = useState(0.04);
   const [qaoaShots, setQaoaShots] = useState(4096);
   const [restartPerturbation, setRestartPerturbation] = useState(0.05);
+  const [settingsLoadedFromWorkbook, setSettingsLoadedFromWorkbook] = useState(false);
 
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -633,7 +742,12 @@ export default function QaoaRqpPage() {
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [etaBasisSec, setEtaBasisSec] = useState<number | null>(null);
 
-  const diagnostics = result?.diagnostics ?? {};
+  const diagnostics = useMemo<Diagnostics>(() => result?.diagnostics ?? {}, [result]);
+  const inspectDiagnostics = useMemo<Diagnostics>(
+    () => inspectResult?.diagnostics ?? {},
+    [inspectResult]
+  );
+
   const metrics = result?.portfolio_metrics ?? {};
   const components = result?.components ?? {};
   const reporting = result?.reporting;
@@ -643,7 +757,6 @@ export default function QaoaRqpPage() {
 
   const inspectSummary = inspectResult?.workbook_summary;
   const inspectRuntimeEstimate = inspectResult?.runtime_estimate;
-  const inspectDiagnostics = inspectResult?.diagnostics ?? {};
 
   const currencyCode =
     reportingSummary?.currency_code ?? inspectSummary?.currency_code ?? "USD";
@@ -667,6 +780,10 @@ export default function QaoaRqpPage() {
     getStringArray(diagnostics.logs).length > 0
       ? getStringArray(diagnostics.logs)
       : getStringArray(inspectDiagnostics.logs);
+
+  const shotsMode = getShotsMode(diagnostics, inspectDiagnostics);
+  const qaoaShotsDisplay = getQaoaShotsDisplay(diagnostics, inspectDiagnostics);
+  const isExactShotsMode = shotsMode === "exact" || qaoaShotsDisplay === "exact";
 
   const chartEntries = [
     ["Risk / Return / Sharpe ratio", charts.risk_return_sharpe],
@@ -741,7 +858,76 @@ export default function QaoaRqpPage() {
     if (!loading || runStartedAt === null || etaBasisSec === null) return undefined;
     const elapsed = (Date.now() - runStartedAt) / 1000;
     return Math.max(etaBasisSec - elapsed, 0);
-  }, [loading, runStartedAt, etaBasisSec, progress]);
+  }, [loading, runStartedAt, etaBasisSec]);
+
+  function markSettingsTouched() {
+    settingsTouchedRef.current = true;
+    setSettingsLoadedFromWorkbook(false);
+  }
+
+  function applyEffectiveSettingsFromInspection(data: InspectResult) {
+    if (settingsTouchedRef.current) return;
+
+    const effectiveSettings = data.diagnostics?.effective_settings;
+    if (!effectiveSettings) return;
+
+    const nextLayers = getNumber(effectiveSettings.layers ?? effectiveSettings.p);
+    const nextIterations = getNumber(effectiveSettings.iterations);
+    const nextRestarts = getNumber(effectiveSettings.restarts);
+    const nextWarmStart = getBoolean(effectiveSettings.warm_start);
+    const nextBudgetLambda = getNumber(
+      effectiveSettings.lambda_budget ?? effectiveSettings.budget_lambda
+    );
+    const nextRiskLambda = getNumber(
+      effectiveSettings.lambda_variance ??
+        effectiveSettings.risk_lambda ??
+        effectiveSettings.variance_lambda
+    );
+    const nextRiskFreeRate = getNumber(effectiveSettings.risk_free_rate);
+    const nextQaoaShots = getNumber(effectiveSettings.qaoa_shots);
+    const nextRestartPerturbation = getNumber(effectiveSettings.restart_perturbation);
+
+    let changed = false;
+
+    if (nextLayers !== undefined) {
+      setLayers(nextLayers);
+      changed = true;
+    }
+    if (nextIterations !== undefined) {
+      setIterations(nextIterations);
+      changed = true;
+    }
+    if (nextRestarts !== undefined) {
+      setRestarts(nextRestarts);
+      changed = true;
+    }
+    if (nextWarmStart !== undefined) {
+      setWarmStart(nextWarmStart);
+      changed = true;
+    }
+    if (nextBudgetLambda !== undefined) {
+      setBudgetLambda(nextBudgetLambda);
+      changed = true;
+    }
+    if (nextRiskLambda !== undefined) {
+      setRiskLambda(nextRiskLambda);
+      changed = true;
+    }
+    if (nextRiskFreeRate !== undefined) {
+      setRiskFreeRate(nextRiskFreeRate);
+      changed = true;
+    }
+    if (nextQaoaShots !== undefined) {
+      setQaoaShots(nextQaoaShots);
+      changed = true;
+    }
+    if (nextRestartPerturbation !== undefined) {
+      setRestartPerturbation(nextRestartPerturbation);
+      changed = true;
+    }
+
+    setSettingsLoadedFromWorkbook(changed);
+  }
 
   useEffect(() => {
     if (!loading) return;
@@ -788,7 +974,8 @@ export default function QaoaRqpPage() {
 
   function addLog(message: string) {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs((prev) => [`[${timestamp}] ${message}`, ...prev].slice(0, 80));
+    const cleanMessage = message.replaceAll("Refresh with yfinance", "Refresh of Data");
+    setLogs((prev) => [`[${timestamp}] ${cleanMessage}`, ...prev].slice(0, 80));
   }
 
   function stopCurrentRequest() {
@@ -846,6 +1033,7 @@ export default function QaoaRqpPage() {
       }
 
       setInspectResult(data);
+      applyEffectiveSettingsFromInspection(data);
 
       if (data.license) {
         setLicense(data.license);
@@ -909,7 +1097,7 @@ export default function QaoaRqpPage() {
 
       setLicense(data);
       addLog(
-        `License active: ${data.display_name ?? data.usage_level ?? "unknown level"}`
+        `License active: ${data.display_name ?? data.usage_level ?? "Public Demo"}`
       );
       setProgress(100);
     } catch (err) {
@@ -1119,24 +1307,49 @@ export default function QaoaRqpPage() {
     <AppLayout>
       <Header />
 
-      <section className="max-w-[1920px] mx-auto px-4 sm:px-6 xl:px-10 2xl:px-14 pt-24 pb-16">
-        <h1 className="text-4xl font-bold text-cyan-300 mb-3">Quantum Portfolio Optimizer</h1>
+      <section className="max-w-[2200px] mx-auto px-3 sm:px-4 xl:px-6 2xl:px-8 pt-20 pb-10">
+        <h1 className="text-3xl font-bold text-cyan-300 mb-2">
+          Quantum Portfolio Optimizer
+        </h1>
 
-        <p className="text-cyan-100 text-lg font-semibold mb-5">
+        <p className="text-cyan-100 text-base font-semibold mb-3">
           Excel-to-Quantum portfolio optimization tool based on the QAOA algorithm.
         </p>
 
-        <p className="text-gray-200 text-xl font-semibold leading-relaxed mb-8 max-w-6xl">
-          Rapid Quantum Prototype for portfolio optimization. Upload an Excel
-          configuration, select the optimization settings, and run the backend
-          service hosted on Cloud Run.
-          <br />
-          <br />
-          The current cloud version supports the controlled classical path and a
-          key-limited qaoa_limited mode. Full QAOA remains disabled until the
-          future job-based execution path is implemented. 
-          The offline version of the tool can also handle multi-hour or multi-day optimizations.
-        </p>
+        <div className="max-w-7xl mb-5 space-y-3">
+          <p className="text-gray-200 text-base font-semibold leading-relaxed">
+            Rapid Quantum Prototype for portfolio optimization. Upload an Excel
+            configuration, select the optimization settings, and run the backend
+            service hosted on Cloud Run. The current cloud version supports the
+            controlled classical path and qaoa_limited, subject to the active
+            license or public demo limits. QAOA full remains disabled until the
+            future job-based execution path is implemented. The offline version
+            can also handle multi-hour or multi-day optimizations.
+          </p>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
+            Best used on a desktop or laptop screen. Mobile screens are supported
+            only for basic review.
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <a
+              href={USER_GUIDE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-cyan-800 bg-slate-950/80 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-slate-900"
+            >
+              View Quick PDF User Guide
+            </a>
+            <a
+              href={DEMO_EXCEL_URL}
+              download
+              className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            >
+              Download Demo Excel Workbook
+            </a>
+          </div>
+        </div>
 
         <ProgressBar
           visible={loading}
@@ -1146,10 +1359,10 @@ export default function QaoaRqpPage() {
           onStop={stopCurrentRequest}
         />
 
-        <div className="grid grid-cols-1 2xl:grid-cols-12 gap-6">
-          <div className="2xl:col-span-3 space-y-6">
+        <div className="grid grid-cols-1 2xl:grid-cols-12 gap-4">
+          <div className="2xl:col-span-3 space-y-4">
             <Panel title="Access">
-              <label className="block text-sm text-gray-300 mb-2">
+              <label className="block text-xs text-gray-300 mb-1.5">
                 License key
               </label>
               <input
@@ -1157,19 +1370,19 @@ export default function QaoaRqpPage() {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Paste your license key"
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100 focus:outline-none focus:border-cyan-400"
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-cyan-400"
               />
 
               <button
                 onClick={checkLicense}
                 disabled={loading}
-                className="mt-4 w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2"
+                className="mt-3 w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
               >
-                Check License
+                Check License (or press for limited demo license)
               </button>
 
               {license && (
-                <div className="mt-4 rounded-xl bg-slate-900/80 border border-slate-700 p-4 text-sm text-gray-200">
+                <div className="mt-3 rounded-xl bg-slate-900/80 border border-slate-700 p-3 text-xs text-gray-200">
                   <div className="space-y-1">
                     <InfoRow label="Key ID" value={formatText(license.key_id)} />
                     <InfoRow
@@ -1198,8 +1411,8 @@ export default function QaoaRqpPage() {
                     />
                   </div>
 
-                  <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
-                    <div className="text-xs font-semibold text-cyan-100 mb-2">
+                  <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/60 p-2">
+                    <div className="text-xs font-semibold text-cyan-100 mb-1">
                       General limits
                     </div>
                     <div className="text-xs leading-relaxed text-gray-300 break-words">
@@ -1207,8 +1420,8 @@ export default function QaoaRqpPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-xl border border-amber-900/60 bg-amber-950/20 p-3">
-                    <div className="text-xs font-semibold text-amber-200 mb-2">
+                  <div className="mt-2 rounded-xl border border-amber-900/60 bg-amber-950/20 p-2">
+                    <div className="text-xs font-semibold text-amber-200 mb-1">
                       QAOA limited limits
                     </div>
                     <div className="text-xs leading-relaxed text-amber-100/80 break-words">
@@ -1216,8 +1429,8 @@ export default function QaoaRqpPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
-                    <div className="text-xs font-semibold text-cyan-100 mb-2">
+                  <div className="mt-2 rounded-xl border border-slate-700 bg-slate-950/60 p-2">
+                    <div className="text-xs font-semibold text-cyan-100 mb-1">
                       Allowed modes
                     </div>
                     <div className="text-xs leading-relaxed text-gray-300 break-words">
@@ -1225,8 +1438,8 @@ export default function QaoaRqpPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
-                    <div className="text-xs font-semibold text-cyan-100 mb-2">
+                  <div className="mt-2 rounded-xl border border-slate-700 bg-slate-950/60 p-2">
+                    <div className="text-xs font-semibold text-cyan-100 mb-1">
                       Response levels
                     </div>
                     <div className="text-xs leading-relaxed text-gray-300 break-words">
@@ -1246,18 +1459,20 @@ export default function QaoaRqpPage() {
                   setFile(selectedFile);
                   setResult(null);
                   setInspectResult(null);
+                  settingsTouchedRef.current = false;
+                  setSettingsLoadedFromWorkbook(false);
                 }}
-                className="w-full text-sm text-gray-200 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-4 file:py-2 file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
+                className="w-full text-xs text-gray-200 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
               />
 
               {file && (
-                <p className="mt-3 text-sm text-gray-400">
+                <p className="mt-2 text-xs text-gray-400">
                   Selected: <span className="text-gray-200">{file.name}</span>
                 </p>
               )}
 
-              <div className="mt-4 rounded-xl bg-slate-900/80 border border-slate-700 p-4">
-                <h3 className="text-sm font-semibold text-cyan-100 mb-2">
+              <div className="mt-3 rounded-xl bg-slate-900/80 border border-slate-700 p-3">
+                <h3 className="text-xs font-semibold text-cyan-100 mb-2">
                   Workbook Summary
                 </h3>
 
@@ -1274,9 +1489,9 @@ export default function QaoaRqpPage() {
                 )}
 
                 {inspectResult?.error && (
-                  <p className="text-xs text-red-200 mb-2">
-                    Inspection failed: {inspectResult.error.message ?? "unknown error"}
-                  </p>
+                  <div className="mb-2">
+                    <ErrorBox error={inspectResult.error} />
+                  </div>
                 )}
 
                 <div>
@@ -1292,7 +1507,7 @@ export default function QaoaRqpPage() {
                     />
                   ))}
                 </div>
-                <p className="mt-3 text-xs leading-relaxed text-gray-500">
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
                   Fixed blocks are included in every portfolio. Only variable
                   blocks become QUBO decision variables / qubits.
                 </p>
@@ -1300,11 +1515,14 @@ export default function QaoaRqpPage() {
             </Panel>
 
             <Panel title="Optimization Settings">
-              <label className="block text-sm text-gray-300 mb-2">Mode</label>
+              <label className="block text-xs text-gray-300 mb-1.5">Mode</label>
               <select
                 value={mode}
-                onChange={(e) => setMode(e.target.value)}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100 mb-4"
+                onChange={(e) => {
+                  markSettingsTouched();
+                  setMode(e.target.value);
+                }}
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
               >
                 <option value="classical_only">classical_only</option>
                 <option value="qaoa_limited">qaoa_limited</option>
@@ -1312,34 +1530,43 @@ export default function QaoaRqpPage() {
               </select>
 
               {mode === "qaoa_limited" && (
-                <div className="mb-4 rounded-xl border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-100">
+                <div className="mb-3 rounded-xl border border-amber-700 bg-amber-950/30 p-2 text-xs text-amber-100">
                   QAOA limited mode runs the controlled synchronous QAOA path.
-                  The effective limits depend on the active license key.
+                  Availability and limits depend on the active key or public demo limits.
                 </div>
               )}
 
               {mode === "qaoa_full" && (
-                <div className="mb-4 rounded-xl border border-yellow-700 bg-yellow-950/30 p-3 text-sm text-yellow-100">
+                <div className="mb-3 rounded-xl border border-yellow-700 bg-yellow-950/30 p-2 text-xs text-yellow-100">
                   QAOA full mode is reserved for the future job-based execution
                   path and is disabled for now. Use qaoa_limited for current
                   cloud runs.
                 </div>
               )}
 
-              <label className="block text-sm text-gray-300 mb-2">
+              <label className="block text-xs text-gray-300 mb-1.5">
                 Response level
               </label>
               <select
                 value={responseLevel}
-                onChange={(e) => setResponseLevel(e.target.value)}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100 mb-4"
+                onChange={(e) => {
+                  markSettingsTouched();
+                  setResponseLevel(e.target.value);
+                }}
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
               >
                 <option value="compact">compact</option>
                 <option value="standard">standard</option>
                 <option value="full">full</option>
               </select>
 
-              <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-sm">
+              {settingsLoadedFromWorkbook && (
+                <div className="mb-3 rounded-xl border border-cyan-800 bg-cyan-950/20 p-2 text-xs text-cyan-100">
+                  Settings loaded from workbook. You can override them before running.
+                </div>
+              )}
+
+              <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs">
                 <div className="text-xs font-semibold text-cyan-100 mb-2">
                   Pre-run runtime estimate
                 </div>
@@ -1399,162 +1626,188 @@ export default function QaoaRqpPage() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-2 gap-2 mb-3">
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Layers
                   </label>
                   <input
                     type="number"
                     min={1}
                     value={layers}
-                    onChange={(e) => setLayers(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setLayers(Number(e.target.value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Iterations
                   </label>
                   <input
                     type="number"
                     min={1}
                     value={iterations}
-                    onChange={(e) => setIterations(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIterations(Number(e.target.value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Restarts
                   </label>
                   <input
                     type="number"
                     min={1}
                     value={restarts}
-                    onChange={(e) => setRestarts(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setRestarts(Number(e.target.value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     QAOA shots
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={qaoaShots}
-                    onChange={(e) => setQaoaShots(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
-                  />
+                  {isExactShotsMode ? (
+                    <input
+                      value="exact"
+                      disabled
+                      className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-gray-300"
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      min={0}
+                      value={qaoaShots}
+                      onChange={(e) => {
+                        markSettingsTouched();
+                        setQaoaShots(Number(e.target.value));
+                      }}
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
+                    />
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Budget lambda
                   </label>
                   <input
                     type="number"
                     value={budgetLambda}
-                    onChange={(e) => setBudgetLambda(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setBudgetLambda(Number(e.target.value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Risk lambda
                   </label>
                   <input
                     type="number"
                     value={riskLambda}
-                    onChange={(e) => setRiskLambda(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setRiskLambda(Number(e.target.value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Risk-free rate
                   </label>
                   <input
                     type="number"
                     step={0.001}
                     value={riskFreeRate}
-                    onChange={(e) => setRiskFreeRate(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setRiskFreeRate(Number(e.target.value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-300 mb-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Restart perturbation
                   </label>
                   <input
                     type="number"
                     step={0.01}
                     value={restartPerturbation}
-                    onChange={(e) => setRestartPerturbation(Number(e.target.value))}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-gray-100"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setRestartPerturbation(Number(e.target.value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
               </div>
 
-              <label className="flex items-center gap-3 text-sm text-gray-300 mb-4">
+              <label className="flex items-center gap-3 text-xs text-gray-300 mb-3">
                 <input
                   type="checkbox"
                   checked={warmStart}
-                  onChange={(e) => setWarmStart(e.target.checked)}
+                  onChange={(e) => {
+                    markSettingsTouched();
+                    setWarmStart(e.target.checked);
+                  }}
                   className="h-4 w-4"
                 />
                 Warm start
               </label>
 
               <p className="mb-2 text-xs leading-relaxed text-gray-500">
-                QAOA limited mode is available for controlled key-based runs.
-                Full QAOA remains disabled for now and will later use a
-                job-based flow.
+                QAOA limited mode is available for controlled runs subject to the
+                active key or public demo limits. Full QAOA remains disabled for
+                now and will later use a job-based flow.
               </p>
-              <p className="mb-5 text-xs leading-relaxed text-gray-500">
-                QAOA shots are used only when sampling mode is active; exact
-                mode ignores shots.
+              <p className="mb-4 text-xs leading-relaxed text-gray-500">
+                QAOA shots are used only when sampling mode is active. In exact
+                mode the setting is shown as exact and is not editable.
               </p>
 
               <button
                 onClick={runOptimization}
                 disabled={!canRun}
-                className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-3"
+                className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2.5 text-sm"
               >
                 {loading ? "Running..." : "Run Optimization"}
               </button>
             </Panel>
           </div>
 
-          <div className="2xl:col-span-9 space-y-6">
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="2xl:col-span-9 space-y-4">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <Panel title="Classical Result Summary">
                 {!result && (
-                  <p className="text-gray-400">
+                  <p className="text-gray-400 text-sm">
                     Run an optimization to see the classical result summary here.
                   </p>
                 )}
 
-                {result?.error && (
-                  <div className="rounded-xl border border-red-800 bg-red-950/40 p-4 text-red-100">
-                    <div className="font-semibold">
-                      {result.error.code ?? "Error"}
-                    </div>
-                    <div className="text-sm mt-1">
-                      {result.error.message ?? "The backend returned an error."}
-                    </div>
-                  </div>
-                )}
+                {result?.error && <ErrorBox error={result.error} />}
 
                 {result && !result.error && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
                     <MetricCard
                       label="Objective"
                       value={formatNumber(
@@ -1621,7 +1874,7 @@ export default function QaoaRqpPage() {
               </Panel>
 
               <Panel title="Quantum Result Summary" tone="amber">
-                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
                   <MetricCard
                     label="QUBO value"
                     value={formatNumber(quantumSummary?.qubo_value, 6)}
@@ -1671,7 +1924,7 @@ export default function QaoaRqpPage() {
                   />
                 </div>
 
-                <p className="mt-4 text-sm leading-relaxed text-gray-400">
+                <p className="mt-3 text-xs leading-relaxed text-gray-400">
                   {quantumSummary?.future_source
                     ? `Future source: ${quantumSummary.future_source}.`
                     : "This block displays the best QUBO result from exported quantum samples when qaoa_limited is run successfully."}
@@ -1680,7 +1933,7 @@ export default function QaoaRqpPage() {
             </div>
 
             <Panel title="Client Log" className="w-full">
-              <div className="h-72 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-4 font-mono text-sm text-gray-300">
+              <div className="h-56 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-3 font-mono text-xs text-gray-300">
                 {logs.length === 0 ? (
                   <div className="text-gray-500">No log entries yet.</div>
                 ) : (
@@ -1690,7 +1943,10 @@ export default function QaoaRqpPage() {
             </Panel>
 
             <Panel title="Backend Optimization Log" className="w-full">
-              <div className="h-72 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-4 font-mono text-sm text-gray-300">
+              <p className="mb-2 text-xs text-gray-500">
+                For synchronous runs, optimizer logs are returned when the run completes.
+              </p>
+              <div className="h-56 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-3 font-mono text-xs text-gray-300">
                 {backendOptimizationLogs.length === 0 ? (
                   <div className="text-gray-500">
                     Backend optimization logs are available after workbook inspection
@@ -1708,7 +1964,7 @@ export default function QaoaRqpPage() {
 
             {result && !result.error && chartEntries.length > 0 && (
               <Panel title="Offline-Style Charts">
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                   {chartEntries.map(([title, src]) => (
                     <ChartImage key={title} title={title} src={src} />
                   ))}
@@ -1718,7 +1974,7 @@ export default function QaoaRqpPage() {
 
             {result && !result.error && circuit !== undefined && (
               <Panel title="Circuit Overview" tone="amber">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6">
                   <div>
                     <InfoRow
                       label="Available"
@@ -1742,7 +1998,11 @@ export default function QaoaRqpPage() {
                     />
                     <InfoRow
                       label="QAOA shots"
-                      value={formatText(getCircuitValue(circuit, "qaoa_shots"))}
+                      value={
+                        formatText(getCircuitValue(circuit, "shots_mode")) === "exact"
+                          ? "exact"
+                          : formatText(getCircuitValue(circuit, "qaoa_shots"))
+                      }
                     />
                   </div>
 
@@ -1794,7 +2054,7 @@ export default function QaoaRqpPage() {
                 </div>
 
                 {formatText(getCircuitValue(circuit, "reason"), "") !== "" && (
-                  <p className="mt-4 text-sm text-gray-400">
+                  <p className="mt-3 text-xs text-gray-400">
                     {formatText(getCircuitValue(circuit, "reason"))}
                   </p>
                 )}
@@ -1802,7 +2062,7 @@ export default function QaoaRqpPage() {
             )}
 
             {result && !result.error && (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 <Panel title="Classical Portfolio Metrics">
                   <InfoRow
                     label="Cash weight"
@@ -1976,52 +2236,44 @@ export default function QaoaRqpPage() {
             {portfolioContents.length > 0 && (
               <Panel title="Classical Portfolio Contents">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
+                  <table className="w-full text-xs text-left">
                     <thead className="text-gray-400 border-b border-slate-700">
                       <tr>
-                        <th className="py-2 pr-4">Rank</th>
-                        <th className="py-2 pr-4">Source</th>
-                        <th className="py-2 pr-4">Ticker</th>
-                        <th className="py-2 pr-4">Company</th>
-                        <th className="py-2 pr-4">Role</th>
-                        <th className="py-2 pr-4">Option</th>
-                        <th className="py-2 pr-4">Cost</th>
-                        <th className="py-2 pr-4">Shares</th>
-                        <th className="py-2 pr-4">Decision ID</th>
-                        <th className="py-2 pr-4">Bit Index</th>
+                        <th className="py-1.5 pr-3">Ticker</th>
+                        <th className="py-1.5 pr-3">Company</th>
+                        <th className="py-1.5 pr-3">Role</th>
+                        <th className="py-1.5 pr-3">Option</th>
+                        <th className="py-1.5 pr-3">Cost</th>
+                        <th className="py-1.5 pr-3">Shares</th>
+                        <th className="py-1.5 pr-3">Decision ID</th>
+                        <th className="py-1.5 pr-3">Bit Index</th>
                       </tr>
                     </thead>
                     <tbody>
                       {portfolioContents.map((block, idx) => (
                         <tr key={idx} className="border-b border-slate-800">
-                          <td className="py-2 pr-4 text-gray-300">
-                            {getRankLabel(block)}
-                          </td>
-                          <td className="py-2 pr-4 text-gray-400">
-                            {getSourceLabel(block)}
-                          </td>
-                          <td className="py-2 pr-4 text-cyan-200">
+                          <td className="py-1.5 pr-3 text-cyan-200">
                             {formatText(block.Ticker)}
                           </td>
-                          <td className="py-2 pr-4 text-gray-200">
+                          <td className="py-1.5 pr-3 text-gray-200">
                             {formatText(block.Company)}
                           </td>
-                          <td className="py-2 pr-4 text-gray-300">
+                          <td className="py-1.5 pr-3 text-gray-300">
                             {formatText(block.decision_role)}
                           </td>
-                          <td className="py-2 pr-4 text-gray-300">
+                          <td className="py-1.5 pr-3 text-gray-300">
                             {formatText(block["Option Label"])}
                           </td>
-                          <td className="py-2 pr-4 text-gray-300">
+                          <td className="py-1.5 pr-3 text-gray-300">
                             {formatCurrency(block["Approx Cost USD"], currencyCode)}
                           </td>
-                          <td className="py-2 pr-4 text-gray-300">
+                          <td className="py-1.5 pr-3 text-gray-300">
                             {formatText(block.Shares)}
                           </td>
-                          <td className="py-2 pr-4 text-gray-400">
+                          <td className="py-1.5 pr-3 text-gray-400">
                             {formatText(block.decision_id)}
                           </td>
-                          <td className="py-2 pr-4 text-gray-400">
+                          <td className="py-1.5 pr-3 text-gray-400">
                             {getBitIndexLabel(block)}
                           </td>
                         </tr>
@@ -2035,7 +2287,7 @@ export default function QaoaRqpPage() {
             {result && !result.error && (
               <Panel title="Quantum Portfolio Contents" tone="amber">
                 {hasQuantumResult(quantumSummary) ? (
-                  <p className="text-gray-400 text-sm">
+                  <p className="text-gray-400 text-xs">
                     Quantum portfolio contents will be displayed here once the
                     backend returns portfolio rows tagged for the selected
                     quantum best-QUBO candidate.
@@ -2056,7 +2308,7 @@ export default function QaoaRqpPage() {
                 {classicalCandidates.length > 0 ? (
                   <CandidateTable rows={classicalCandidates} currencyCode={currencyCode} />
                 ) : (
-                  <p className="text-gray-400 text-sm">
+                  <p className="text-gray-400 text-xs">
                     Use standard/full response level to display classical
                     candidates.
                   </p>
@@ -2090,7 +2342,7 @@ export default function QaoaRqpPage() {
 
             {result && !result.error && (
               <Panel title="Diagnostics">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-6">
                   <div>
                     <InfoRow
                       label="Actual runtime"
@@ -2148,10 +2400,15 @@ export default function QaoaRqpPage() {
                       label="QAOA p"
                       value={formatText(reportingSummary?.qaoa_p)}
                     />
+                    <InfoRow label="Shots mode" value={formatText(shotsMode)} />
+                    <InfoRow
+                      label="QAOA shots"
+                      value={qaoaShotsDisplay || formatText(qaoaShots)}
+                    />
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm">
+                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs">
                   <div className="text-gray-400 mb-1">QAOA status</div>
                   <div className="text-gray-100 break-words">
                     {formatText(reportingSummary?.qaoa_status)}
@@ -2161,11 +2418,11 @@ export default function QaoaRqpPage() {
             )}
 
             {result && (
-              <details className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
-                <summary className="cursor-pointer text-cyan-200 font-semibold">
+              <details className="rounded-2xl border border-slate-800 bg-slate-950/70 p-3">
+                <summary className="cursor-pointer text-cyan-200 font-semibold text-sm">
                   Raw JSON
                 </summary>
-                <pre className="mt-4 overflow-x-auto text-xs text-gray-300 bg-black/40 rounded-xl p-4">
+                <pre className="mt-3 overflow-x-auto text-xs text-gray-300 bg-black/40 rounded-xl p-3">
                   {JSON.stringify(result, null, 2)}
                 </pre>
               </details>
