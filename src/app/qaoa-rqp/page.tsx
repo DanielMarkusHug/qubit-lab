@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Header from "@/components/Header";
 import AppLayout from "@/components/AppLayout";
 
@@ -243,12 +243,63 @@ type InspectResult = {
   };
 };
 
+type JobProgress = {
+  progress_pct?: number | null;
+  iteration?: number | null;
+  max_iterations?: number | null;
+  elapsed_seconds?: number | null;
+  eta_seconds_low?: number | null;
+  eta_seconds_high?: number | null;
+};
+
+type JobStatus = {
+  job_id?: string;
+  status?: "queued" | "running" | "completed" | "failed" | "cancelled" | string;
+  phase?: string | null;
+  progress?: JobProgress | null;
+  latest_log?: string | null;
+  logs_tail?: string[];
+  created_at?: string | null;
+  started_at?: string | null;
+  heartbeat_at?: string | null;
+  finished_at?: string | null;
+  result_available?: boolean;
+  result?: {
+    available?: boolean;
+    storage_path?: string | null;
+    summary?: Record<string, unknown> | null;
+  };
+  error?: {
+    code?: string;
+    type?: string;
+    message?: string;
+    traceback_tail?: string;
+    details?: Record<string, unknown>;
+  } | null;
+  license?: LicenseStatus;
+};
+
+type AsyncSubmitResponse = {
+  ok?: boolean;
+  status?: string;
+  job_id?: string;
+  status_url?: string;
+  result_url?: string;
+  license?: LicenseStatus;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  };
+};
+
 const API_URL =
   process.env.NEXT_PUBLIC_QAOA_RQP_API_URL ??
-  "https://qaoa-rqp-api-186148318189.europe-west6.run.app";
+  "https://qaoa-rqp-api-v8-fxkphe6o4a-oa.a.run.app";
 
 const USER_GUIDE_URL = "/qaoa-rqp/QAOA_RQP_Quick_User_Guide.pdf";
 const DEMO_EXCEL_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo_0.xlsx";
+const ACTIVE_JOB_STORAGE_KEY = "qaoa-rqp-active-job-id";
 
 function getNumber(value: unknown): number | undefined {
   return typeof value === "number" && !Number.isNaN(value) ? value : undefined;
@@ -327,6 +378,21 @@ function formatSeconds(value: unknown) {
 
   const hours = number / 3600;
   return `${hours.toLocaleString("en-US", { maximumFractionDigits: 1 })} h`;
+}
+
+function formatEtaRange(low?: number | null, high?: number | null) {
+  if (low === null || low === undefined) return "n/a";
+
+  const safeLow = Math.max(0, low);
+  const safeHigh = high === null || high === undefined ? safeLow * 1.4 : Math.max(safeLow, high);
+
+  if (safeHigh < 60) return "less than 1 minute";
+
+  const lowMin = Math.max(1, Math.round(safeLow / 60));
+  const highMin = Math.max(lowMin, Math.round(safeHigh / 60));
+
+  if (lowMin === highMin) return `approx. ${lowMin} min`;
+  return `approx. ${lowMin}-${highMin} min`;
 }
 
 function formatLimitBlock(limits?: LimitBlock) {
@@ -615,26 +681,55 @@ function ProgressBar({
   visible,
   progress,
   message,
-  etaSeconds,
+  etaText,
+  status,
+  phase,
+  iteration,
+  maxIterations,
+  elapsedSeconds,
+  indeterminate,
   onStop,
 }: {
   visible: boolean;
-  progress: number;
+  progress?: number;
   message: string;
-  etaSeconds?: number;
+  etaText?: string;
+  status?: string;
+  phase?: string | null;
+  iteration?: number | null;
+  maxIterations?: number | null;
+  elapsedSeconds?: number | null;
+  indeterminate?: boolean;
   onStop?: () => void;
 }) {
   if (!visible) return null;
+
+  const safeProgress =
+    typeof progress === "number" && !Number.isNaN(progress)
+      ? Math.max(0, Math.min(progress, 100))
+      : undefined;
 
   return (
     <div className="mb-4 rounded-2xl border border-cyan-900/60 bg-slate-950/80 p-3 shadow-lg">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <div className="text-sm font-semibold text-cyan-100">{message}</div>
-          <div className="text-xs text-gray-400">
-            {etaSeconds !== undefined && etaSeconds > 0
-              ? `Estimated remaining: ~${Math.ceil(etaSeconds)} sec`
-              : "Running..."}
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+            {status && <span>Status: {status}</span>}
+            {phase && <span>Phase: {phase}</span>}
+            {iteration !== null &&
+              iteration !== undefined &&
+              maxIterations !== null &&
+              maxIterations !== undefined && (
+                <span>
+                  Iteration: {iteration} / {maxIterations}
+                </span>
+              )}
+            {elapsedSeconds !== null && elapsedSeconds !== undefined && (
+              <span>Elapsed: {formatSeconds(elapsedSeconds)}</span>
+            )}
+            {etaText && <span>ETA: {etaText}</span>}
+            {!etaText && <span>Running...</span>}
           </div>
         </div>
 
@@ -643,23 +738,41 @@ function ProgressBar({
             onClick={onStop}
             className="rounded-lg border border-red-800 bg-red-950/60 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-900/70"
           >
-            Stop request
+            Stop polling
           </button>
         )}
       </div>
 
       <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className="h-full rounded-full bg-cyan-400 transition-all duration-500"
-          style={{ width: `${Math.max(5, Math.min(progress, 100))}%` }}
-        />
+        {indeterminate || safeProgress === undefined ? (
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-cyan-400/70" />
+        ) : (
+          <div
+            className="h-full rounded-full bg-cyan-400 transition-all duration-500"
+            style={{ width: `${Math.max(3, safeProgress)}%` }}
+          />
+        )}
+      </div>
+
+      <div className="mt-2 text-xs text-gray-500">
+        Run submitted. You can keep this page open; reloading will not cancel the backend job.
       </div>
     </div>
   );
 }
 
-function ErrorBox({ error }: { error?: RunResult["error"] | InspectResult["error"] }) {
+function ErrorBox({
+  error,
+  onReconnect,
+}: {
+  error?: RunResult["error"] | InspectResult["error"] | AsyncSubmitResponse["error"];
+  onReconnect?: (jobId: string) => void;
+}) {
   if (!error) return null;
+
+  const activeRunId = error.details
+    ? formatText((error.details as Record<string, unknown>).active_run_id, "")
+    : "";
 
   return (
     <div className="rounded-xl border border-red-800 bg-red-950/40 p-3 text-red-100">
@@ -667,6 +780,15 @@ function ErrorBox({ error }: { error?: RunResult["error"] | InspectResult["error
       <div className="text-xs mt-1">
         {error.message ?? "The backend rejected this request."}
       </div>
+
+      {activeRunId && onReconnect && (
+        <button
+          onClick={() => onReconnect(activeRunId)}
+          className="mt-3 rounded-lg border border-amber-700 bg-amber-950/60 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-900/70"
+        >
+          Reconnect to active run {activeRunId}
+        </button>
+      )}
 
       {error.details && Object.keys(error.details).length > 0 && (
         <div className="mt-3 rounded-lg border border-red-900/70 bg-black/20 p-2">
@@ -825,6 +947,7 @@ function CandidateTable({
 export default function QaoaRqpPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const inspectAbortControllerRef = useRef<AbortController | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
   const settingsTouchedRef = useRef(false);
 
   const [apiKey, setApiKey] = useState("");
@@ -850,11 +973,13 @@ export default function QaoaRqpPage() {
   const [inspecting, setInspecting] = useState(false);
 
   const [logs, setLogs] = useState<string[]>([]);
+  const [backendJobLogs, setBackendJobLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState<number | undefined>(undefined);
   const [progressMessage, setProgressMessage] = useState("");
-  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
-  const [etaBasisSec, setEtaBasisSec] = useState<number | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
+  const [jobError, setJobError] = useState<AsyncSubmitResponse["error"] | null>(null);
 
   const diagnostics = useMemo<Diagnostics>(() => result?.diagnostics ?? {}, [result]);
   const inspectDiagnostics = useMemo<Diagnostics>(
@@ -901,9 +1026,11 @@ export default function QaoaRqpPage() {
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
 
   const backendOptimizationLogs =
-    getStringArray(diagnostics.logs).length > 0
-      ? getStringArray(diagnostics.logs)
-      : getStringArray(inspectDiagnostics.logs);
+    backendJobLogs.length > 0
+      ? backendJobLogs
+      : getStringArray(diagnostics.logs).length > 0
+        ? getStringArray(diagnostics.logs)
+        : getStringArray(inspectDiagnostics.logs);
 
   const shotsMode = getShotsMode(diagnostics, inspectDiagnostics);
   const qaoaShotsDisplay = getQaoaShotsDisplay(diagnostics, inspectDiagnostics);
@@ -978,11 +1105,16 @@ export default function QaoaRqpPage() {
     runtimeCap,
   ]);
 
-  const estimatedRemainingSec = useMemo(() => {
-    if (!loading || runStartedAt === null || etaBasisSec === null) return undefined;
-    const elapsed = (Date.now() - runStartedAt) / 1000;
-    return Math.max(etaBasisSec - elapsed, 0);
-  }, [loading, runStartedAt, etaBasisSec]);
+  const jobProgress = jobStatus?.progress ?? null;
+  const jobProgressPct =
+    getNumber(jobProgress?.progress_pct) !== undefined
+      ? getNumber(jobProgress?.progress_pct)
+      : progress;
+
+  const jobEtaText = formatEtaRange(
+    getNumber(jobProgress?.eta_seconds_low),
+    getNumber(jobProgress?.eta_seconds_high)
+  );
 
   function markSettingsTouched() {
     settingsTouchedRef.current = true;
@@ -1053,60 +1185,159 @@ export default function QaoaRqpPage() {
     setSettingsLoadedFromWorkbook(changed);
   }
 
-  useEffect(() => {
-    if (!loading) return;
-
-    const interval = window.setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 90) return prev;
-        if (prev < 25) return prev + 4;
-        if (prev < 60) return prev + 2;
-        return prev + 0.75;
-      });
-    }, 700);
-
-    return () => window.clearInterval(interval);
-  }, [loading]);
-
-  useEffect(() => {
-    if (!file) {
-      setInspectResult(null);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      inspectWorkbook();
-    }, 500);
-
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    file,
-    apiKey,
-    mode,
-    responseLevel,
-    layers,
-    iterations,
-    restarts,
-    warmStart,
-    budgetLambda,
-    riskLambda,
-    riskFreeRate,
-    qaoaShots,
-    restartPerturbation,
-  ]);
-
   function addLog(message: string) {
     const timestamp = new Date().toLocaleTimeString();
     const cleanMessage = message.replaceAll("Refresh with yfinance", "Refresh of Data");
     setLogs((prev) => [`[${timestamp}] ${cleanMessage}`, ...prev].slice(0, 80));
   }
 
+  const clearPollInterval = useCallback(() => {
+    if (pollIntervalRef.current !== null) {
+      window.clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }, []);
+
+  async function fetchJobResult(jobId: string) {
+    const res = await fetch(`${API_URL}/jobs/${jobId}/result`, {
+      method: "GET",
+      headers: apiKey ? { "X-API-Key": apiKey } : {},
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || data.status === "error") {
+      setResult(data);
+      addLog(`Result fetch failed: ${data?.error?.message ?? res.statusText}`);
+      return;
+    }
+
+    setResult(data);
+    setProgress(100);
+    setProgressMessage("Run completed.");
+    addLog(`Run completed. Best bitstring: ${data.best_bitstring ?? "n/a"}`);
+
+    if (data.license) {
+      setLicense(data.license);
+    }
+
+    try {
+      window.localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }
+
+  const pollJobStatus = useCallback(
+    async (jobId: string) => {
+      try {
+        const res = await fetch(`${API_URL}/jobs/${jobId}/status`, {
+          method: "GET",
+          headers: apiKey ? { "X-API-Key": apiKey } : {},
+        });
+
+        const data: JobStatus = await res.json();
+        setJobStatus(data);
+
+        const tail = getStringArray(data.logs_tail);
+        setBackendJobLogs(tail);
+
+        if (data.latest_log) {
+          setProgressMessage(data.latest_log);
+        } else if (data.phase) {
+          setProgressMessage(`Job ${data.status ?? "running"}: ${data.phase}`);
+        } else {
+          setProgressMessage(`Job ${data.status ?? "running"}`);
+        }
+
+        const pct = getNumber(data.progress?.progress_pct);
+        if (pct !== undefined) {
+          setProgress(pct);
+        }
+
+        if (data.license) {
+          setLicense(data.license);
+        }
+
+        if (data.status === "completed") {
+          clearPollInterval();
+          setLoading(false);
+          await fetchJobResult(jobId);
+          return;
+        }
+
+        if (data.status === "failed" || data.status === "cancelled") {
+          clearPollInterval();
+          setLoading(false);
+          setProgress(100);
+          setProgressMessage(data.status === "failed" ? "Run failed." : "Run cancelled.");
+          setResult({
+            status: "error",
+            error: {
+              code: data.status,
+              message: data.error?.message ?? `Job ${data.status}`,
+              details: data.error?.details,
+            },
+          });
+          try {
+            window.localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+          } catch {
+            // Ignore localStorage failures.
+          }
+        }
+      } catch (err) {
+        addLog(`Job status polling failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+    [apiKey, clearPollInterval]
+  );
+
+  function startPolling(jobId: string) {
+    clearPollInterval();
+    setActiveJobId(jobId);
+    setLoading(true);
+    setProgress(undefined);
+    setProgressMessage("Job submitted. Waiting for backend status...");
+    setJobError(null);
+
+    try {
+      window.localStorage.setItem(ACTIVE_JOB_STORAGE_KEY, jobId);
+    } catch {
+      // Ignore localStorage failures.
+    }
+
+    void pollJobStatus(jobId);
+
+    pollIntervalRef.current = window.setInterval(() => {
+      void pollJobStatus(jobId);
+    }, 4000);
+  }
+
   function stopCurrentRequest() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      addLog("Stop requested by user.");
-      setProgressMessage("Stopping request...");
+    }
+    clearPollInterval();
+    addLog("Stopped frontend polling. Backend job is not cancelled.");
+    setProgressMessage("Polling stopped.");
+    setLoading(false);
+  }
+
+  async function cancelActiveJob() {
+    if (!activeJobId) {
+      stopCurrentRequest();
+      return;
+    }
+
+    try {
+      addLog(`Cancellation requested for job ${activeJobId}.`);
+      await fetch(`${API_URL}/jobs/${activeJobId}/cancel`, {
+        method: "POST",
+        headers: apiKey ? { "X-API-Key": apiKey } : {},
+      });
+      await pollJobStatus(activeJobId);
+    } catch (err) {
+      addLog(`Cancel request failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -1191,6 +1422,50 @@ export default function QaoaRqpPage() {
     }
   }
 
+  useEffect(() => {
+    if (!file) {
+      setInspectResult(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void inspectWorkbook();
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    file,
+    apiKey,
+    mode,
+    responseLevel,
+    layers,
+    iterations,
+    restarts,
+    warmStart,
+    budgetLambda,
+    riskLambda,
+    riskFreeRate,
+    qaoaShots,
+    restartPerturbation,
+  ]);
+
+  useEffect(() => {
+    try {
+      const storedJobId = window.localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
+      if (storedJobId) {
+        setActiveJobId(storedJobId);
+        addLog(`Found previous job ${storedJobId}. You can reconnect if it is still active.`);
+      }
+    } catch {
+      // Ignore localStorage failures.
+    }
+
+    return () => {
+      clearPollInterval();
+    };
+  }, [clearPollInterval]);
+
   async function checkLicense() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -1199,8 +1474,6 @@ export default function QaoaRqpPage() {
     setResult(null);
     setProgress(10);
     setProgressMessage("Checking license status...");
-    setRunStartedAt(Date.now());
-    setEtaBasisSec(null);
 
     try {
       addLog("Checking license status...");
@@ -1237,7 +1510,6 @@ export default function QaoaRqpPage() {
         setLoading(false);
         setProgress(0);
         setProgressMessage("");
-        setRunStartedAt(null);
       }, 400);
     }
   }
@@ -1251,37 +1523,17 @@ export default function QaoaRqpPage() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    clearPollInterval();
     setLoading(true);
     setResult(null);
-    setProgress(5);
-    setProgressMessage("Uploading Excel file...");
-    setRunStartedAt(Date.now());
-    setEtaBasisSec(preRunEstimateSec ?? null);
+    setJobStatus(null);
+    setJobError(null);
+    setBackendJobLogs([]);
+    setProgress(3);
+    setProgressMessage("Uploading Excel file and submitting backend job...");
 
     try {
-      if (mode === "qaoa_limited") {
-        addLog("Running QAOA limited mode...");
-      }
-
-      if (mode === "qaoa_full") {
-        addLog("QAOA full mode is currently disabled. Use qaoa_limited.");
-      }
-
-      addLog("Uploading Excel file...");
-      setProgressMessage(
-        mode === "classical_only"
-          ? "Running classical optimization..."
-          : mode === "qaoa_limited"
-            ? "Running QAOA limited mode..."
-            : "Submitting selected mode to backend..."
-      );
-      addLog(
-        mode === "classical_only"
-          ? "Running classical optimization..."
-          : mode === "qaoa_limited"
-            ? "Running QAOA limited mode..."
-            : "Submitting selected mode to backend..."
-      );
+      addLog("Submitting optimization job to backend...");
 
       const formData = new FormData();
       formData.append("file", file);
@@ -1297,63 +1549,44 @@ export default function QaoaRqpPage() {
       formData.append("qaoa_shots", String(qaoaShots));
       formData.append("restart_perturbation", String(restartPerturbation));
 
-      const res = await fetch(`${API_URL}/run-qaoa`, {
+      const res = await fetch(`${API_URL}/run-qaoa-async`, {
         method: "POST",
         headers: apiKey ? { "X-API-Key": apiKey } : {},
         body: formData,
         signal: controller.signal,
       });
 
-      const data = await res.json();
-      setResult(data);
-
-      if (!res.ok || data.status === "error") {
-        addLog(`Run failed: ${data?.error?.message ?? res.statusText}`);
-        setProgress(100);
-        return;
-      }
-
-      if (data?.diagnostics?.estimated_runtime_sec !== undefined) {
-        addLog(
-          `Estimated runtime: ${formatNumber(
-            data.diagnostics.estimated_runtime_sec,
-            3
-          )} sec`
-        );
-      }
-
-      if (data?.diagnostics?.actual_runtime_sec !== undefined) {
-        addLog(
-          `Actual runtime: ${formatNumber(
-            data.diagnostics.actual_runtime_sec,
-            3
-          )} sec`
-        );
-      }
-
-      addLog(`Run completed. Best bitstring: ${data.best_bitstring ?? "n/a"}`);
-      setProgressMessage("Run completed.");
-      setProgress(100);
+      const data: AsyncSubmitResponse = await res.json();
 
       if (data.license) {
         setLicense(data.license);
       }
+
+      if (!res.ok || data.status === "error" || !data.job_id) {
+        setJobError(data.error);
+        setResult({
+          status: "error",
+          error: data.error,
+        });
+        addLog(`Run submission failed: ${data?.error?.message ?? res.statusText}`);
+        setProgress(100);
+        setLoading(false);
+        return;
+      }
+
+      addLog(`Job submitted: ${data.job_id}`);
+      addLog("You can keep this page open. Reloading will not cancel the backend job.");
+      startPolling(data.job_id);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        addLog("Run stopped by user.");
-        setProgressMessage("Run stopped.");
+        addLog("Run submission stopped by user.");
+        setProgressMessage("Run submission stopped.");
       } else {
-        addLog(`Run failed: ${err instanceof Error ? err.message : String(err)}`);
+        addLog(`Run submission failed: ${err instanceof Error ? err.message : String(err)}`);
       }
+      setLoading(false);
     } finally {
       abortControllerRef.current = null;
-      window.setTimeout(() => {
-        setLoading(false);
-        setProgress(0);
-        setProgressMessage("");
-        setRunStartedAt(null);
-        setEtaBasisSec(null);
-      }, 600);
     }
   }
 
@@ -1443,12 +1676,10 @@ export default function QaoaRqpPage() {
         <div className="max-w-7xl mb-5 space-y-3">
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
             Rapid Quantum Prototype for portfolio optimization. Upload an Excel
-            configuration, select the optimization settings, and run the backend
-            service hosted on Cloud Run. The current cloud version supports the
-            controlled classical path and qaoa_limited, subject to the active
-            license or public demo limits. QAOA full remains disabled until the
-            future job-based execution path is implemented. The offline version
-            can also handle multi-hour or multi-day optimizations.
+            configuration, select the optimization settings, and submit a backend
+            optimization job hosted on Cloud Run. The browser no longer waits for a
+            single long request; the job is tracked through status polling, backend
+            logs, progress, and result retrieval.
           </p>
 
           <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
@@ -1475,11 +1706,32 @@ export default function QaoaRqpPage() {
           </div>
         </div>
 
+        {activeJobId && !loading && !result && (
+          <div className="mb-4 rounded-2xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-100">
+            <div className="font-semibold text-amber-200">Previous job found</div>
+            <div className="mt-1">
+              Job ID: <span className="font-mono">{activeJobId}</span>
+            </div>
+            <button
+              onClick={() => startPolling(activeJobId)}
+              className="mt-2 rounded-lg border border-amber-700 bg-amber-950/60 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-900/70"
+            >
+              Reconnect to job
+            </button>
+          </div>
+        )}
+
         <ProgressBar
           visible={loading}
-          progress={progress}
+          progress={jobProgressPct}
           message={progressMessage}
-          etaSeconds={estimatedRemainingSec}
+          etaText={jobEtaText === "n/a" ? undefined : jobEtaText}
+          status={jobStatus?.status}
+          phase={jobStatus?.phase}
+          iteration={jobProgress?.iteration}
+          maxIterations={jobProgress?.max_iterations}
+          elapsedSeconds={jobProgress?.elapsed_seconds}
+          indeterminate={jobProgressPct === undefined}
           onStop={stopCurrentRequest}
         />
 
@@ -1583,6 +1835,8 @@ export default function QaoaRqpPage() {
                   setFile(selectedFile);
                   setResult(null);
                   setInspectResult(null);
+                  setJobStatus(null);
+                  setJobError(null);
                   settingsTouchedRef.current = false;
                   setSettingsLoadedFromWorkbook(false);
                 }}
@@ -1655,16 +1909,15 @@ export default function QaoaRqpPage() {
 
               {mode === "qaoa_limited" && (
                 <div className="mb-3 rounded-xl border border-amber-700 bg-amber-950/30 p-2 text-xs text-amber-100">
-                  QAOA limited mode runs the controlled synchronous QAOA path.
-                  Availability and limits depend on the active key or public demo limits.
+                  QAOA limited mode runs as an asynchronous backend job. Availability
+                  and limits depend on the active key or public demo limits.
                 </div>
               )}
 
               {mode === "qaoa_full" && (
                 <div className="mb-3 rounded-xl border border-yellow-700 bg-yellow-950/30 p-2 text-xs text-yellow-100">
-                  QAOA full mode is reserved for the future job-based execution
-                  path and is disabled for now. Use qaoa_limited for current
-                  cloud runs.
+                  QAOA full mode is still disabled by the backend. Use qaoa_limited
+                  for current cloud runs.
                 </div>
               )}
 
@@ -1707,7 +1960,7 @@ export default function QaoaRqpPage() {
                   label="Estimated runtime"
                   value={
                     preRunEstimateSec === undefined
-                      ? "disabled / future job mode"
+                      ? "disabled"
                       : `~${formatSeconds(preRunEstimateSec)}`
                   }
                 />
@@ -1900,9 +2153,8 @@ export default function QaoaRqpPage() {
               </label>
 
               <p className="mb-2 text-xs leading-relaxed text-gray-500">
-                QAOA limited mode is available for controlled runs subject to the
-                active key or public demo limits. Full QAOA remains disabled for
-                now and will later use a job-based flow.
+                Runs are submitted as backend jobs. The page polls the backend for
+                progress, logs, ETA and result availability.
               </p>
               <p className="mb-4 text-xs leading-relaxed text-gray-500">
                 QAOA shots are used only when sampling mode is active. In exact
@@ -1916,10 +2168,23 @@ export default function QaoaRqpPage() {
               >
                 {loading ? "Running..." : "Run Optimization"}
               </button>
+
+              {activeJobId && loading && (
+                <button
+                  onClick={cancelActiveJob}
+                  className="mt-2 w-full rounded-lg border border-red-800 bg-red-950/60 px-3 py-2 text-xs font-semibold text-red-100 hover:bg-red-900/70"
+                >
+                  Request backend cancellation
+                </button>
+              )}
             </Panel>
           </div>
 
           <div className="2xl:col-span-9 space-y-4">
+            {jobError && (
+              <ErrorBox error={jobError} onReconnect={(jobId) => startPolling(jobId)} />
+            )}
+
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <Panel title="Classical Result Summary">
                 {!result && (
@@ -1928,7 +2193,9 @@ export default function QaoaRqpPage() {
                   </p>
                 )}
 
-                {result?.error && <ErrorBox error={result.error} />}
+                {result?.error && (
+                  <ErrorBox error={result.error} onReconnect={(jobId) => startPolling(jobId)} />
+                )}
 
                 {result && !result.error && (
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
@@ -2068,13 +2335,13 @@ export default function QaoaRqpPage() {
 
             <Panel title="Backend Optimization Log" className="w-full">
               <p className="mb-2 text-xs text-gray-500">
-                For synchronous runs, optimizer logs are returned when the run completes.
+                Backend logs are streamed through job-status polling while the run is active.
               </p>
               <div className="h-56 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-3 font-mono text-xs text-gray-300">
                 {backendOptimizationLogs.length === 0 ? (
                   <div className="text-gray-500">
                     Backend optimization logs are available after workbook inspection
-                    or after a run.
+                    or while a backend job is running.
                   </div>
                 ) : (
                   backendOptimizationLogs.map((line, idx) => (
@@ -2496,6 +2763,17 @@ export default function QaoaRqpPage() {
                   </div>
                 </div>
               </Panel>
+            )}
+
+            {jobStatus && (
+              <details className="rounded-2xl border border-slate-800 bg-slate-950/70 p-3">
+                <summary className="cursor-pointer text-cyan-200 font-semibold text-sm">
+                  Raw Job Status
+                </summary>
+                <pre className="mt-3 overflow-x-auto text-xs text-gray-300 bg-black/40 rounded-xl p-3">
+                  {JSON.stringify(jobStatus, null, 2)}
+                </pre>
+              </details>
             )}
 
             {result && (
