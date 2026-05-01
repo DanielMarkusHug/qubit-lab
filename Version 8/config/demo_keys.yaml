@@ -1,0 +1,38 @@
+# Local/mock development key store only.
+# Raw API keys must not be stored here. key_hash values are HMAC-SHA256 digests.
+# These sample hashes were generated with the documented local-dev fallback
+# secret, enabled only when QAOA_RQP_LOCAL_DEV=1.
+
+keys:
+  - key_id: "demo-qualified-001"
+    key_hash: "e98654df37b09ec555a8af9fbd30330b9afa7fe848bc427c0357531ddc7688e9"
+    level: "qualified_demo"
+    name: "Qualified Demo User"
+    email: "demo@example.com"
+    organization: "qubit-lab demo"
+    status: "active"
+    max_runs: 1000
+    used_runs: 0
+    expires_at: "2027-12-31T23:59:59Z"
+
+  - key_id: "demo-tester-001"
+    key_hash: "9249fd2f1c718bb14883e6cde94586494e15a461a992c848468951c3163c57b8"
+    level: "tester"
+    name: "Tester User"
+    email: "tester@example.com"
+    organization: "qubit-lab test"
+    status: "active"
+    max_runs: 1000
+    used_runs: 0
+    expires_at: "2027-12-31T23:59:59Z"
+
+  - key_id: "demo-internal-power-001"
+    key_hash: "09c324c7413b7fa7051f85677ca282f6ed96b375f8aa351f144d140d23cb7b98"
+    level: "internal_power"
+    name: "Internal Power User"
+    email: "internal-power@example.com"
+    organization: "qubit-lab internal"
+    status: "active"
+    max_runs: 1000
+    used_runs: 0
+    expires_at: "2027-12-31T23:59:59Z"

@@ -1,0 +1,90 @@
+public_demo:
+  level_id: 0
+  requires_key: false
+  display_name: "Public Demo"
+  max_qubits: 8
+  max_layers: 3
+  max_iterations: 60
+  max_restarts: 1
+  max_estimated_runtime_sec: 60
+  max_upload_mb: 5
+  max_parallel_runs: 5
+  allowed_modes: ["classical_only", "qaoa_limited"]
+  allowed_response_levels: ["compact", "standard", "full"]
+  show_identity: false
+  qaoa_limited_limits:
+    max_qubits: 8
+    max_layers: 1
+    max_iterations: 10
+    max_restarts: 1
+    max_estimated_runtime_sec: 60
+
+qualified_demo:
+  level_id: 1
+  requires_key: true
+  display_name: "Qualified Demo"
+  max_qubits: 16
+  max_layers: 5
+  max_iterations: 100
+  max_restarts: 3
+  max_estimated_runtime_sec: 240
+  max_upload_mb: 10
+  allowed_modes: ["classical_only", "qaoa_limited"]
+  allowed_response_levels: ["compact", "standard", "full"]
+  show_identity: true
+  qaoa_limited_limits:
+    max_qubits: 8
+    max_layers: 2
+    max_iterations: 20
+    max_restarts: 1
+    max_estimated_runtime_sec: 240
+
+tester:
+  level_id: 2
+  requires_key: true
+  display_name: "Tester"
+  max_qubits: 24
+  max_layers: 8
+  max_iterations: 300
+  max_restarts: 5
+  max_estimated_runtime_sec: 2700
+  max_upload_mb: 25
+  allowed_modes: ["classical_only", "qaoa_limited", "qaoa_full"]
+  allowed_response_levels: ["compact", "standard", "full"]
+  show_identity: true
+  qaoa_limited_limits:
+    max_qubits: 16
+    max_layers: 3
+    max_iterations: 50
+    max_restarts: 2
+    max_estimated_runtime_sec: 2700
+
+internal_power:
+  level_id: 3
+  requires_key: true
+  display_name: "Internal Power"
+  max_qubits: 24
+  max_layers: 8
+  max_iterations: 300
+  max_restarts: 5
+  max_estimated_runtime_sec: 7200
+  max_upload_mb: 25
+  allowed_modes: ["classical_only", "qaoa_limited", "qaoa_full"]
+  allowed_response_levels: ["compact", "standard", "full"]
+  show_identity: true
+  qaoa_limited_limits:
+    max_qubits: 24
+    max_layers: 8
+    max_iterations: 300
+    max_restarts: 5
+    max_estimated_runtime_sec: 7200
+
+runtime_estimator:
+  alpha_qaoa_statevector: 0.0000005
+  alpha_classical_candidate: 0.000003
+  alpha_classical_qubit: 0.01
+  classical_parse_overhead_sec: 0.40
+  classical_result_overhead_sec: 0.20
+  minimum_classical_runtime_sec: 1.00
+  minimum_qaoa_runtime_sec: 5.00
+  safety_factor: 2.0
