@@ -415,6 +415,65 @@ function getQaoaShotsDisplay(...sources: Array<Diagnostics | undefined>) {
   return "";
 }
 
+function uniquePortfolioRows(rows: CandidateRow[]) {
+  const seen = new Set<string>();
+
+  return rows.filter((row) => {
+    const key = [
+      row.decision_id,
+      row.Ticker,
+      row.Company,
+      row.decision_role,
+      row["Option Label"],
+      row["Approx Cost USD"],
+      row.Shares,
+      row.variable_bit_index,
+    ]
+      .map((value) => formatText(value, ""))
+      .join("|");
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeBitstring(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+function getVariableBitIndex(row: CandidateRow) {
+  const direct = getNumber(row.variable_bit_index);
+  if (direct !== undefined) return direct;
+
+  const textValue = row.variable_bit_index;
+  if (typeof textValue === "string") {
+    const parsed = Number(textValue);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  return undefined;
+}
+
+function buildPortfolioFromBitstring(rows: CandidateRow[], bitstringValue?: string | null) {
+  const bitstring = normalizeBitstring(bitstringValue);
+  if (!bitstring) return [];
+
+  return uniquePortfolioRows(rows).filter((row) => {
+    const role = String(row.decision_role ?? "").toLowerCase();
+
+    if (role === "fixed") return true;
+
+    const bitIndex = getVariableBitIndex(row);
+    if (bitIndex === undefined) return false;
+
+    const zeroBasedIndex = bitIndex >= 1 ? bitIndex - 1 : bitIndex;
+
+    return bitstring[zeroBasedIndex] === "1";
+  });
+}
+
 function estimateRuntimeSeconds({
   mode,
   qubits,
@@ -639,6 +698,63 @@ function quantumPlaceholderText(summary?: ReportingSummaryBlock) {
   return summary?.status ?? "Disabled / Not available";
 }
 
+function PortfolioContentsTable({
+  rows,
+  currencyCode,
+}: {
+  rows: CandidateRow[];
+  currencyCode: string;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs text-left">
+        <thead className="text-gray-400 border-b border-slate-700">
+          <tr>
+            <th className="py-1.5 pr-3">Ticker</th>
+            <th className="py-1.5 pr-3">Company</th>
+            <th className="py-1.5 pr-3">Role</th>
+            <th className="py-1.5 pr-3">Option</th>
+            <th className="py-1.5 pr-3">Cost</th>
+            <th className="py-1.5 pr-3">Shares</th>
+            <th className="py-1.5 pr-3">Decision ID</th>
+            <th className="py-1.5 pr-3">Bit Index</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((block, idx) => (
+            <tr key={idx} className="border-b border-slate-800">
+              <td className="py-1.5 pr-3 text-cyan-200">
+                {formatText(block.Ticker)}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-200">
+                {formatText(block.Company)}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-300">
+                {formatText(block.decision_role)}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-300">
+                {formatText(block["Option Label"])}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-300">
+                {formatCurrency(block["Approx Cost USD"], currencyCode)}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-300">
+                {formatText(block.Shares)}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-400">
+                {formatText(block.decision_id)}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-400">
+                {getBitIndexLabel(block)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function CandidateTable({
   rows,
   currencyCode,
@@ -764,14 +880,24 @@ export default function QaoaRqpPage() {
   const charts = reporting?.charts ?? {};
   const circuit =
     reporting?.circuit ??
-    (diagnostics.circuit && typeof diagnostics.circuit === "object" && !Array.isArray(diagnostics.circuit)
+    (diagnostics.circuit &&
+    typeof diagnostics.circuit === "object" &&
+    !Array.isArray(diagnostics.circuit)
       ? (diagnostics.circuit as Record<string, unknown>)
       : undefined);
 
   const classicalCandidates =
     reporting?.classical_candidates ?? result?.top_candidates ?? [];
-  const portfolioContents =
-    reporting?.portfolio_contents ?? result?.selected_blocks ?? [];
+
+  const portfolioContents = uniquePortfolioRows(
+    reporting?.portfolio_contents ?? result?.selected_blocks ?? []
+  );
+
+  const quantumPortfolioContents = buildPortfolioFromBitstring(
+    portfolioContents,
+    quantumSummary?.best_bitstring
+  );
+
   const solverComparison = reporting?.solver_comparison ?? [];
   const quantumSamples = reporting?.quantum_samples ?? [];
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
@@ -2235,69 +2361,26 @@ export default function QaoaRqpPage() {
 
             {portfolioContents.length > 0 && (
               <Panel title="Classical Portfolio Contents">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left">
-                    <thead className="text-gray-400 border-b border-slate-700">
-                      <tr>
-                        <th className="py-1.5 pr-3">Ticker</th>
-                        <th className="py-1.5 pr-3">Company</th>
-                        <th className="py-1.5 pr-3">Role</th>
-                        <th className="py-1.5 pr-3">Option</th>
-                        <th className="py-1.5 pr-3">Cost</th>
-                        <th className="py-1.5 pr-3">Shares</th>
-                        <th className="py-1.5 pr-3">Decision ID</th>
-                        <th className="py-1.5 pr-3">Bit Index</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {portfolioContents.map((block, idx) => (
-                        <tr key={idx} className="border-b border-slate-800">
-                          <td className="py-1.5 pr-3 text-cyan-200">
-                            {formatText(block.Ticker)}
-                          </td>
-                          <td className="py-1.5 pr-3 text-gray-200">
-                            {formatText(block.Company)}
-                          </td>
-                          <td className="py-1.5 pr-3 text-gray-300">
-                            {formatText(block.decision_role)}
-                          </td>
-                          <td className="py-1.5 pr-3 text-gray-300">
-                            {formatText(block["Option Label"])}
-                          </td>
-                          <td className="py-1.5 pr-3 text-gray-300">
-                            {formatCurrency(block["Approx Cost USD"], currencyCode)}
-                          </td>
-                          <td className="py-1.5 pr-3 text-gray-300">
-                            {formatText(block.Shares)}
-                          </td>
-                          <td className="py-1.5 pr-3 text-gray-400">
-                            {formatText(block.decision_id)}
-                          </td>
-                          <td className="py-1.5 pr-3 text-gray-400">
-                            {getBitIndexLabel(block)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <PortfolioContentsTable
+                  rows={portfolioContents}
+                  currencyCode={currencyCode}
+                />
               </Panel>
             )}
 
             {result && !result.error && (
               <Panel title="Quantum Portfolio Contents" tone="amber">
-                {hasQuantumResult(quantumSummary) ? (
-                  <p className="text-gray-400 text-xs">
-                    Quantum portfolio contents will be displayed here once the
-                    backend returns portfolio rows tagged for the selected
-                    quantum best-QUBO candidate.
-                  </p>
+                {quantumPortfolioContents.length > 0 ? (
+                  <PortfolioContentsTable
+                    rows={quantumPortfolioContents}
+                    currencyCode={currencyCode}
+                  />
                 ) : (
                   <QuantumPlaceholder title="No quantum portfolio contents">
-                    No quantum portfolio contents are available in the current
-                    response. This section will use the best QUBO candidate
-                    within exported QAOA samples once the backend provides the
-                    corresponding portfolio rows.
+                    No quantum portfolio contents are available for the selected
+                    quantum candidate. This usually means no quantum bitstring was
+                    returned or the frontend could not map the bitstring back to
+                    portfolio rows.
                   </QuantumPlaceholder>
                 )}
               </Panel>
