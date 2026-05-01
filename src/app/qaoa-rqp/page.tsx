@@ -248,7 +248,7 @@ const API_URL =
   "https://qaoa-rqp-api-186148318189.europe-west6.run.app";
 
 const USER_GUIDE_URL = "/qaoa-rqp/QAOA_RQP_Quick_User_Guide.pdf";
-const DEMO_EXCEL_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo.xlsx";
+const DEMO_EXCEL_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo_0.xlsx";
 
 function getNumber(value: unknown): number | undefined {
   return typeof value === "number" && !Number.isNaN(value) ? value : undefined;
