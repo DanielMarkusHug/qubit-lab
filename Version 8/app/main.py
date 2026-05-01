@@ -707,6 +707,10 @@ def register_routes(flask_app: Flask) -> None:
                 _release_job_lock(get_run_ledger(), usage_context, job_id)
             except Exception:
                 logger.exception("Failed to release lock for cancelled queued job_id=%s", job_id)
+                try:
+                    _release_job_lock_from_job(get_run_ledger(), job, job_id)
+                except Exception:
+                    logger.exception("Fallback lock release failed for cancelled queued job_id=%s", job_id)
         job_store.update_job(job_id, updates)
         return jsonify(get_job_store().status_payload(job_id))
 
@@ -807,6 +811,17 @@ def _usage_context_from_job(job: dict):
 def _release_job_lock(ledger, usage_context, job_id: str) -> None:
     if usage_context.authenticated:
         ledger.release_run_lock(usage_context.key_record, job_id)
+    else:
+        ledger.release_public_run_slot(job_id)
+
+
+def _release_job_lock_from_job(ledger, job: dict, job_id: str) -> None:
+    lock = job.get("lock") or {}
+    lock_type = lock.get("type")
+    if lock_type == "key" or bool(job.get("authenticated")):
+        key_id = str(lock.get("key_id") or job.get("key_id") or "")
+        if key_id:
+            ledger.release_run_lock({"key_id": key_id, "_firestore_doc_id": key_id}, job_id)
     else:
         ledger.release_public_run_slot(job_id)
 

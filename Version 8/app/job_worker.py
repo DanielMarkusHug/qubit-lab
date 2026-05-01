@@ -85,6 +85,12 @@ def run_job(job_id: str) -> dict[str, Any]:
         optimizer.progress_callback = reporter.optimizer_progress
         _append_mode_logs(logs, mode, inspection=False)
         policy_result = validate_problem_policy(usage_context, optimizer, mode, settings)
+        reporter.max_iterations = max(
+            1,
+            int(policy_result.runtime_inputs.layers)
+            * int(policy_result.runtime_inputs.iterations)
+            * int(policy_result.runtime_inputs.restarts),
+        )
         reporter.update("Model and QUBO constructed.", progress_pct=15.0, phase="model_built")
 
         ledger.record_run_started(
@@ -240,14 +246,17 @@ def run_job(job_id: str) -> dict[str, Any]:
     finally:
         if usage_context is not None:
             _release_job_lock(ledger, usage_context, job_id)
+        else:
+            _release_job_lock_from_job(ledger, job, job_id)
         cleanup_temp_file(tmp_path)
 
 
 class JobProgressReporter:
-    def __init__(self, job_store, job_id: str, start_time: float):
+    def __init__(self, job_store, job_id: str, start_time: float, max_iterations: int | None = None):
         self.job_store = job_store
         self.job_id = job_id
         self.start_time = start_time
+        self.max_iterations = max_iterations
         self.last_update = 0.0
 
     def log_and_collect(self, logs: list[str]):
@@ -268,6 +277,8 @@ class JobProgressReporter:
                 iteration = int(after_iter.split()[0])
             except Exception:
                 iteration = None
+        if iteration is not None and self.max_iterations:
+            progress_pct = min(90.0, 15.0 + 75.0 * min(iteration, self.max_iterations) / self.max_iterations)
         self.update(str(message), progress_pct=progress_pct, iteration=iteration, phase="optimization")
 
     def update(
@@ -291,6 +302,8 @@ class JobProgressReporter:
             progress["eta_seconds_high"] = eta_low * 1.4 if eta_low is not None else None
         if iteration is not None:
             progress["iteration"] = int(iteration)
+        if self.max_iterations is not None:
+            progress["max_iterations"] = int(self.max_iterations)
         self.job_store.append_log(self.job_id, message, progress=progress, phase=phase)
 
 
@@ -312,6 +325,20 @@ def _release_job_lock(ledger, usage_context, job_id: str) -> None:
             ledger.release_public_run_slot(job_id)
     except Exception:
         # The worker should not mask the original outcome if release fails.
+        pass
+
+
+def _release_job_lock_from_job(ledger, job: dict[str, Any], job_id: str) -> None:
+    try:
+        lock = job.get("lock") or {}
+        lock_type = lock.get("type")
+        if lock_type == "key" or bool(job.get("authenticated")):
+            key_id = str(lock.get("key_id") or job.get("key_id") or "")
+            if key_id:
+                ledger.release_run_lock({"key_id": key_id, "_firestore_doc_id": key_id}, job_id)
+        else:
+            ledger.release_public_run_slot(job_id)
+    except Exception:
         pass
 
 

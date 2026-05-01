@@ -27,7 +27,7 @@ import app.main as main_module  # noqa: E402
 import app.job_worker as job_worker_module  # noqa: E402
 from app.main import app, create_app  # noqa: E402
 from app.key_store import FirestoreApiKeyStore  # noqa: E402
-from app.job_storage import get_job_storage  # noqa: E402
+from app.job_storage import GcsJobStorage, get_job_storage  # noqa: E402
 from app.job_store import get_job_store, initial_job_document  # noqa: E402
 from app.run_ledger import FirestoreRunLedger, RunLedger, _LOCAL_PUBLIC_RUNS  # noqa: E402
 from app.schemas import ApiError  # noqa: E402
@@ -265,6 +265,42 @@ class _FakeFirestoreClient:
         return _FakeFirestoreTransaction()
 
 
+class _FakeGcsBlob:
+    def __init__(self, store: dict[str, object], name: str):
+        self.store = store
+        self.name = name
+
+    def upload_from_filename(self, filename):
+        self.store[self.name] = Path(filename).read_bytes()
+
+    def download_to_filename(self, filename):
+        Path(filename).write_bytes(self.store[self.name])
+
+    def upload_from_string(self, data, content_type=None):
+        self.store[self.name] = data
+        self.store[f"{self.name}:content_type"] = content_type
+
+    def download_as_text(self):
+        value = self.store[self.name]
+        return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+class _FakeGcsBucket:
+    def __init__(self, store: dict[str, object]):
+        self.store = store
+
+    def blob(self, name: str):
+        return _FakeGcsBlob(self.store, name)
+
+
+class _FakeGcsClient:
+    def __init__(self):
+        self.objects: dict[str, object] = {}
+
+    def bucket(self, _name: str):
+        return _FakeGcsBucket(self.objects)
+
+
 def _identity_transactional(callback):
     return callback
 
@@ -489,8 +525,20 @@ def test_async_status_and_result_before_completion(monkeypatch, tmp_path):
     assert status_payload["job_id"] == job_id
     assert status_payload["status"] == "queued"
     assert status_payload["result_available"] is False
-    assert "progress" in status_payload
-    assert "logs_tail" in status_payload
+    assert {
+        "job_id",
+        "status",
+        "phase",
+        "progress",
+        "latest_log",
+        "logs_tail",
+        "created_at",
+        "started_at",
+        "heartbeat_at",
+        "finished_at",
+        "result_available",
+        "error",
+    }.issubset(status_payload)
 
     result_response = app.test_client().get(f"/jobs/{job_id}/result")
     result_payload = result_response.get_json()
@@ -498,6 +546,101 @@ def test_async_status_and_result_before_completion(monkeypatch, tmp_path):
     assert result_response.status_code == 409
     assert result_payload["error"]["code"] == "job_not_completed"
     assert result_payload["error"]["details"]["job_id"] == job_id
+
+
+def test_job_result_reads_completed_gcs_result(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    job_id = "job_result_gcs"
+    storage_path = "gs://unit-test-job-bucket/jobs/job_result_gcs/result.json"
+    get_job_store().create_job(
+        {
+            "job_id": job_id,
+            "status": "completed",
+            "phase": "completed",
+            "result": {"available": True, "storage_path": storage_path, "summary": {"status": "completed"}},
+        }
+    )
+    fake_storage = SimpleNamespace(
+        read_result_json=lambda path: {
+            "status": "completed",
+            "run_id": job_id,
+            "storage_path_seen": path,
+        }
+    )
+    monkeypatch.setattr(main_module, "get_job_storage", lambda: fake_storage)
+
+    response = app.test_client().get(f"/jobs/{job_id}/result")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["run_id"] == job_id
+    assert payload["storage_path_seen"] == storage_path
+
+
+def test_async_qaoa_full_disabled_before_lock(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(
+        main_module,
+        "trigger_cloud_run_job",
+        lambda _job_id: pytest.fail("qaoa_full should be rejected before job trigger"),
+    )
+
+    response = _post_async(headers={"X-API-Key": INTERNAL_POWER_KEY}, mode="qaoa_full")
+    payload = response.get_json()
+
+    assert response.status_code == 501
+    assert payload["error"]["code"] == "qaoa_full_disabled"
+    assert ledger.acquired is False
+    assert ledger.public_acquired is False
+    assert ledger.consumed is False
+
+
+def test_async_trigger_failure_releases_authenticated_lock(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+
+    def fail_trigger(_job_id):
+        raise ApiError(500, "cloud_run_job_trigger_failed", "Cloud Run Job trigger failed.")
+
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", fail_trigger)
+
+    response = _post_async(headers={"X-API-Key": INTERNAL_POWER_KEY}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 500
+    assert payload["error"]["code"] == "cloud_run_job_trigger_failed"
+    assert ledger.acquired is True
+    assert ledger.released is True
+    assert ledger.consumed is False
+
+    job_files = list((tmp_path / "jobs").glob("job_*/job.json"))
+    assert len(job_files) == 1
+    job = json.loads(job_files[0].read_text(encoding="utf-8"))
+    assert job["status"] == "failed"
+    assert job["phase"] == "submission_failed"
+
+
+def test_async_trigger_failure_releases_public_slot(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(
+        main_module,
+        "trigger_cloud_run_job",
+        lambda _job_id: (_ for _ in ()).throw(RuntimeError("trigger transport failed")),
+    )
+
+    response = _post_async(mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 500
+    assert payload["error"]["code"] == "async_job_submission_failed"
+    assert ledger.public_acquired is True
+    assert ledger.public_released is True
+    assert ledger.consumed is False
 
 
 def test_async_authenticated_active_lock_rejection(monkeypatch, tmp_path):
@@ -613,6 +756,56 @@ def test_worker_marks_failed_and_releases_public_lock(monkeypatch, tmp_path):
     assert "simulated worker failure" in job["error"]["message"]
     assert ledger.rejected is True
     assert ledger.public_released is True
+
+
+def test_worker_cancelled_job_releases_public_lock(monkeypatch, tmp_path):
+    job_id = _create_local_worker_job(tmp_path, monkeypatch, job_id="job_test_worker_cancelled")
+    get_job_store().update_job(job_id, {"cancel_requested": True})
+    ledger = _RouteLockLedger()
+    monkeypatch.setattr(job_worker_module, "get_run_ledger", lambda: ledger)
+
+    job_worker_module.run_job(job_id)
+    job = get_job_store().get_job(job_id)
+
+    assert job["status"] == "cancelled"
+    assert job["phase"] == "cancelled"
+    assert job["result"]["available"] is False
+    assert ledger.public_released is True
+
+
+def test_worker_releases_key_lock_when_usage_context_rebuild_fails(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    usage_level = load_usage_config()["usage_levels"]["internal_power"]
+    usage_context = UsageContext(
+        usage_level_name="internal_power",
+        usage_level=usage_level,
+        key_record={"key_id": "missing-key"},
+        authenticated=True,
+    )
+    job_id = "job_test_missing_key_release"
+    get_job_store().create_job(
+        initial_job_document(
+            job_id=job_id,
+            mode="classical_only",
+            response_level="full",
+            settings={"mode": "classical_only", "response_level": "full"},
+            input_info={"storage_path": "unused.xlsx", "original_filename": "unused.xlsx", "storage_mode": "local"},
+            usage_context=usage_context,
+            policy_result=_policy_result(),
+            lock_type="key",
+            key_hash="unit-test-key-hash",
+        )
+    )
+    ledger = _RouteLockLedger()
+    monkeypatch.setattr(job_worker_module, "get_run_ledger", lambda: ledger)
+    monkeypatch.setattr(job_worker_module, "get_key_store", lambda: SimpleNamespace(find_key_by_id=lambda _key_id: None))
+
+    job_worker_module.run_job(job_id)
+    job = get_job_store().get_job(job_id)
+
+    assert job["status"] == "failed"
+    assert job["error"]["type"] == "ApiError"
+    assert ledger.released is True
 
 
 def test_license_status_no_key_returns_public_demo():
@@ -1433,6 +1626,42 @@ def test_production_configuration_rejects_local_stores(monkeypatch):
     monkeypatch.setenv("QAOA_RQP_LEDGER_STORE", "local")
     with pytest.raises(RuntimeError, match="QAOA_RQP_LEDGER_STORE=local"):
         validate_secret_configuration()
+
+
+def test_job_storage_mode_uses_gcs_when_bucket_is_configured(monkeypatch):
+    monkeypatch.setenv("QAOA_RQP_LOCAL_DEV", "1")
+    monkeypatch.delenv("QAOA_JOB_STORAGE", raising=False)
+    monkeypatch.setenv("QAOA_JOB_BUCKET", "unit-test-job-bucket")
+
+    assert main_module.Config.job_storage_mode() == "gcs"
+
+
+def test_job_storage_local_is_local_dev_only(monkeypatch):
+    monkeypatch.delenv("QAOA_RQP_LOCAL_DEV", raising=False)
+    monkeypatch.setenv("KEY_HASH_SECRET", "unit-test-secret")
+    monkeypatch.setenv("QAOA_JOB_STORAGE", "local")
+
+    with pytest.raises(RuntimeError, match="QAOA_JOB_STORAGE=local"):
+        validate_secret_configuration()
+
+
+def test_gcs_job_storage_round_trip(monkeypatch, tmp_path):
+    monkeypatch.setenv("QAOA_JOB_BUCKET", "unit-test-job-bucket")
+    source = tmp_path / "input.xlsx"
+    source.write_bytes(b"test workbook bytes")
+    storage = GcsJobStorage(bucket_name="unit-test-job-bucket", client=_FakeGcsClient())
+
+    input_info = storage.save_input_from_path("job_storage_test", source, "input.xlsx")
+    downloaded = tmp_path / "downloaded.xlsx"
+    storage.download_input_to(input_info["storage_path"], downloaded)
+    result_path = storage.write_result_json("job_storage_test", {"ok": True, "value": 7})
+    result = storage.read_result_json(result_path)
+
+    assert input_info["storage_mode"] == "gcs"
+    assert input_info["storage_path"] == "gs://unit-test-job-bucket/jobs/job_storage_test/input.xlsx"
+    assert downloaded.read_bytes() == b"test workbook bytes"
+    assert result_path == "gs://unit-test-job-bucket/jobs/job_storage_test/result.json"
+    assert result == {"ok": True, "value": 7}
 
 
 def test_dockerfile_cmd_uses_json_exec_form():

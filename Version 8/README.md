@@ -213,7 +213,7 @@ Run:
 Current expected result:
 
 ```text
-71 passed
+81 passed
 ```
 
 ## Production Environment
@@ -230,7 +230,7 @@ QAOA_JOB_STORAGE=gcs
 QAOA_JOB_BUCKET=...
 CLOUD_RUN_PROJECT=...
 CLOUD_RUN_REGION=europe-west6
-QAOA_WORKER_JOB_NAME=qaoa-rqp-worker
+QAOA_WORKER_JOB_NAME=qaoa-rqp-worker-v8
 ```
 
 Optional compatibility variable:
