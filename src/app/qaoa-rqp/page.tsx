@@ -30,6 +30,7 @@ type EffectiveSettings = {
   variance_lambda?: number | null;
   risk_free_rate?: number | null;
   restart_perturbation?: number | null;
+  random_seed?: number | null;
 };
 
 type Diagnostics = Record<string, unknown> & {
@@ -44,6 +45,7 @@ type Diagnostics = Record<string, unknown> & {
   eta_seconds_high?: number;
   actual_runtime_sec?: number;
   runtime_ratio?: number;
+  random_seed?: number | null;
 
   usage_level?: string;
   n_qubits?: number;
@@ -251,6 +253,7 @@ type RuntimeEstimate = {
     iterations?: number;
     restarts?: number;
     warm_start?: boolean;
+    random_seed?: number | null;
   };
 };
 
@@ -339,6 +342,7 @@ type SavedQaoaSnapshot = {
     risk_free_rate: number;
     qaoa_shots: number;
     restart_perturbation: number;
+    random_seed?: number | "";
   };
   license?: LicenseStatus | null;
   inspect_result?: InspectResult | null;
@@ -375,6 +379,18 @@ function formatNumber(value: unknown, digits = 3) {
   if (number === undefined) return "n/a";
   return number.toLocaleString("en-US", {
     maximumFractionDigits: digits,
+  });
+}
+
+function formatProbability(value: unknown) {
+  const number = getNumber(value);
+  if (number === undefined) return "n/a";
+  if (number === 0) return "0";
+  if (Math.abs(number) < 0.000001) return number.toExponential(6);
+
+  return number.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 10,
   });
 }
 
@@ -415,11 +431,13 @@ function formatRuntimeInputs(value: unknown) {
   const layers = record.layers ?? record.p;
   const iterations = record.iterations;
   const restarts = record.restarts;
+  const randomSeed = record.random_seed;
 
   const parts = [
     layers !== undefined ? `layers=${layers}` : null,
     iterations !== undefined ? `iterations=${iterations}` : null,
     restarts !== undefined ? `restarts=${restarts}` : null,
+    randomSeed !== undefined && randomSeed !== null ? `random_seed=${randomSeed}` : null,
   ].filter(Boolean);
 
   return parts.length > 0 ? parts.join(", ") : "n/a";
@@ -536,6 +554,22 @@ function getEffectiveSetting(diagnostics: Diagnostics | undefined, key: string) 
   return getRecordValue(diagnostics?.effective_settings, key);
 }
 
+function getEffectiveRandomSeed(...sources: Array<Diagnostics | undefined>) {
+  for (const diagnostics of sources) {
+    const direct = getNumber(diagnostics?.random_seed);
+    if (direct !== undefined) return direct;
+
+    const effective = getNumber(getEffectiveSetting(diagnostics, "random_seed"));
+    if (effective !== undefined) return effective;
+
+    const runtime = getRecordValue(diagnostics?.runtime_inputs, "random_seed");
+    const runtimeNumber = getNumber(runtime);
+    if (runtimeNumber !== undefined) return runtimeNumber;
+  }
+
+  return undefined;
+}
+
 function getShotsMode(...sources: Array<Diagnostics | undefined>) {
   for (const diagnostics of sources) {
     const effectiveShotsMode = formatText(
@@ -603,6 +637,10 @@ function getDiagnosticsFromInspect(result?: InspectResult | null): Diagnostics {
   return diagnostics as Diagnostics;
 }
 
+function getPortfolioCost(row: CandidateRow) {
+  return row["Indicative Market Cost USD"] ?? row["Approx Cost USD"];
+}
+
 function uniquePortfolioRows(rows: CandidateRow[]) {
   const seen = new Set<string>();
 
@@ -613,7 +651,7 @@ function uniquePortfolioRows(rows: CandidateRow[]) {
       row.Company,
       row.decision_role,
       row["Option Label"],
-      row["Approx Cost USD"],
+      getPortfolioCost(row),
       row.Shares,
       row.variable_bit_index,
     ]
@@ -1034,7 +1072,7 @@ function PortfolioContentsTable({
             <th className="py-1.5 pr-3">Company</th>
             <th className="py-1.5 pr-3">Role</th>
             <th className="py-1.5 pr-3">Option</th>
-            <th className="py-1.5 pr-3">Cost</th>
+            <th className="py-1.5 pr-3">Indicative Market Cost</th>
             <th className="py-1.5 pr-3">Shares</th>
             <th className="py-1.5 pr-3">Decision ID</th>
             <th className="py-1.5 pr-3">Bit Index</th>
@@ -1056,7 +1094,7 @@ function PortfolioContentsTable({
                 {formatText(block["Option Label"])}
               </td>
               <td className="py-1.5 pr-3 text-gray-300">
-                {formatCurrency(block["Approx Cost USD"], currencyCode)}
+                {formatCurrency(getPortfolioCost(block), currencyCode)}
               </td>
               <td className="py-1.5 pr-3 text-gray-300">
                 {formatText(block.Shares)}
@@ -1115,7 +1153,7 @@ function CandidateTable({
               </td>
               {showProbability && (
                 <td className="py-1.5 pr-3 text-gray-300">
-                  {formatNumber(candidate.probability, 6)}
+                  {formatProbability(candidate.probability)}
                 </td>
               )}
               <td className="py-1.5 pr-3 text-gray-300">
@@ -1167,6 +1205,7 @@ export default function QaoaRqpPage() {
   const [riskFreeRate, setRiskFreeRate] = useState(0.04);
   const [qaoaShots, setQaoaShots] = useState(4096);
   const [restartPerturbation, setRestartPerturbation] = useState(0.05);
+  const [randomSeed, setRandomSeed] = useState<number | "">("");
   const [settingsLoadedFromWorkbook, setSettingsLoadedFromWorkbook] = useState(false);
 
   const [license, setLicense] = useState<LicenseStatus | null>(null);
@@ -1249,6 +1288,7 @@ export default function QaoaRqpPage() {
   const shotsMode = getShotsMode(diagnostics, inspectDiagnostics);
   const qaoaShotsDisplay = getQaoaShotsDisplay(diagnostics, inspectDiagnostics);
   const isExactShotsMode = shotsMode === "exact" || qaoaShotsDisplay === "exact";
+  const effectiveRandomSeed = getEffectiveRandomSeed(diagnostics, inspectDiagnostics);
 
   const chartEntries = [
     ["Risk / Return / Sharpe ratio", charts.risk_return_sharpe],
@@ -1383,6 +1423,7 @@ export default function QaoaRqpPage() {
     const nextRiskFreeRate = getNumber(effectiveSettings.risk_free_rate);
     const nextQaoaShots = getNumber(effectiveSettings.qaoa_shots);
     const nextRestartPerturbation = getNumber(effectiveSettings.restart_perturbation);
+    const nextRandomSeed = getNumber(effectiveSettings.random_seed);
 
     let changed = false;
 
@@ -1420,6 +1461,10 @@ export default function QaoaRqpPage() {
     }
     if (nextRestartPerturbation !== undefined) {
       setRestartPerturbation(nextRestartPerturbation);
+      changed = true;
+    }
+    if (nextRandomSeed !== undefined) {
+      setRandomSeed(nextRandomSeed);
       changed = true;
     }
 
@@ -1464,6 +1509,7 @@ export default function QaoaRqpPage() {
         risk_free_rate: riskFreeRate,
         qaoa_shots: qaoaShots,
         restart_perturbation: restartPerturbation,
+        random_seed: randomSeed,
       },
       license,
       inspect_result: inspectResult,
@@ -1527,6 +1573,7 @@ export default function QaoaRqpPage() {
       setRiskFreeRate(snapshot.ui_state?.risk_free_rate ?? 0.04);
       setQaoaShots(snapshot.ui_state?.qaoa_shots ?? 4096);
       setRestartPerturbation(snapshot.ui_state?.restart_perturbation ?? 0.05);
+      setRandomSeed(snapshot.ui_state?.random_seed ?? "");
 
       setLicense(snapshot.license ?? null);
       setInspectResult(snapshot.inspect_result ?? null);
@@ -1728,6 +1775,9 @@ export default function QaoaRqpPage() {
         formData.append("risk_free_rate", String(riskFreeRate));
         formData.append("qaoa_shots", String(qaoaShots));
         formData.append("restart_perturbation", String(restartPerturbation));
+        if (randomSeed !== "") {
+          formData.append("random_seed", String(randomSeed));
+        }
       }
 
       const res = await fetch(`${API_URL}/inspect-workbook`, {
@@ -1835,6 +1885,7 @@ export default function QaoaRqpPage() {
     riskFreeRate,
     qaoaShots,
     restartPerturbation,
+    randomSeed,
   ]);
 
   useEffect(() => {
@@ -1935,6 +1986,9 @@ export default function QaoaRqpPage() {
       formData.append("risk_free_rate", String(riskFreeRate));
       formData.append("qaoa_shots", String(qaoaShots));
       formData.append("restart_perturbation", String(restartPerturbation));
+      if (randomSeed !== "") {
+        formData.append("random_seed", String(randomSeed));
+      }
 
       const res = await fetch(`${API_URL}/run-qaoa-async`, {
         method: "POST",
@@ -2392,6 +2446,10 @@ export default function QaoaRqpPage() {
                         : "waiting for workbook inspection"
                   }
                 />
+                <InfoRow
+                  label="Random seed"
+                  value={formatText(effectiveRandomSeed ?? randomSeed, "auto")}
+                />
                 <InfoRow label="Runtime cap" value={formatSeconds(runtimeCap)} />
                 <InfoRow
                   label="Within backend limit"
@@ -2547,6 +2605,28 @@ export default function QaoaRqpPage() {
                     className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
                   />
                 </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    Random seed
+                  </label>
+                  <input
+                    type="number"
+                    step={1}
+                    value={randomSeed}
+                    placeholder="auto / workbook"
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      const value = e.target.value;
+                      setRandomSeed(value === "" ? "" : Number(value));
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white accent-white [color-scheme:dark]"
+                  />
+                  <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                    Optional. Use the same seed to make comparable runs more reproducible
+                    under the same code and environment.
+                  </p>
+                </div>
               </div>
 
               <label className="flex items-center gap-3 text-xs text-gray-300 mb-3">
@@ -2653,13 +2733,6 @@ export default function QaoaRqpPage() {
                 {result && !result.error && (
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
                     <MetricCard
-                      label="Objective"
-                      value={formatNumber(
-                        classicalSummary?.objective ?? result.objective,
-                        4
-                      )}
-                    />
-                    <MetricCard
                       label="QUBO value"
                       value={formatNumber(
                         classicalSummary?.qubo_value ?? result.qubo_value,
@@ -2713,6 +2786,13 @@ export default function QaoaRqpPage() {
                       value={formatText(classicalSummary?.source ?? result.solver)}
                       kind="text"
                     />
+                    <MetricCard
+                      label="Objective"
+                      value={formatNumber(
+                        classicalSummary?.objective ?? result.objective,
+                        4
+                      )}
+                    />
                   </div>
                 )}
               </Panel>
@@ -2750,11 +2830,6 @@ export default function QaoaRqpPage() {
                     subtle={!quantumSummary?.available}
                   />
                   <MetricCard
-                    label="Probability"
-                    value={formatNumber(quantumSummary?.probability, 6)}
-                    subtle={!quantumSummary?.available}
-                  />
-                  <MetricCard
                     label="Bitstring"
                     value={formatText(quantumSummary?.best_bitstring)}
                     subtle={!quantumSummary?.available}
@@ -2765,6 +2840,11 @@ export default function QaoaRqpPage() {
                     value={formatText(quantumSummary?.source)}
                     subtle={!quantumSummary?.available}
                     kind="text"
+                  />
+                  <MetricCard
+                    label="Probability"
+                    value={formatProbability(quantumSummary?.probability)}
+                    subtle={!quantumSummary?.available}
                   />
                 </div>
 
@@ -2996,7 +3076,7 @@ export default function QaoaRqpPage() {
                       />
                       <InfoRow
                         label="Probability"
-                        value={formatNumber(quantumSummary?.probability, 6)}
+                        value={formatProbability(quantumSummary?.probability)}
                       />
                     </>
                   ) : (
@@ -3069,7 +3149,7 @@ export default function QaoaRqpPage() {
                       />
                       <InfoRow
                         label="Probability"
-                        value={formatNumber(quantumSummary?.probability, 6)}
+                        value={formatProbability(quantumSummary?.probability)}
                       />
                     </>
                   ) : (
@@ -3184,6 +3264,10 @@ export default function QaoaRqpPage() {
                     <InfoRow
                       label="Runtime inputs"
                       value={formatRuntimeInputs(diagnostics.runtime_inputs)}
+                    />
+                    <InfoRow
+                      label="Effective random seed"
+                      value={formatText(getEffectiveRandomSeed(diagnostics), "auto")}
                     />
                     <InfoRow
                       label="Usage level"
