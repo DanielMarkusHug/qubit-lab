@@ -37,9 +37,14 @@ type Diagnostics = Record<string, unknown> & {
   effective_settings?: EffectiveSettings;
   runtime_inputs?: Record<string, unknown>;
   circuit?: Record<string, unknown>;
+
+  raw_estimated_runtime_sec?: number;
   estimated_runtime_sec?: number;
+  eta_seconds_low?: number;
+  eta_seconds_high?: number;
   actual_runtime_sec?: number;
   runtime_ratio?: number;
+
   usage_level?: string;
   n_qubits?: number;
   binary_variables?: number;
@@ -50,6 +55,23 @@ type Diagnostics = Record<string, unknown> & {
   budget_usd?: number;
   fixed_options?: number;
   variable_options?: number;
+
+  workbook_warnings?: string[];
+  workbook_warning_count?: number;
+
+  classical_export_requested_rows?: number;
+  classical_export_actual_rows?: number;
+  classical_export_cap_applied?: boolean;
+  classical_export_cap_reason?: string | null;
+
+  qaoa_export_requested_rows?: number;
+  qaoa_export_actual_rows?: number;
+  qaoa_export_cap_applied?: boolean;
+  qaoa_export_cap_reason?: string | null;
+
+  qaoa_exact_state_space?: number;
+  qaoa_exact_states_evaluated?: number;
+  qaoa_exact_states_exported?: number;
 };
 
 type LicenseStatus = {
@@ -216,7 +238,10 @@ type InspectWorkbookSummary = {
 
 type RuntimeEstimate = {
   mode?: string;
+  raw_estimated_runtime_sec?: number;
   estimated_runtime_sec?: number;
+  eta_seconds_low?: number;
+  eta_seconds_high?: number;
   max_estimated_runtime_sec?: number;
   within_limit?: boolean;
   limit_source?: string;
@@ -384,7 +409,8 @@ function formatEtaRange(low?: number | null, high?: number | null) {
   if (low === null || low === undefined) return "n/a";
 
   const safeLow = Math.max(0, low);
-  const safeHigh = high === null || high === undefined ? safeLow * 1.4 : Math.max(safeLow, high);
+  const safeHigh =
+    high === null || high === undefined ? safeLow * 1.4 : Math.max(safeLow, high);
 
   if (safeHigh < 60) return "less than 1 minute";
 
@@ -677,6 +703,91 @@ function ChartImage({ title, src }: { title: string; src: string }) {
   );
 }
 
+function WorkbookWarnings({ warnings }: { warnings: string[] }) {
+  if (warnings.length === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">
+      <div className="font-semibold text-amber-200 mb-1">Workbook warnings</div>
+      <p className="mb-2 text-amber-100/80">
+        These warnings do not block execution, but they may indicate an input
+        configuration issue.
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        {warnings.map((warning, idx) => (
+          <li key={idx}>{warning}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ExportDiagnosticsSummary({ diagnostics }: { diagnostics: Diagnostics }) {
+  const hasAny =
+    diagnostics.classical_export_requested_rows !== undefined ||
+    diagnostics.classical_export_actual_rows !== undefined ||
+    diagnostics.qaoa_export_requested_rows !== undefined ||
+    diagnostics.qaoa_export_actual_rows !== undefined ||
+    diagnostics.qaoa_exact_state_space !== undefined ||
+    diagnostics.qaoa_exact_states_evaluated !== undefined ||
+    diagnostics.qaoa_exact_states_exported !== undefined;
+
+  if (!hasAny) return null;
+
+  return (
+    <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs">
+      <div className="font-semibold text-cyan-100 mb-2">Export diagnostics</div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        <div>
+          <InfoRow
+            label="Classical export"
+            value={`requested ${formatText(
+              diagnostics.classical_export_requested_rows
+            )}, exported ${formatText(diagnostics.classical_export_actual_rows)}`}
+          />
+          <InfoRow
+            label="Classical cap applied"
+            value={formatText(diagnostics.classical_export_cap_applied)}
+          />
+          <InfoRow
+            label="Classical cap reason"
+            value={formatText(diagnostics.classical_export_cap_reason)}
+          />
+        </div>
+
+        <div>
+          <InfoRow
+            label="QAOA export"
+            value={`requested ${formatText(
+              diagnostics.qaoa_export_requested_rows
+            )}, exported ${formatText(diagnostics.qaoa_export_actual_rows)}`}
+          />
+          <InfoRow
+            label="QAOA cap applied"
+            value={formatText(diagnostics.qaoa_export_cap_applied)}
+          />
+          <InfoRow
+            label="QAOA cap reason"
+            value={formatText(diagnostics.qaoa_export_cap_reason)}
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <InfoRow
+            label="QAOA exact states"
+            value={`state space ${formatText(
+              diagnostics.qaoa_exact_state_space
+            )}, evaluated ${formatText(
+              diagnostics.qaoa_exact_states_evaluated
+            )}, exported ${formatText(diagnostics.qaoa_exact_states_exported)}`}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProgressBar({
   visible,
   progress,
@@ -728,8 +839,7 @@ function ProgressBar({
             {elapsedSeconds !== null && elapsedSeconds !== undefined && (
               <span>Elapsed: {formatSeconds(elapsedSeconds)}</span>
             )}
-            {etaText && <span>ETA: {etaText}</span>}
-            {!etaText && <span>Running...</span>}
+            {etaText ? <span>ETA: {etaText}</span> : <span>ETA unavailable</span>}
           </div>
         </div>
 
@@ -755,7 +865,8 @@ function ProgressBar({
       </div>
 
       <div className="mt-2 text-xs text-gray-500">
-        Run submitted. You can keep this page open; reloading will not cancel the backend job.
+        Run submitted. You can keep this page open; reloading will not cancel the
+        backend job.
       </div>
     </div>
   );
@@ -987,6 +1098,16 @@ export default function QaoaRqpPage() {
     [inspectResult]
   );
 
+  const activeDiagnostics = useMemo<Diagnostics>(() => {
+    return result?.diagnostics ?? inspectResult?.diagnostics ?? {};
+  }, [result, inspectResult]);
+
+  const workbookWarnings = useMemo(() => {
+    const inspectWarnings = getStringArray(inspectDiagnostics.workbook_warnings);
+    if (inspectWarnings.length > 0) return inspectWarnings;
+    return getStringArray(diagnostics.workbook_warnings);
+  }, [inspectDiagnostics, diagnostics]);
+
   const metrics = result?.portfolio_metrics ?? {};
   const components = result?.components ?? {};
   const reporting = result?.reporting;
@@ -1082,7 +1203,10 @@ export default function QaoaRqpPage() {
   }, [license, mode, inspectRuntimeEstimate]);
 
   const preRunEstimateSec = useMemo(() => {
-    const backendEstimate = getNumber(inspectRuntimeEstimate?.estimated_runtime_sec);
+    const backendEstimate =
+      getNumber(inspectRuntimeEstimate?.estimated_runtime_sec) ??
+      getNumber(inspectDiagnostics.estimated_runtime_sec);
+
     if (backendEstimate !== undefined) return backendEstimate;
 
     return estimateRuntimeSeconds({
@@ -1096,6 +1220,7 @@ export default function QaoaRqpPage() {
     });
   }, [
     inspectRuntimeEstimate,
+    inspectDiagnostics,
     mode,
     knownQubits,
     layers,
@@ -1104,6 +1229,22 @@ export default function QaoaRqpPage() {
     warmStart,
     runtimeCap,
   ]);
+
+  const rawEstimateSec =
+    getNumber(inspectRuntimeEstimate?.raw_estimated_runtime_sec) ??
+    getNumber(inspectDiagnostics.raw_estimated_runtime_sec);
+
+  const calibratedEstimateSec =
+    getNumber(inspectRuntimeEstimate?.estimated_runtime_sec) ??
+    getNumber(inspectDiagnostics.estimated_runtime_sec) ??
+    preRunEstimateSec;
+
+  const estimateRangeText = formatEtaRange(
+    getNumber(inspectRuntimeEstimate?.eta_seconds_low) ??
+      getNumber(inspectDiagnostics.eta_seconds_low),
+    getNumber(inspectRuntimeEstimate?.eta_seconds_high) ??
+      getNumber(inspectDiagnostics.eta_seconds_high)
+  );
 
   const jobProgress = jobStatus?.progress ?? null;
   const jobProgressPct =
@@ -1399,13 +1540,23 @@ export default function QaoaRqpPage() {
         data?.workbook_summary?.n_qubits ??
         "n/a";
 
+      const range = formatEtaRange(
+        data?.runtime_estimate?.eta_seconds_low ?? data?.diagnostics?.eta_seconds_low,
+        data?.runtime_estimate?.eta_seconds_high ?? data?.diagnostics?.eta_seconds_high
+      );
+
       const eta = data?.runtime_estimate?.estimated_runtime_sec;
 
       addLog(
         `Workbook inspected. Decision variables: ${n}. Runtime estimate: ${
-          eta !== undefined ? formatSeconds(eta) : "n/a"
+          range !== "n/a" ? range : eta !== undefined ? formatSeconds(eta) : "n/a"
         }.`
       );
+
+      const warnings = getStringArray(data?.diagnostics?.workbook_warnings);
+      if (warnings.length > 0) {
+        addLog(`Workbook warnings: ${warnings.length}`);
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         addLog("Workbook inspection stopped.");
@@ -1872,6 +2023,8 @@ export default function QaoaRqpPage() {
                   </div>
                 )}
 
+                <WorkbookWarnings warnings={workbookWarnings} />
+
                 <div>
                   {workbookSummary.map(([label, value]) => (
                     <InfoRow
@@ -1957,12 +2110,26 @@ export default function QaoaRqpPage() {
                 </button>
 
                 <InfoRow
-                  label="Estimated runtime"
+                  label="Expected range"
                   value={
-                    preRunEstimateSec === undefined
-                      ? "disabled"
-                      : `~${formatSeconds(preRunEstimateSec)}`
+                    estimateRangeText !== "n/a"
+                      ? estimateRangeText
+                      : calibratedEstimateSec === undefined
+                        ? "disabled"
+                        : `~${formatSeconds(calibratedEstimateSec)}`
                   }
+                />
+                <InfoRow
+                  label="Calibrated estimate"
+                  value={
+                    calibratedEstimateSec === undefined
+                      ? "n/a"
+                      : formatSeconds(calibratedEstimateSec)
+                  }
+                />
+                <InfoRow
+                  label="Raw backend estimate"
+                  value={rawEstimateSec === undefined ? "n/a" : formatSeconds(rawEstimateSec)}
                 />
                 <InfoRow
                   label="Estimate basis"
@@ -1998,8 +2165,8 @@ export default function QaoaRqpPage() {
                   value={formatText(inspectRuntimeEstimate?.limit_source)}
                 />
                 <p className="mt-2 text-xs leading-relaxed text-gray-500">
-                  This estimate is provided by the backend after workbook inspection.
-                  The backend remains the authority for runtime checks and execution.
+                  Runtime estimates are conservative and calibrated from backend
+                  execution behavior. Actual runtime can still vary.
                 </p>
               </div>
 
@@ -2337,6 +2504,9 @@ export default function QaoaRqpPage() {
               <p className="mb-2 text-xs text-gray-500">
                 Backend logs are streamed through job-status polling while the run is active.
               </p>
+
+              <ExportDiagnosticsSummary diagnostics={activeDiagnostics} />
+
               <div className="h-56 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-3 font-mono text-xs text-gray-300">
                 {backendOptimizationLogs.length === 0 ? (
                   <div className="text-gray-500">
@@ -2697,11 +2867,25 @@ export default function QaoaRqpPage() {
                       value={`${formatNumber(diagnostics.actual_runtime_sec, 3)} sec`}
                     />
                     <InfoRow
-                      label="Estimated runtime"
+                      label="Raw estimate"
+                      value={`${formatNumber(
+                        diagnostics.raw_estimated_runtime_sec,
+                        3
+                      )} sec`}
+                    />
+                    <InfoRow
+                      label="Calibrated estimate"
                       value={`${formatNumber(
                         diagnostics.estimated_runtime_sec,
                         3
                       )} sec`}
+                    />
+                    <InfoRow
+                      label="ETA range"
+                      value={formatEtaRange(
+                        diagnostics.eta_seconds_low,
+                        diagnostics.eta_seconds_high
+                      )}
                     />
                     <InfoRow
                       label="Runtime ratio"
@@ -2720,6 +2904,10 @@ export default function QaoaRqpPage() {
                     <InfoRow
                       label="Model version"
                       value={formatText(result.model_version)}
+                    />
+                    <InfoRow
+                      label="Workbook warnings"
+                      value={formatText(diagnostics.workbook_warning_count ?? 0)}
                     />
                   </div>
                   <div>
@@ -2760,6 +2948,64 @@ export default function QaoaRqpPage() {
                   <div className="text-gray-400 mb-1">QAOA status</div>
                   <div className="text-gray-100 break-words">
                     {formatText(reportingSummary?.qaoa_status)}
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs">
+                  <div className="text-cyan-100 font-semibold mb-2">
+                    Export diagnostics
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6">
+                    <div>
+                      <InfoRow
+                        label="Classical requested"
+                        value={formatText(diagnostics.classical_export_requested_rows)}
+                      />
+                      <InfoRow
+                        label="Classical actual"
+                        value={formatText(diagnostics.classical_export_actual_rows)}
+                      />
+                      <InfoRow
+                        label="Classical cap applied"
+                        value={formatText(diagnostics.classical_export_cap_applied)}
+                      />
+                      <InfoRow
+                        label="Classical cap reason"
+                        value={formatText(diagnostics.classical_export_cap_reason)}
+                      />
+                    </div>
+                    <div>
+                      <InfoRow
+                        label="QAOA requested"
+                        value={formatText(diagnostics.qaoa_export_requested_rows)}
+                      />
+                      <InfoRow
+                        label="QAOA actual"
+                        value={formatText(diagnostics.qaoa_export_actual_rows)}
+                      />
+                      <InfoRow
+                        label="QAOA cap applied"
+                        value={formatText(diagnostics.qaoa_export_cap_applied)}
+                      />
+                      <InfoRow
+                        label="QAOA cap reason"
+                        value={formatText(diagnostics.qaoa_export_cap_reason)}
+                      />
+                    </div>
+                    <div>
+                      <InfoRow
+                        label="QAOA state space"
+                        value={formatText(diagnostics.qaoa_exact_state_space)}
+                      />
+                      <InfoRow
+                        label="States evaluated"
+                        value={formatText(diagnostics.qaoa_exact_states_evaluated)}
+                      />
+                      <InfoRow
+                        label="States exported"
+                        value={formatText(diagnostics.qaoa_exact_states_exported)}
+                      />
+                    </div>
                   </div>
                 </div>
               </Panel>
