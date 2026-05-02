@@ -799,7 +799,6 @@ function ProgressBar({
   maxIterations,
   elapsedSeconds,
   indeterminate,
-  onStop,
 }: {
   visible: boolean;
   progress?: number;
@@ -811,7 +810,6 @@ function ProgressBar({
   maxIterations?: number | null;
   elapsedSeconds?: number | null;
   indeterminate?: boolean;
-  onStop?: () => void;
 }) {
   if (!visible) return null;
 
@@ -842,15 +840,6 @@ function ProgressBar({
             {etaText ? <span>ETA: {etaText}</span> : <span>ETA unavailable</span>}
           </div>
         </div>
-
-        {onStop && (
-          <button
-            onClick={onStop}
-            className="rounded-lg border border-red-800 bg-red-950/60 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-900/70"
-          >
-            Stop polling
-          </button>
-        )}
       </div>
 
       <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-800">
@@ -1459,8 +1448,8 @@ export default function QaoaRqpPage() {
       abortControllerRef.current.abort();
     }
     clearPollInterval();
-    addLog("Stopped frontend polling. Backend job is not cancelled.");
-    setProgressMessage("Polling stopped.");
+    addLog("Stopped frontend tracking. Backend job is not cancelled.");
+    setProgressMessage("Frontend tracking stopped.");
     setLoading(false);
   }
 
@@ -1883,7 +1872,6 @@ export default function QaoaRqpPage() {
           maxIterations={jobProgress?.max_iterations}
           elapsedSeconds={jobProgress?.elapsed_seconds}
           indeterminate={jobProgressPct === undefined}
-          onStop={stopCurrentRequest}
         />
 
         <div className="grid grid-cols-1 2xl:grid-cols-12 gap-4">
