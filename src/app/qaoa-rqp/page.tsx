@@ -318,6 +318,37 @@ type AsyncSubmitResponse = {
   };
 };
 
+type SavedQaoaSnapshot = {
+  schema: "qaoa-rqp-review-snapshot";
+  schema_version: 1;
+  saved_at: string;
+  frontend: {
+    page: "qaoa-rqp";
+    api_url: string;
+  };
+  original_filename?: string | null;
+  ui_state: {
+    mode: string;
+    response_level: string;
+    layers: number;
+    iterations: number;
+    restarts: number;
+    warm_start: boolean;
+    budget_lambda: number;
+    risk_lambda: number;
+    risk_free_rate: number;
+    qaoa_shots: number;
+    restart_perturbation: number;
+  };
+  license?: LicenseStatus | null;
+  inspect_result?: InspectResult | null;
+  result?: RunResult | null;
+  job_status?: JobStatus | null;
+  active_job_id?: string | null;
+  backend_job_logs?: string[];
+  client_logs?: string[];
+};
+
 const API_URL =
   process.env.NEXT_PUBLIC_QAOA_RQP_API_URL ??
   "https://qaoa-rqp-api-v8-fxkphe6o4a-oa.a.run.app";
@@ -438,6 +469,37 @@ function formatLimitBlock(limits?: LimitBlock) {
   ].filter(Boolean);
 
   return parts.length > 0 ? parts.join(", ") : "n/a";
+}
+
+function safeFileStem(name?: string | null) {
+  const stem = (name ?? "no-workbook").replace(/\.[^/.]+$/, "");
+
+  return (
+    stem
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 80) || "no-workbook"
+  );
+}
+
+function timestampForFilename() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return [
+    d.getFullYear(),
+    pad(d.getMonth() + 1),
+    pad(d.getDate()),
+    "-",
+    pad(d.getHours()),
+    pad(d.getMinutes()),
+    pad(d.getSeconds()),
+  ].join("");
+}
+
+function reviewFilename(workbookName: string | null, mode: string) {
+  return `qaoa-rqp-review_${safeFileStem(workbookName)}_${mode}_${timestampForFilename()}.json`;
 }
 
 function getGeneralLimits(license?: LicenseStatus | null): LimitBlock | undefined {
@@ -1086,10 +1148,12 @@ export default function QaoaRqpPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const inspectAbortControllerRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<number | null>(null);
+  const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
   const settingsTouchedRef = useRef(false);
 
   const [apiKey, setApiKey] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [workbookFilename, setWorkbookFilename] = useState<string | null>(null);
 
   const [mode, setMode] = useState("classical_only");
   const [responseLevel, setResponseLevel] = useState("full");
@@ -1118,6 +1182,8 @@ export default function QaoaRqpPage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [jobError, setJobError] = useState<AsyncSubmitResponse["error"] | null>(null);
+  const [reviewFileMessage, setReviewFileMessage] = useState<string | null>(null);
+  const [reviewFileError, setReviewFileError] = useState<string | null>(null);
 
   const diagnostics = useMemo<Diagnostics>(() => result?.diagnostics ?? {}, [result]);
   const inspectDiagnostics = useMemo<Diagnostics>(
@@ -1203,6 +1269,10 @@ export default function QaoaRqpPage() {
   const canRun = useMemo(() => {
     return !!file && !loading && !inspecting;
   }, [file, loading, inspecting]);
+
+  const canSaveReview = useMemo(() => {
+    return Boolean(result || inspectResult || jobStatus || backendJobLogs.length > 0);
+  }, [result, inspectResult, jobStatus, backendJobLogs]);
 
   const knownQubits = useMemo(() => {
     return getNumber(
@@ -1368,6 +1438,120 @@ export default function QaoaRqpPage() {
       pollIntervalRef.current = null;
     }
   }, []);
+
+  function saveReviewFile() {
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+
+    const snapshot: SavedQaoaSnapshot = {
+      schema: "qaoa-rqp-review-snapshot",
+      schema_version: 1,
+      saved_at: new Date().toISOString(),
+      frontend: {
+        page: "qaoa-rqp",
+        api_url: API_URL,
+      },
+      original_filename: workbookFilename ?? file?.name ?? inspectResult?.filename ?? null,
+      ui_state: {
+        mode,
+        response_level: responseLevel,
+        layers,
+        iterations,
+        restarts,
+        warm_start: warmStart,
+        budget_lambda: budgetLambda,
+        risk_lambda: riskLambda,
+        risk_free_rate: riskFreeRate,
+        qaoa_shots: qaoaShots,
+        restart_perturbation: restartPerturbation,
+      },
+      license,
+      inspect_result: inspectResult,
+      result,
+      job_status: jobStatus,
+      active_job_id: activeJobId,
+      backend_job_logs: backendJobLogs,
+      client_logs: logs,
+    };
+
+    const filename = reviewFilename(snapshot.original_filename ?? null, mode);
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+      type: "application/json",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    setReviewFileMessage(`Saved ${filename}`);
+    addLog(`Review file saved: ${filename}`);
+  }
+
+  async function loadReviewFileFromInput(event: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0];
+
+    if (!selectedFile) return;
+
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+
+    try {
+      const text = await selectedFile.text();
+      const snapshot = JSON.parse(text) as SavedQaoaSnapshot;
+
+      if (
+        snapshot.schema !== "qaoa-rqp-review-snapshot" ||
+        snapshot.schema_version !== 1
+      ) {
+        throw new Error("Unsupported review file format.");
+      }
+
+      clearPollInterval();
+
+      setFile(null);
+      setWorkbookFilename(snapshot.original_filename ?? selectedFile.name);
+      setMode(snapshot.ui_state?.mode ?? "classical_only");
+      setResponseLevel(snapshot.ui_state?.response_level ?? "full");
+      setLayers(snapshot.ui_state?.layers ?? 1);
+      setIterations(snapshot.ui_state?.iterations ?? 80);
+      setRestarts(snapshot.ui_state?.restarts ?? 1);
+      setWarmStart(snapshot.ui_state?.warm_start ?? false);
+      setBudgetLambda(snapshot.ui_state?.budget_lambda ?? 50);
+      setRiskLambda(snapshot.ui_state?.risk_lambda ?? 6);
+      setRiskFreeRate(snapshot.ui_state?.risk_free_rate ?? 0.04);
+      setQaoaShots(snapshot.ui_state?.qaoa_shots ?? 4096);
+      setRestartPerturbation(snapshot.ui_state?.restart_perturbation ?? 0.05);
+
+      setLicense(snapshot.license ?? null);
+      setInspectResult(snapshot.inspect_result ?? null);
+      setResult(snapshot.result ?? null);
+      setJobStatus(snapshot.job_status ?? null);
+      setActiveJobId(snapshot.active_job_id ?? snapshot.job_status?.job_id ?? null);
+      setBackendJobLogs(snapshot.backend_job_logs ?? []);
+      setLogs(snapshot.client_logs ?? []);
+      setLoading(false);
+      setProgress(undefined);
+      setProgressMessage("");
+      setJobError(null);
+      settingsTouchedRef.current = true;
+      setSettingsLoadedFromWorkbook(false);
+
+      const msg = `Loaded review file: ${selectedFile.name}`;
+      setReviewFileMessage(msg);
+      addLog(msg);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setReviewFileError(`Could not load review file: ${msg}`);
+    } finally {
+      event.target.value = "";
+    }
+  }
 
   async function fetchJobResult(jobId: string) {
     const res = await fetch(`${API_URL}/jobs/${jobId}/result`, {
@@ -1627,7 +1811,7 @@ export default function QaoaRqpPage() {
 
   useEffect(() => {
     if (!file) {
-      setInspectResult(null);
+      setInspectResult((current) => current);
       return;
     }
 
@@ -1794,6 +1978,7 @@ export default function QaoaRqpPage() {
   }
 
   const workbookSummary = [
+    ["Workbook file", workbookFilename ?? file?.name ?? inspectResult?.filename],
     [
       "Decision variables / qubits",
       reportingSummary?.decision_variables ??
@@ -2035,6 +2220,7 @@ export default function QaoaRqpPage() {
                 onChange={(e) => {
                   const selectedFile = e.target.files?.[0] ?? null;
                   setFile(selectedFile);
+                  setWorkbookFilename(selectedFile?.name ?? null);
                   setResult(null);
                   setInspectResult(null);
                   setJobStatus(null);
@@ -2045,9 +2231,15 @@ export default function QaoaRqpPage() {
                 className="w-full text-xs text-gray-200 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
               />
 
-              {file && (
+              {workbookFilename && (
                 <p className="mt-2 text-xs text-gray-400">
-                  Selected: <span className="text-gray-200">{file.name}</span>
+                  Workbook: <span className="text-gray-200">{workbookFilename}</span>
+                </p>
+              )}
+
+              {workbookFilename && !file && result && (
+                <p className="mt-1 text-xs text-amber-200">
+                  Review file loaded. The original workbook is not attached for rerun.
                 </p>
               )}
 
@@ -2394,6 +2586,49 @@ export default function QaoaRqpPage() {
                 >
                   Request backend cancellation
                 </button>
+              )}
+            </Panel>
+
+            <Panel title="Review File">
+              <p className="mb-3 text-xs leading-relaxed text-gray-400">
+                Save the current result, charts, logs, settings, and workbook filename
+                as a local JSON review file. Loading a review file restores the view
+                without rerunning the backend.
+              </p>
+
+              <button
+                onClick={saveReviewFile}
+                disabled={!canSaveReview}
+                className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
+              >
+                Save Review File
+              </button>
+
+              <button
+                onClick={() => reviewFileInputRef.current?.click()}
+                className="mt-2 w-full rounded-lg border border-cyan-800 bg-slate-950/80 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-slate-900"
+              >
+                Load Review File
+              </button>
+
+              <input
+                ref={reviewFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={loadReviewFileFromInput}
+                className="hidden"
+              />
+
+              {reviewFileMessage && (
+                <div className="mt-3 rounded-lg border border-cyan-900/60 bg-cyan-950/20 p-2 text-xs text-cyan-100">
+                  {reviewFileMessage}
+                </div>
+              )}
+
+              {reviewFileError && (
+                <div className="mt-3 rounded-lg border border-red-800 bg-red-950/40 p-2 text-xs text-red-100">
+                  {reviewFileError}
+                </div>
               )}
             </Panel>
           </div>
