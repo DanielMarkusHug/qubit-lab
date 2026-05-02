@@ -507,6 +507,40 @@ function getQaoaShotsDisplay(...sources: Array<Diagnostics | undefined>) {
   return "";
 }
 
+function getRuntimeEstimateFromInspect(result?: InspectResult | null): RuntimeEstimate | undefined {
+  if (!result) return undefined;
+  if (result.runtime_estimate) return result.runtime_estimate;
+
+  const details = result.error?.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return undefined;
+  }
+
+  const estimate = (details as Record<string, unknown>).runtime_estimate;
+  if (!estimate || typeof estimate !== "object" || Array.isArray(estimate)) {
+    return undefined;
+  }
+
+  return estimate as RuntimeEstimate;
+}
+
+function getDiagnosticsFromInspect(result?: InspectResult | null): Diagnostics {
+  if (!result) return {};
+  if (result.diagnostics) return result.diagnostics;
+
+  const details = result.error?.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return {};
+  }
+
+  const diagnostics = (details as Record<string, unknown>).diagnostics;
+  if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics)) {
+    return {};
+  }
+
+  return diagnostics as Diagnostics;
+}
+
 function uniquePortfolioRows(rows: CandidateRow[]) {
   const seen = new Set<string>();
 
@@ -837,7 +871,11 @@ function ProgressBar({
             {elapsedSeconds !== null && elapsedSeconds !== undefined && (
               <span>Elapsed: {formatSeconds(elapsedSeconds)}</span>
             )}
-            {etaText ? <span>ETA: {etaText}</span> : <span>ETA unavailable</span>}
+            {etaText ? (
+              <span>Backend live ETA: {etaText}</span>
+            ) : (
+              <span>Backend live ETA unavailable</span>
+            )}
           </div>
         </div>
       </div>
@@ -1083,12 +1121,12 @@ export default function QaoaRqpPage() {
 
   const diagnostics = useMemo<Diagnostics>(() => result?.diagnostics ?? {}, [result]);
   const inspectDiagnostics = useMemo<Diagnostics>(
-    () => inspectResult?.diagnostics ?? {},
+    () => getDiagnosticsFromInspect(inspectResult),
     [inspectResult]
   );
 
   const activeDiagnostics = useMemo<Diagnostics>(() => {
-    return result?.diagnostics ?? inspectResult?.diagnostics ?? {};
+    return result?.diagnostics ?? getDiagnosticsFromInspect(inspectResult);
   }, [result, inspectResult]);
 
   const workbookWarnings = useMemo(() => {
@@ -1105,7 +1143,7 @@ export default function QaoaRqpPage() {
   const quantumSummary = reportingSummary?.quantum_result_summary;
 
   const inspectSummary = inspectResult?.workbook_summary;
-  const inspectRuntimeEstimate = inspectResult?.runtime_estimate;
+  const inspectRuntimeEstimate = getRuntimeEstimateFromInspect(inspectResult);
 
   const currencyCode =
     reportingSummary?.currency_code ?? inspectSummary?.currency_code ?? "USD";
@@ -1254,7 +1292,10 @@ export default function QaoaRqpPage() {
   function applyEffectiveSettingsFromInspection(data: InspectResult) {
     if (settingsTouchedRef.current) return;
 
-    const effectiveSettings = data.diagnostics?.effective_settings;
+    const effectiveSettings =
+      data.diagnostics?.effective_settings ??
+      getDiagnosticsFromInspect(data).effective_settings;
+
     if (!effectiveSettings) return;
 
     const nextLayers = getNumber(effectiveSettings.layers ?? effectiveSettings.p);
@@ -1492,15 +1533,18 @@ export default function QaoaRqpPage() {
       formData.append("file", file);
       formData.append("mode", mode);
       formData.append("response_level", responseLevel);
-      formData.append("layers", String(layers));
-      formData.append("iterations", String(iterations));
-      formData.append("restarts", String(restarts));
-      formData.append("warm_start", String(warmStart));
-      formData.append("lambda_budget", String(budgetLambda));
-      formData.append("lambda_variance", String(riskLambda));
-      formData.append("risk_free_rate", String(riskFreeRate));
-      formData.append("qaoa_shots", String(qaoaShots));
-      formData.append("restart_perturbation", String(restartPerturbation));
+
+      if (settingsTouchedRef.current) {
+        formData.append("layers", String(layers));
+        formData.append("iterations", String(iterations));
+        formData.append("restarts", String(restarts));
+        formData.append("warm_start", String(warmStart));
+        formData.append("lambda_budget", String(budgetLambda));
+        formData.append("lambda_variance", String(riskLambda));
+        formData.append("risk_free_rate", String(riskFreeRate));
+        formData.append("qaoa_shots", String(qaoaShots));
+        formData.append("restart_perturbation", String(restartPerturbation));
+      }
 
       const res = await fetch(`${API_URL}/inspect-workbook`, {
         method: "POST",
@@ -1509,19 +1553,38 @@ export default function QaoaRqpPage() {
         signal: controller.signal,
       });
 
-      const data = await res.json();
-
-      if (!res.ok || data.status === "error") {
-        setInspectResult(data);
-        addLog(`Workbook inspection failed: ${data?.error?.message ?? res.statusText}`);
-        return;
-      }
+      const data: InspectResult = await res.json();
 
       setInspectResult(data);
       applyEffectiveSettingsFromInspection(data);
 
       if (data.license) {
         setLicense(data.license);
+      }
+
+      if (!res.ok || data.status === "error") {
+        addLog(`Workbook inspection failed: ${data?.error?.message ?? res.statusText}`);
+
+        const estimate = getRuntimeEstimateFromInspect(data);
+        const range = formatEtaRange(
+          estimate?.eta_seconds_low ?? getDiagnosticsFromInspect(data).eta_seconds_low,
+          estimate?.eta_seconds_high ?? getDiagnosticsFromInspect(data).eta_seconds_high
+        );
+
+        if (range !== "n/a" || estimate?.estimated_runtime_sec !== undefined) {
+          addLog(
+            `Backend estimate still available: ${
+              range !== "n/a" ? range : formatSeconds(estimate?.estimated_runtime_sec)
+            }.`
+          );
+        }
+
+        const warnings = getStringArray(getDiagnosticsFromInspect(data).workbook_warnings);
+        if (warnings.length > 0) {
+          addLog(`Workbook warnings: ${warnings.length}`);
+        }
+
+        return;
       }
 
       const n =
@@ -2086,7 +2149,7 @@ export default function QaoaRqpPage() {
 
               <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs">
                 <div className="text-xs font-semibold text-cyan-100 mb-2">
-                  Pre-run runtime estimate
+                  Initial pre-run runtime estimate
                 </div>
 
                 <button
@@ -2098,7 +2161,7 @@ export default function QaoaRqpPage() {
                 </button>
 
                 <InfoRow
-                  label="Expected range"
+                  label="Initial expected range"
                   value={
                     estimateRangeText !== "n/a"
                       ? estimateRangeText
@@ -2108,7 +2171,7 @@ export default function QaoaRqpPage() {
                   }
                 />
                 <InfoRow
-                  label="Calibrated estimate"
+                  label="Initial calibrated estimate"
                   value={
                     calibratedEstimateSec === undefined
                       ? "n/a"
@@ -2153,8 +2216,8 @@ export default function QaoaRqpPage() {
                   value={formatText(inspectRuntimeEstimate?.limit_source)}
                 />
                 <p className="mt-2 text-xs leading-relaxed text-gray-500">
-                  Runtime estimates are conservative and calibrated from backend
-                  execution behavior. Actual runtime can still vary.
+                  This is the initial estimate from workbook inspection before execution.
+                  The backend live ETA during a job may differ once real execution speed is known.
                 </p>
               </div>
 
@@ -2490,7 +2553,9 @@ export default function QaoaRqpPage() {
 
             <Panel title="Backend Optimization Log" className="w-full">
               <p className="mb-2 text-xs text-gray-500">
-                Backend logs are streamed through job-status polling while the run is active.
+                Backend logs are streamed through job-status polling. Any ETA inside
+                these log lines is the optimizer-internal ETA, while the status bar
+                shows the backend live ETA.
               </p>
 
               <ExportDiagnosticsSummary diagnostics={activeDiagnostics} />
