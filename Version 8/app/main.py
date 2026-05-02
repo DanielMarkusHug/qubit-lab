@@ -44,6 +44,11 @@ from app.usage_policy import (
     validate_pre_upload_policy,
     validate_problem_policy,
 )
+from app.workbook_diagnostics import (
+    append_workbook_warning_logs,
+    candidate_export_log_lines,
+    workbook_warning_log_lines,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -189,6 +194,7 @@ def register_routes(flask_app: Flask) -> None:
             workbook_structure(tmp_path)
             logs: list[str] = []
             optimizer = build_qubo_from_workbook(tmp_path, logs.append, request.form)
+            append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
             logs.append("Inspection only: optimization execution skipped.")
@@ -254,6 +260,7 @@ def register_routes(flask_app: Flask) -> None:
             summary = workbook_structure(tmp_path)
             logs: list[str] = []
             optimizer = build_qubo_from_workbook(tmp_path, logs.append, request.form)
+            append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=False)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
 
@@ -323,6 +330,7 @@ def register_routes(flask_app: Flask) -> None:
                 solver = "classical_heuristic+qaoa_limited"
             elif mode == "classical_only":
                 logs.append("QAOA execution status: disabled for classical_only mode.")
+            logs.extend(candidate_export_log_lines(optimizer))
             actual_runtime_sec = _elapsed(start_time)
             consumed_run = ledger.consume_run(usage_context.key_record, run_id)
             if usage_context.authenticated and not consumed_run:
@@ -537,6 +545,8 @@ def register_routes(flask_app: Flask) -> None:
             workbook_structure(tmp_path)
             logs: list[str] = []
             optimizer = build_qubo_from_workbook(tmp_path, logs.append, request.form)
+            warning_lines = workbook_warning_log_lines(optimizer)
+            logs.extend(warning_lines)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
 
@@ -583,6 +593,8 @@ def register_routes(flask_app: Flask) -> None:
                 )
             )
             job_created = True
+            for line in warning_lines:
+                job_store.append_log(job_id, line, phase="validation")
             trigger_info = trigger_cloud_run_job(job_id)
             if trigger_info.get("triggered"):
                 job_store.update_job(job_id, {"trigger": json_safe(trigger_info), "heartbeat_at": _utc_now()})

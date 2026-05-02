@@ -11,6 +11,8 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
+import numpy as np
+import pandas as pd
 from openpyxl import load_workbook
 
 
@@ -25,6 +27,7 @@ sys.path.insert(0, str(VERSION_DIR))
 
 import app.main as main_module  # noqa: E402
 import app.job_worker as job_worker_module  # noqa: E402
+import app.qaoa_engine as qaoa_engine_module  # noqa: E402
 from app.main import app, create_app  # noqa: E402
 from app.key_store import FirestoreApiKeyStore  # noqa: E402
 from app.job_storage import GcsJobStorage, get_job_storage  # noqa: E402
@@ -32,12 +35,15 @@ from app.job_store import get_job_store, initial_job_document  # noqa: E402
 from app.run_ledger import FirestoreRunLedger, RunLedger, _LOCAL_PUBLIC_RUNS  # noqa: E402
 from app.schemas import ApiError  # noqa: E402
 from app.usage_policy import (  # noqa: E402
+    RuntimeInputs,
     UsageContext,
     generate_key_hash,
+    estimate_policy_result,
     load_usage_config,
     validate_problem_policy,
     validate_secret_configuration,
 )
+from app.workbook_diagnostics import candidate_export_diagnostics, workbook_warnings  # noqa: E402
 
 KEY_ADMIN_PATH = VERSION_DIR / "scripts" / "key_admin_firestore.py"
 _key_admin_spec = importlib.util.spec_from_file_location("key_admin_firestore", KEY_ADMIN_PATH)
@@ -317,6 +323,7 @@ def _firestore_usage_context(key_record):
 def _policy_result():
     return SimpleNamespace(
         estimated_runtime_sec=2.0,
+        raw_estimated_runtime_sec=2.0,
         max_estimated_runtime_sec=60.0,
         within_limit=True,
         n_qubits=3,
@@ -334,6 +341,31 @@ def _policy_result():
             "qaoa_shots_display": "not_applicable",
             "shots_mode": "disabled",
         },
+    )
+
+
+def _fake_budget_warning_optimizer():
+    return SimpleNamespace(
+        n=2,
+        qaoa_p=1,
+        qaoa_maxiter=10,
+        qaoa_multistart_restarts=1,
+        qaoa_layerwise_warm_start=False,
+        qaoa_shots=None,
+        qaoa_restart_perturbation=None,
+        lambda_budget=50.0,
+        lambda_variance=6.0,
+        risk_free=0.04,
+        settings={},
+        budget_usd=250_000.0,
+        fixed_cost=np.array([1_600_000.0]),
+        opt_cost=np.array([100_000.0, 250_000.0]),
+        variable_options_df=pd.DataFrame({"Ticker": ["AAA", "BBB"]}),
+        fixed_options_df=pd.DataFrame({"Ticker": ["FIXED"]}),
+        asset_universe=["AAA", "BBB", "FIXED"],
+        assets_df=pd.DataFrame({"Ticker": ["AAA", "BBB", "FIXED"]}),
+        Q=np.zeros((2, 2)),
+        classical_results=None,
     )
 
 
@@ -1802,6 +1834,50 @@ def test_inspect_workbook_form_values_override_workbook_settings():
     assert payload["runtime_estimate"]["basis"]["layers"] == 2
 
 
+def test_workbook_budget_sanity_warnings_are_non_blocking():
+    optimizer = _fake_budget_warning_optimizer()
+
+    warnings = workbook_warnings(optimizer)
+
+    assert "Fixed holdings exceed the configured budget before any variable block is selected." in warnings
+    assert "Configured budget is smaller than fixed holdings plus the cheapest variable block." in warnings
+    assert "Configured budget may leave little or no room for typical variable selections." in warnings
+
+
+def test_inspect_workbook_includes_budget_sanity_warnings(monkeypatch):
+    optimizer = _fake_budget_warning_optimizer()
+    monkeypatch.setattr(main_module, "validate_required_input_sheets", lambda _path: None)
+    monkeypatch.setattr(main_module, "workbook_structure", lambda _path: {})
+    monkeypatch.setattr(main_module, "build_qubo_from_workbook", lambda _path, _log, _form=None: optimizer)
+
+    response = _post_inspect(headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["diagnostics"]["workbook_warning_count"] >= 3
+    assert any("Fixed holdings exceed" in warning for warning in payload["diagnostics"]["workbook_warnings"])
+    assert any("Workbook warning: Fixed holdings exceed" in line for line in payload["diagnostics"]["logs"])
+
+
+def test_async_submission_logs_budget_sanity_warnings(monkeypatch, tmp_path):
+    optimizer = _fake_budget_warning_optimizer()
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    monkeypatch.setattr(main_module, "get_run_ledger", lambda: ledger)
+    monkeypatch.setattr(main_module, "validate_required_input_sheets", lambda _path: None)
+    monkeypatch.setattr(main_module, "workbook_structure", lambda _path: {})
+    monkeypatch.setattr(main_module, "build_qubo_from_workbook", lambda _path, _log, _form=None: optimizer)
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", lambda job_id: {"triggered": False, "mode": "test"})
+
+    response = _post_async(headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+    job = get_job_store().get_job(payload["job_id"])
+
+    assert response.status_code == 202
+    assert any("Workbook warning: Fixed holdings exceed" in line for line in job["logs_tail"])
+    assert ledger.acquired is True
+
+
 def test_inspect_workbook_public_demo_enforces_qubit_limit():
     response = _post_inspect(mode="classical_only")
     payload = response.get_json()
@@ -1892,6 +1968,106 @@ def test_policy_reports_sampling_shots_display_for_qaoa_full_estimate():
     assert policy_result.effective_settings["shots_mode"] == "sampling"
     assert policy_result.effective_settings["qaoa_shots"] == 256
     assert policy_result.effective_settings["qaoa_shots_display"] == "256"
+
+
+def test_qaoa_limited_runtime_estimate_is_calibrated_for_24_qubit_exact_mode():
+    usage_levels = load_usage_config()["usage_levels"]
+    context = UsageContext(
+        usage_level_name="internal_power",
+        usage_level=usage_levels["internal_power"],
+        key_record={"key_id": INTERNAL_POWER_KEY_ID},
+        authenticated=True,
+    )
+    optimizer = SimpleNamespace(
+        n=24,
+        qaoa_p=1,
+        qaoa_maxiter=30,
+        qaoa_multistart_restarts=1,
+        qaoa_layerwise_warm_start=False,
+        qaoa_shots=None,
+        qaoa_restart_perturbation=None,
+        lambda_budget=50.0,
+        lambda_variance=6.0,
+        risk_free=0.04,
+        settings={},
+        classical_results=None,
+    )
+    runtime_inputs = RuntimeInputs(layers=1, iterations=30, restarts=1, warm_start=False)
+
+    policy_result = estimate_policy_result(
+        context,
+        optimizer,
+        "qaoa_limited",
+        runtime_inputs=runtime_inputs,
+        candidate_count=1 << 24,
+    )
+
+    assert 500 <= policy_result.raw_estimated_runtime_sec <= 510
+    assert policy_result.estimated_runtime_sec >= 1200
+    assert policy_result.estimated_runtime_sec > policy_result.raw_estimated_runtime_sec
+    assert policy_result.within_limit is True
+
+
+def test_qaoa_limited_keeps_5000_export_rows_when_within_safety_cap(monkeypatch):
+    optimizer = SimpleNamespace(n=24, qaoa_max_export_rows=5000)
+    runtime_inputs = RuntimeInputs(layers=1, iterations=30, restarts=1, warm_start=False)
+
+    qaoa_engine_module._configure_limited_qaoa(optimizer, runtime_inputs, max_qubits=24)
+
+    assert optimizer.qaoa_export_requested_rows == 5000
+    assert optimizer.qaoa_max_export_rows == 5000
+    assert optimizer.qaoa_export_cap_applied is False
+    assert optimizer.qaoa_export_cap_reason == "requested_rows_within_safety_cap"
+
+
+def test_qaoa_limited_export_safety_cap_is_explicit(monkeypatch):
+    monkeypatch.setenv("QAOA_LIMITED_MAX_EXPORT_ROWS_CAP", "5000")
+    optimizer = SimpleNamespace(
+        n=24,
+        qaoa_max_export_rows=8000,
+        qaoa_export_cap_applied=True,
+        qaoa_export_cap_reason="qaoa_limited_exact_export_safety_cap",
+        samples_df=pd.DataFrame({"bitstring": ["0" * 24]}),
+        enable_qaoa=True,
+        qaoa_total_states_considered=1 << 24,
+        qaoa_min_probability_to_export=0.0,
+        qaoa_export_mode="top_k",
+        qaoa_export_sort_by="probability",
+        qaoa_export_feasible_only=False,
+        qaoa_exact_probability_max_qubits=24,
+    )
+    runtime_inputs = RuntimeInputs(layers=1, iterations=30, restarts=1, warm_start=False)
+
+    qaoa_engine_module._configure_limited_qaoa(optimizer, runtime_inputs, max_qubits=24)
+    diagnostics = candidate_export_diagnostics(optimizer)
+
+    assert optimizer.qaoa_export_requested_rows == 8000
+    assert optimizer.qaoa_max_export_rows == 5000
+    assert diagnostics["qaoa_export_cap_applied"] is True
+    assert diagnostics["qaoa_export_cap_reason"] == "qaoa_limited_exact_export_safety_cap"
+    assert diagnostics["qaoa_exact_state_space"] == 1 << 24
+
+
+def test_classical_export_diagnostics_explain_fewer_unique_candidates():
+    optimizer = SimpleNamespace(
+        n=24,
+        random_search_samples=8000,
+        local_search_starts=40,
+        classical_results=pd.DataFrame({"bitstring": [f"{idx:024b}" for idx in range(7119)]}),
+        samples_df=pd.DataFrame(),
+        enable_qaoa=False,
+        top_n_export=20,
+        overview_classical_pool=300,
+        overview_qaoa_pool=500,
+        result_candidate_limit_per_solver=500,
+    )
+
+    diagnostics = candidate_export_diagnostics(optimizer)
+
+    assert diagnostics["classical_export_requested_rows"] == 8024
+    assert diagnostics["classical_export_actual_rows"] == 7119
+    assert diagnostics["classical_export_cap_applied"] is True
+    assert diagnostics["classical_export_cap_reason"] == "unique_candidate_count_after_duplicate_removal_or_search_convergence"
 
 
 def test_demo_key_gets_qualified_demo_full_response_by_default():

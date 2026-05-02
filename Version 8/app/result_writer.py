@@ -15,6 +15,7 @@ import pandas as pd
 from app.config import Config
 from app.schemas import json_safe
 from app.usage_policy import runtime_estimate_payload
+from app.workbook_diagnostics import candidate_export_diagnostics, workbook_warnings
 
 
 BEST_METRIC_KEYS = (
@@ -66,8 +67,11 @@ IMPORTANT_LOG_PATTERNS = (
     "variable decision",
     "qubo matrix size",
     "selected mode",
+    "workbook warning",
     "qaoa",
     "classical candidate count",
+    "classical export requested",
+    "qaoa export requested",
     "sample count",
 )
 
@@ -153,6 +157,44 @@ def _build_full_classical_response(
 
     top_candidates = optimizer.sort_candidates(optimizer.classical_results).head(10)
 
+    warnings = workbook_warnings(optimizer)
+    diagnostics = {
+        "service": Config.SERVICE_NAME,
+        "legacy_optimizer": "QAOAOptimizerV61",
+        "input_sheet_names": (workbook_summary or {}).get("input_sheet_names", []),
+        "ignored_output_sheets": (workbook_summary or {}).get("ignored_output_sheets", []),
+        "settings_count": int(len(getattr(optimizer, "settings", {}))),
+        "asset_rows_loaded": int(len(getattr(optimizer, "assets_df", []))),
+        "assets_referenced_by_options": int(len(getattr(optimizer, "asset_universe", []))),
+        "fixed_options": int(len(getattr(optimizer, "fixed_options_df", []))),
+        "variable_options": int(len(getattr(optimizer, "variable_options_df", []))),
+        "classical_candidate_count": int(len(getattr(optimizer, "classical_results", []))),
+        "qubo_shape": list(getattr(optimizer, "Q", np.array([])).shape),
+        "qubo_nonzero_entries": int(np.count_nonzero(getattr(optimizer, "Q", np.array([])))),
+        "qubo_constant": float(getattr(optimizer, "constant", 0.0)),
+        "budget_usd": float(getattr(optimizer, "budget_usd", np.nan)),
+        "lambda_budget": float(getattr(optimizer, "lambda_budget", np.nan)),
+        "lambda_variance": float(getattr(optimizer, "lambda_variance", np.nan)),
+        "fixed_variable_cross_terms_preserved": bool(
+            len(getattr(optimizer, "fixed_options_df", [])) and int(getattr(optimizer, "n", 0)) > 0
+        ),
+        "qaoa_enabled": bool(getattr(optimizer, "enable_qaoa", False) and len(getattr(optimizer, "samples_df", []))),
+        "qaoa_available": bool(len(getattr(optimizer, "samples_df", []))),
+        "qaoa_status": _qaoa_status(optimizer),
+        "qaoa_mode": _safe_attr(optimizer, "qaoa_mode"),
+        "qaoa_candidate_count": int(len(getattr(optimizer, "samples_df", []))),
+        "qaoa_p": _safe_attr(optimizer, "qaoa_p"),
+        "qaoa_iterations": _safe_attr(optimizer, "qaoa_maxiter"),
+        "qaoa_restarts": _safe_attr(optimizer, "qaoa_multistart_restarts"),
+        "qaoa_exact_probabilities": bool(getattr(optimizer, "qaoa_limited_exact_probabilities", False)),
+        "qaoa_runtime_sec": _safe_attr(optimizer, "qaoa_runtime_sec"),
+        "circuit": _circuit_report(optimizer),
+        "workbook_warnings": warnings,
+        "workbook_warning_count": len(warnings),
+        "logs": list(logs or []),
+    }
+    diagnostics.update(candidate_export_diagnostics(optimizer))
+
     return json_safe(
         {
             "run_id": run_id,
@@ -195,39 +237,7 @@ def _build_full_classical_response(
             "selected_blocks": _records_with_keys(selected_rows, PORTFOLIO_ROW_KEYS),
             "top_candidates": _records_with_keys(top_candidates, BEST_METRIC_KEYS),
             "reporting": _build_reporting(optimizer, include_charts=include_reporting_charts),
-            "diagnostics": {
-                "service": Config.SERVICE_NAME,
-                "legacy_optimizer": "QAOAOptimizerV61",
-                "input_sheet_names": (workbook_summary or {}).get("input_sheet_names", []),
-                "ignored_output_sheets": (workbook_summary or {}).get("ignored_output_sheets", []),
-                "settings_count": int(len(getattr(optimizer, "settings", {}))),
-                "asset_rows_loaded": int(len(getattr(optimizer, "assets_df", []))),
-                "assets_referenced_by_options": int(len(getattr(optimizer, "asset_universe", []))),
-                "fixed_options": int(len(getattr(optimizer, "fixed_options_df", []))),
-                "variable_options": int(len(getattr(optimizer, "variable_options_df", []))),
-                "classical_candidate_count": int(len(getattr(optimizer, "classical_results", []))),
-                "qubo_shape": list(getattr(optimizer, "Q", np.array([])).shape),
-                "qubo_nonzero_entries": int(np.count_nonzero(getattr(optimizer, "Q", np.array([])))),
-                "qubo_constant": float(getattr(optimizer, "constant", 0.0)),
-                "budget_usd": float(getattr(optimizer, "budget_usd", np.nan)),
-                "lambda_budget": float(getattr(optimizer, "lambda_budget", np.nan)),
-                "lambda_variance": float(getattr(optimizer, "lambda_variance", np.nan)),
-                "fixed_variable_cross_terms_preserved": bool(
-                    len(getattr(optimizer, "fixed_options_df", [])) and int(getattr(optimizer, "n", 0)) > 0
-                ),
-                "qaoa_enabled": bool(getattr(optimizer, "enable_qaoa", False) and len(getattr(optimizer, "samples_df", []))),
-                "qaoa_available": bool(len(getattr(optimizer, "samples_df", []))),
-                "qaoa_status": _qaoa_status(optimizer),
-                "qaoa_mode": _safe_attr(optimizer, "qaoa_mode"),
-                "qaoa_candidate_count": int(len(getattr(optimizer, "samples_df", []))),
-                "qaoa_p": _safe_attr(optimizer, "qaoa_p"),
-                "qaoa_iterations": _safe_attr(optimizer, "qaoa_maxiter"),
-                "qaoa_restarts": _safe_attr(optimizer, "qaoa_multistart_restarts"),
-                "qaoa_exact_probabilities": bool(getattr(optimizer, "qaoa_limited_exact_probabilities", False)),
-                "qaoa_runtime_sec": _safe_attr(optimizer, "qaoa_runtime_sec"),
-                "circuit": _circuit_report(optimizer),
-                "logs": list(logs or []),
-            },
+            "diagnostics": diagnostics,
         }
     )
 
@@ -250,8 +260,15 @@ def _attach_policy_metadata(
         payload.setdefault("diagnostics", {})["usage_level"] = usage_context.usage_level_name
     if policy_result is not None:
         payload.setdefault("diagnostics", {})["estimated_runtime_sec"] = policy_result.estimated_runtime_sec
+        payload["diagnostics"]["raw_estimated_runtime_sec"] = getattr(
+            policy_result,
+            "raw_estimated_runtime_sec",
+            policy_result.estimated_runtime_sec,
+        )
         payload["diagnostics"]["max_estimated_runtime_sec"] = getattr(policy_result, "max_estimated_runtime_sec", None)
         payload["diagnostics"]["runtime_estimate"] = runtime_estimate_payload(payload.get("mode"), policy_result)
+        payload["diagnostics"]["eta_seconds_low"] = payload["diagnostics"]["runtime_estimate"].get("eta_seconds_low")
+        payload["diagnostics"]["eta_seconds_high"] = payload["diagnostics"]["runtime_estimate"].get("eta_seconds_high")
         payload["diagnostics"]["n_qubits"] = getattr(policy_result, "n_qubits", None)
         payload["diagnostics"]["candidate_count"] = payload["diagnostics"].get(
             "classical_candidate_count",
@@ -288,9 +305,25 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
         "classical_candidate_count",
         "qubo_shape",
         "fixed_variable_cross_terms_preserved",
+        "workbook_warnings",
+        "workbook_warning_count",
+        "classical_export_requested_rows",
+        "classical_export_actual_rows",
+        "classical_export_cap_applied",
+        "classical_export_cap_reason",
+        "qaoa_export_requested_rows",
+        "qaoa_export_actual_rows",
+        "qaoa_export_cap_applied",
+        "qaoa_export_cap_reason",
+        "qaoa_exact_state_space",
+        "qaoa_exact_states_evaluated",
+        "qaoa_exact_states_exported",
         "estimated_runtime_sec",
+        "raw_estimated_runtime_sec",
         "max_estimated_runtime_sec",
         "runtime_estimate",
+        "eta_seconds_low",
+        "eta_seconds_high",
         "actual_runtime_sec",
         "runtime_ratio",
         "n_qubits",
@@ -349,6 +382,7 @@ def build_inspection_response(
     policy_result,
     logs: list[str],
 ) -> dict[str, Any]:
+    warnings = workbook_warnings(optimizer)
     return json_safe(
         {
             "status": "completed",
@@ -360,6 +394,8 @@ def build_inspection_response(
             "diagnostics": {
                 "service": Config.SERVICE_NAME,
                 "usage_level": getattr(usage_context, "usage_level_name", None),
+                "workbook_warnings": warnings,
+                "workbook_warning_count": len(warnings),
                 "runtime_inputs": {
                     "layers": policy_result.runtime_inputs.layers,
                     "iterations": policy_result.runtime_inputs.iterations,

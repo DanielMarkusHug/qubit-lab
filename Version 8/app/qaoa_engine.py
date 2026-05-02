@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import time
 
 from app.config import Config
 from app.schemas import ApiError
+from app.usage_policy import load_usage_config
 
 
 class QAOAExecutionError(RuntimeError):
@@ -76,7 +78,20 @@ def _configure_limited_qaoa(optimizer, runtime_inputs, max_qubits: int | None = 
     optimizer.qaoa_export_feasible_only = False
     optimizer.qaoa_min_probability_to_export = 0.0
     n_qubits = max(int(getattr(optimizer, "n", 0)), 0)
-    optimizer.qaoa_max_export_rows = max(1, min(1 << n_qubits, 256))
+    requested_export_rows = max(1, int(getattr(optimizer, "qaoa_max_export_rows", 5000) or 5000))
+    state_space = 1 << n_qubits
+    safety_cap = _qaoa_limited_export_safety_cap()
+    effective_export_rows = max(1, min(requested_export_rows, state_space, safety_cap))
+    optimizer.qaoa_export_requested_rows = int(requested_export_rows)
+    optimizer.qaoa_export_safety_cap = int(safety_cap)
+    optimizer.qaoa_max_export_rows = int(effective_export_rows)
+    optimizer.qaoa_export_cap_applied = bool(effective_export_rows < requested_export_rows)
+    if requested_export_rows > safety_cap:
+        optimizer.qaoa_export_cap_reason = "qaoa_limited_exact_export_safety_cap"
+    elif requested_export_rows > state_space:
+        optimizer.qaoa_export_cap_reason = "state_space_smaller_than_requested_rows"
+    else:
+        optimizer.qaoa_export_cap_reason = "requested_rows_within_safety_cap"
     optimizer.qaoa_exact_qubo_diagnostic_rows = 0
     optimizer.qaoa_limited_exact_probabilities = True
     optimizer.qaoa_limited_runtime_inputs = {
@@ -103,3 +118,14 @@ def _normalize_limited_qaoa_outputs(optimizer) -> None:
     best_qubo["selection_scope"] = "qaoa exact probability sample"
     optimizer.qaoa_exact_best_qubo_df = best_qubo
     optimizer.qaoa_mode = "qaoa_limited"
+    optimizer.qaoa_exact_states_exported = int(len(samples))
+
+
+def _qaoa_limited_export_safety_cap() -> int:
+    configured = os.getenv("QAOA_LIMITED_MAX_EXPORT_ROWS_CAP")
+    if configured is None:
+        configured = load_usage_config().get("runtime_estimator", {}).get("qaoa_limited_max_export_rows_cap", 5000)
+    try:
+        return max(1, int(float(configured)))
+    except (TypeError, ValueError):
+        return 5000

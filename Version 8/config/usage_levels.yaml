@@ -79,6 +79,26 @@ internal_power:
     max_restarts: 5
     max_estimated_runtime_sec: 7200
 
+internal_qaoa_30:
+  level_id: 4
+  requires_key: true
+  display_name: "Internal QAOA 30"
+  max_qubits: 30
+  max_layers: 6
+  max_iterations: 300
+  max_restarts: 3
+  max_estimated_runtime_sec: 7200
+  max_upload_mb: 25
+  allowed_modes: ["classical_only", "qaoa_limited"]
+  allowed_response_levels: ["compact", "standard", "full"]
+  show_identity: true
+  qaoa_limited_limits:
+    max_qubits: 30
+    max_layers: 6
+    max_iterations: 300
+    max_restarts: 3
+    max_estimated_runtime_sec: 7200
+
 runtime_estimator:
   alpha_qaoa_statevector: 0.0000005
   alpha_classical_candidate: 0.000003
@@ -87,4 +107,6 @@ runtime_estimator:
   classical_result_overhead_sec: 0.20
   minimum_classical_runtime_sec: 1.00
   minimum_qaoa_runtime_sec: 5.00
+  qaoa_runtime_estimate_multiplier: 2.75
+  qaoa_limited_max_export_rows_cap: 5000
   safety_factor: 2.0

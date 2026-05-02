@@ -23,6 +23,7 @@ from app.result_writer import build_classical_response
 from app.run_ledger import get_run_ledger
 from app.schemas import ApiError, json_safe
 from app.usage_policy import usage_context_from_key_record, validate_problem_policy
+from app.workbook_diagnostics import append_workbook_warning_logs, candidate_export_log_lines, workbook_warning_log_lines
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -83,6 +84,9 @@ def run_job(job_id: str) -> dict[str, Any]:
         reporter = JobProgressReporter(job_store, job_id, start_time)
         optimizer = build_qubo_from_workbook(tmp_path, reporter.log_and_collect(logs), settings)
         optimizer.progress_callback = reporter.optimizer_progress
+        append_workbook_warning_logs(logs, optimizer)
+        for line in workbook_warning_log_lines(optimizer):
+            reporter.update(line, progress_pct=12.0, phase="model_validation")
         _append_mode_logs(logs, mode, inspection=False)
         policy_result = validate_problem_policy(usage_context, optimizer, mode, settings)
         reporter.max_iterations = max(
@@ -126,6 +130,9 @@ def run_job(job_id: str) -> dict[str, Any]:
         elif mode == "classical_only":
             logs.append("QAOA execution status: disabled for classical_only mode.")
 
+        for line in candidate_export_log_lines(optimizer):
+            logs.append(line)
+            reporter.update(line, progress_pct=92.0, phase="result_processing")
         reporter.update("Building result payload.", progress_pct=94.0, phase="result_processing")
         actual_runtime_sec = _elapsed(start_time)
         consumed_run = ledger.consume_run(usage_context.key_record, job_id)

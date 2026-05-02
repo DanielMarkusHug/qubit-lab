@@ -69,6 +69,7 @@ class RuntimeInputs:
 class PolicyResult:
     runtime_inputs: RuntimeInputs
     estimated_runtime_sec: float
+    raw_estimated_runtime_sec: float
     max_estimated_runtime_sec: float
     within_limit: bool
     n_qubits: int
@@ -279,12 +280,14 @@ def estimate_policy_result(
     candidate_count = int(
         candidate_count if candidate_count is not None else estimate_candidate_count(optimizer, n_qubits)
     )
-    estimated_runtime_sec = estimate_runtime_sec(n_qubits, mode, runtime_inputs, candidate_count)
+    raw_estimated_runtime_sec = estimate_raw_runtime_sec(n_qubits, mode, runtime_inputs, candidate_count)
+    estimated_runtime_sec = apply_runtime_estimate_multiplier(raw_estimated_runtime_sec, mode)
     max_runtime, runtime_limit_source = runtime_limit_for(usage_level, mode)
     effective_settings = build_effective_settings(optimizer, mode, runtime_inputs, form_data)
     return PolicyResult(
         runtime_inputs=runtime_inputs,
         estimated_runtime_sec=estimated_runtime_sec,
+        raw_estimated_runtime_sec=raw_estimated_runtime_sec,
         max_estimated_runtime_sec=max_runtime,
         within_limit=estimated_runtime_sec <= max_runtime,
         n_qubits=n_qubits,
@@ -309,9 +312,20 @@ def runtime_estimate_payload(mode: str, policy_result: PolicyResult) -> dict[str
         {
             "mode": mode,
             "estimated_runtime_sec": policy_result.estimated_runtime_sec,
+            "raw_estimated_runtime_sec": getattr(
+                policy_result,
+                "raw_estimated_runtime_sec",
+                policy_result.estimated_runtime_sec,
+            ),
             "max_estimated_runtime_sec": policy_result.max_estimated_runtime_sec,
             "within_limit": policy_result.within_limit,
             "limit_source": policy_result.runtime_limit_source,
+            "eta_seconds_low": getattr(
+                policy_result,
+                "raw_estimated_runtime_sec",
+                policy_result.estimated_runtime_sec,
+            ),
+            "eta_seconds_high": policy_result.estimated_runtime_sec,
             "basis": {
                 "n_qubits": policy_result.n_qubits,
                 "layers": policy_result.runtime_inputs.layers,
@@ -466,6 +480,18 @@ def estimate_runtime_sec(
     runtime_inputs: RuntimeInputs,
     candidate_count: int | None = None,
 ) -> float:
+    return apply_runtime_estimate_multiplier(
+        estimate_raw_runtime_sec(n_qubits, mode, runtime_inputs, candidate_count),
+        mode,
+    )
+
+
+def estimate_raw_runtime_sec(
+    n_qubits: int,
+    mode: str,
+    runtime_inputs: RuntimeInputs,
+    candidate_count: int | None = None,
+) -> float:
     estimator = load_usage_config()["runtime_estimator"]
     candidate_count = int(candidate_count if candidate_count is not None else 2 ** max(0, min(int(n_qubits), 60)))
     state_count = float(candidate_count)
@@ -490,6 +516,21 @@ def estimate_runtime_sec(
             * (1.5 if bool(getattr(runtime_inputs, "warm_start", False)) else 1.0),
         )
     )
+
+
+def apply_runtime_estimate_multiplier(raw_estimated_runtime_sec: float, mode: str) -> float:
+    if mode != "qaoa_limited":
+        return float(raw_estimated_runtime_sec)
+    estimator = load_usage_config()["runtime_estimator"]
+    raw_multiplier = os.getenv(
+        "QAOA_RUNTIME_ESTIMATE_MULTIPLIER",
+        str(estimator.get("qaoa_runtime_estimate_multiplier", 2.75)),
+    )
+    try:
+        multiplier = max(1.0, float(raw_multiplier))
+    except (TypeError, ValueError):
+        multiplier = 2.75
+    return float(raw_estimated_runtime_sec) * multiplier
 
 
 def capabilities_payload() -> dict[str, Any]:
