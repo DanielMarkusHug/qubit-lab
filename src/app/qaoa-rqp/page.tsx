@@ -358,7 +358,11 @@ const API_URL =
   "https://qaoa-rqp-api-v8-fxkphe6o4a-oa.a.run.app";
 
 const USER_GUIDE_URL = "/qaoa-rqp/QAOA_RQP_Quick_User_Guide.pdf";
-const DEMO_EXCEL_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo_0.xlsx";
+
+const DEMO_EXCEL_7_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo_7.xlsx";
+const DEMO_EXCEL_16_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo_16.xlsx";
+const DEMO_EXCEL_24_URL = "/qaoa-rqp/QuantumPortfolioOptimizer_demo_24.xlsx";
+
 const ACTIVE_JOB_STORAGE_KEY = "qaoa-rqp-active-job-id";
 
 function getNumber(value: unknown): number | undefined {
@@ -2139,11 +2143,27 @@ export default function QaoaRqpPage() {
               View Quick PDF User Guide
             </a>
             <a
-              href={DEMO_EXCEL_URL}
-              download
+              href={DEMO_EXCEL_7_URL}
+              download="QuantumPortfolioOptimizer_demo_7.xlsx"
               className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
             >
-              Download Demo Excel Workbook
+              Download Demo Excel Workbook for 7 Qubits (Demo License)
+            </a>
+
+            <a
+              href={DEMO_EXCEL_16_URL}
+              download="QuantumPortfolioOptimizer_demo_16.xlsx"
+              className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            >
+              Download Excel Workbook for 16 Qubits (Tester License)
+            </a>
+
+            <a
+              href={DEMO_EXCEL_24_URL}
+              download="QuantumPortfolioOptimizer_demo_24.xlsx"
+              className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            >
+              Download Excel Workbook for 24 Qubits
             </a>
           </div>
         </div>
