@@ -2145,7 +2145,7 @@ export default function QaoaRqpPage() {
             <a
               href={DEMO_EXCEL_7_URL}
               download="QuantumPortfolioOptimizer_demo_7.xlsx"
-              className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
             >
               Download Excel Workbook for 7 Qubits (Demo License)
             </a>
