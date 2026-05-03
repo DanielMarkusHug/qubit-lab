@@ -2147,7 +2147,7 @@ export default function QaoaRqpPage() {
               download="QuantumPortfolioOptimizer_demo_7.xlsx"
               className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
             >
-              Download Demo Excel Workbook for 7 Qubits (Demo License)
+              Download Excel Workbook for 7 Qubits (Demo License)
             </a>
 
             <a
@@ -2155,7 +2155,7 @@ export default function QaoaRqpPage() {
               download="QuantumPortfolioOptimizer_demo_16.xlsx"
               className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
             >
-              Download Excel Workbook for 16 Qubits (Tester License)
+              Workbook for 16 Qubits (Tester License)
             </a>
 
             <a
@@ -2163,7 +2163,7 @@ export default function QaoaRqpPage() {
               download="QuantumPortfolioOptimizer_demo_24.xlsx"
               className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
             >
-              Download Excel Workbook for 24 Qubits
+              Workbook for 24 Qubits
             </a>
           </div>
         </div>
