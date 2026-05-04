@@ -2125,9 +2125,13 @@ export default function QaoaRqpPage() {
         </p>
 
         <div className="max-w-7xl mb-5 space-y-3">
+
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            Upload an Excel configuration, select the optimization settings, and submit a backend optimization job hosted on Cloud Run. The job is tracked through status polling, backend logs, progress, and result retrieval.
+            Upload an Excel configuration, adjust the optimization settings, and run the portfolio
+            optimization in the cloud. Results, charts, logs, and review files are returned directly
+            in the page.
           </p>
+
           <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
             Best used on a desktop or laptop screen. Use browser zoom to fit the workspace
             comfortably. Mobile screens are supported only for basic review.
