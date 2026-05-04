@@ -13,6 +13,8 @@ type FinanceModel = {
   quantumMethod: string;
   videoNumber: number;
   codeHref: string;
+  toolHref?: string;
+  toolLabel?: string;
 };
 
 const financeModels: FinanceModel[] = [
@@ -35,6 +37,8 @@ const financeModels: FinanceModel[] = [
     videoNumber: 7,
     codeHref:
       "https://colab.research.google.com/github/DanielMarkusHug/qubit-lab-notebooks/blob/main/notebooks/Video%207%20Quantum%20Finance%20QAOA%20Portfolio%20Optimization.ipynb",
+    toolHref: "/qaoa-rqp",
+    toolLabel: "RQP Tool",
   },
   {
     title: "Credit Card Fraud Detection",
@@ -78,7 +82,9 @@ function FinanceModelsTable() {
           Applied Quantum Models for Finance
         </h2>
         <p className="mt-2 max-w-3xl text-m leading-6 text-gray-300">
-          Not just theory, but concrete prototypes: real datasets, working notebooks, and step-by-step videos that make the methods transparent and testable. Test it yourself.
+          Not just theory, but concrete prototypes: real datasets, working
+          notebooks, and step-by-step videos that make the methods transparent
+          and testable. Test it yourself.
         </p>
       </div>
 
@@ -102,7 +108,7 @@ function FinanceModelsTable() {
                 Video
               </th>
               <th className="px-5 py-4 text-sm font-semibold text-neutral-100">
-                Code
+                Code / Tool
               </th>
             </tr>
           </thead>
@@ -134,14 +140,25 @@ function FinanceModelsTable() {
                   </a>
                 </td>
                 <td className="px-5 py-4 text-sm">
-                  <a
-                    href={model.codeHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex rounded-full border border-neutral-700 px-3 py-1.5 font-medium text-neutral-200 transition hover:bg-neutral-800"
-                  >
-                    Code
-                  </a>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={model.codeHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex rounded-full border border-neutral-700 px-3 py-1.5 font-medium text-neutral-200 transition hover:bg-neutral-800"
+                    >
+                      Code
+                    </a>
+
+                    {model.toolHref && (
+                      <a
+                        href={model.toolHref}
+                        className="inline-flex rounded-full border border-cyan-700 bg-cyan-500/10 px-3 py-1.5 font-semibold text-cyan-200 transition hover:bg-cyan-500 hover:text-slate-950"
+                      >
+                        {model.toolLabel ?? "Tool"}
+                      </a>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -159,12 +176,15 @@ export default function FinancePage() {
     <AppLayout>
       <Header />
       <section className="mx-auto max-w-6xl px-6 pt-24">
-        <h1 className="mb-6 text-3xl font-bold text-cyan-300">Quantum Finance</h1>
+        <h1 className="mb-6 text-3xl font-bold text-cyan-300">
+          Quantum Finance
+        </h1>
 
         <p className="mb-8 text-l font-semibold leading-relaxed text-gray-200">
-          Finance is one of the most practical entry points for quantum computing.
-          The videos in this section show how portfolio optimization, option pricing,
-          and fraud detection can be formulated as quantum problems.
+          Finance is one of the most practical entry points for quantum
+          computing. The videos in this section show how portfolio optimization,
+          option pricing, and fraud detection can be formulated as quantum
+          problems.
           <br />
           <br />
           Many videos are supported by notebooks so you can follow the code,
@@ -180,6 +200,31 @@ export default function FinancePage() {
             posterSrc="/teasers/finance-teaser.jpg"
             youtubeUrl="https://youtu.be/5bvqJxxYHTQ"
           />
+        </div>
+
+        <div className="mb-10 rounded-2xl border border-cyan-900/70 bg-slate-950/80 p-6 shadow-lg">
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-cyan-300">
+                New tool
+              </p>
+              <h2 className="text-2xl font-bold text-white">
+                Quantum Portfolio Optimizer
+              </h2>
+              <p className="mt-3 max-w-3xl text-base leading-relaxed text-gray-300">
+                Test the new Rapid Quantum Prototyping Tool by qubit-lab.ch.
+                Define a portfolio optimization problem in Excel and let the tool
+                build the QUBO, QAOA setup, simulation outputs, and diagnostics.
+              </p>
+            </div>
+
+            <a
+              href="/qaoa-rqp"
+              className="inline-flex shrink-0 items-center justify-center rounded-full bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+            >
+              Open QAOA RQP Tool
+            </a>
+          </div>
         </div>
 
         <FinanceModelsTable />
