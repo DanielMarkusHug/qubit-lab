@@ -2123,9 +2123,7 @@ export default function QaoaRqpPage() {
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
             Rapid Quantum Prototype for portfolio optimization. Upload an Excel
             configuration, select the optimization settings, and submit a backend
-            optimization job hosted on Cloud Run. The browser no longer waits for a
-            single long request; the job is tracked through status polling, backend
-            logs, progress, and result retrieval.
+            optimization job hosted on Cloud Run. 
           </p>
 
           <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
@@ -2155,7 +2153,7 @@ export default function QaoaRqpPage() {
               download="QuantumPortfolioOptimizer_demo_16.xlsx"
               className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
             >
-              Workbook for 16 Qubits (Tester License)
+              Workbook 16 Qubits (Tester License)
             </a>
 
             <a
@@ -2163,7 +2161,15 @@ export default function QaoaRqpPage() {
               download="QuantumPortfolioOptimizer_demo_24.xlsx"
               className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
             >
-              Workbook for 24 Qubits
+              Workbook 24 Qubits
+            </a>
+
+            <a
+              href={DEMO_EXCEL_24_URL}
+              download="qaoa-rqp-review_QuantumPortfolioOptimizer_demo_24_qaoa_limited_20260504-065225.json"
+              className="rounded-lg bg-gray-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            >
+              Review File 24 Qubits
             </a>
           </div>
         </div>
