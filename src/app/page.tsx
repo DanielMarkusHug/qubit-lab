@@ -61,9 +61,15 @@ export default function Home() {
   const sectionButtons = useMemo(() => {
     const unique = new Set<string>();
     for (const v of videos) (v.bins ?? []).forEach((b) => unique.add(b));
-    const ordered = ["STQ", "Strategy", "PQC", "Finance", "Chemistry", "Intro", "Deep Dive"].filter(
-      (b) => unique.has(b)
-    );
+    const ordered = [
+      "STQ",
+      "Strategy",
+      "PQC",
+      "Finance",
+      "Chemistry",
+      "Intro",
+      "Deep Dive",
+    ].filter((b) => unique.has(b));
     return ["All", ...ordered];
   }, []);
 
@@ -140,6 +146,33 @@ export default function Home() {
             the platform connects quantum theory with real-world decision-making in
             finance, chemistry, and beyond.
           </p>
+        </section>
+
+        <section className="max-w-6xl mx-auto px-6 mb-20">
+          <div className="rounded-2xl border border-cyan-900/70 bg-slate-950/80 p-8 md:p-10 shadow-lg">
+            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+              <div className="max-w-4xl">
+                <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-cyan-300">
+                  New finance tool
+                </p>
+                <h2 className="text-3xl md:text-4xl font-bold text-white">
+                  Quantum Portfolio Optimizer
+                </h2>
+                <p className="mt-4 text-gray-300 text-lg leading-relaxed">
+                  Test the new Rapid Quantum Prototyping Tool by qubit-lab.ch.
+                  Define a portfolio optimization problem in Excel and let the tool
+                  build the QUBO, QAOA setup, simulation outputs, and diagnostics.
+                </p>
+              </div>
+
+              <a
+                href="/qaoa-rqp"
+                className="inline-flex shrink-0 items-center justify-center rounded-lg bg-cyan-600 px-6 py-3 text-lg font-bold text-white transition hover:bg-cyan-700"
+              >
+                Open QAOA RQP Tool
+              </a>
+            </div>
+          </div>
         </section>
 
         <section className="max-w-6xl mx-auto px-6 mb-20">
