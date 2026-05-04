@@ -2111,24 +2111,26 @@ export default function QaoaRqpPage() {
       <Header />
 
       <section className="max-w-[2200px] mx-auto px-3 sm:px-4 xl:px-6 2xl:px-8 pt-20 pb-10">
+
+        <p className="mb-1 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-500">
+          Rapid Quantum Prototyping (RQP)
+        </p>
+
         <h1 className="text-3xl font-bold text-cyan-300 mb-2">
           Quantum Portfolio Optimizer
         </h1>
 
         <p className="text-cyan-100 text-base font-semibold mb-3">
-          Excel-to-Quantum portfolio optimization tool based on the QAOA algorithm.
+          Excel-to-Quantum portfolio optimization using QAOA.
         </p>
 
         <div className="max-w-7xl mb-5 space-y-3">
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            Rapid Quantum Prototype for portfolio optimization. Upload an Excel
-            configuration, select the optimization settings, and submit a backend
-            optimization job hosted on Cloud Run. 
+            Upload an Excel configuration, select the optimization settings, and submit a backend optimization job hosted on Cloud Run. The job is tracked through status polling, backend logs, progress, and result retrieval.
           </p>
-
           <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
-            Best used on a desktop or laptop screen. Mobile screens are supported
-            only for basic review.
+            Best used on a desktop or laptop screen. Use browser zoom to fit the workspace
+            comfortably. Mobile screens are supported only for basic review.
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

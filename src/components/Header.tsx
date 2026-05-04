@@ -31,6 +31,7 @@ export default function Header() {
           <Link href="/chemistry">Chemistry</Link>
           <Link href="/deepdive">Deep Dive</Link>
           <Link href="/intro">Intro</Link>
+          <Link href="/qaoa-rqp">RQP</Link>
         </nav>
 
         {/* Desktop Right Menu */}
@@ -110,6 +111,13 @@ export default function Header() {
             onClick={() => setMenuOpen(false)}
           >
             Intro Videos
+          </Link>
+          <Link
+            href="/qaoa-rqp"
+            className="block text-white hover:text-cyan-400"
+            onClick={() => setMenuOpen(false)}
+          >
+            Rapid Quantum Prototyping (QAOA)
           </Link>
 
           <hr className="border-white/20" />
