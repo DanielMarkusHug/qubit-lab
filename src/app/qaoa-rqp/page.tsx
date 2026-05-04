@@ -2128,9 +2128,9 @@ export default function QaoaRqpPage() {
 
         <div className="max-w-7xl mb-5 space-y-3">
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            Upload an Excel configuration, adjust the optimization settings, and run the
-            portfolio optimization in the cloud. Results, charts, logs, and review files are
-            returned directly in the page.
+            Define the portfolio problem in Excel, run the optimization in the cloud, and
+            review the results directly in the page. Results, charts, and logs can be saved
+            as a local review file for later reloading and analysis.
           </p>
 
           <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
