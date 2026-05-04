@@ -2126,57 +2126,43 @@ export default function QaoaRqpPage() {
 
         <div className="max-w-7xl mb-5 space-y-3">
 
-          <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            Upload an Excel configuration, adjust the optimization settings, and run the portfolio
-            optimization in the cloud. Results, charts, logs, and review files are returned directly
-            in the page.
-          </p>
+          <a
 
-          <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
-            Best used on a desktop or laptop screen. Use browser zoom to fit the workspace
-            comfortably. Mobile screens are supported only for basic review.
-          </div>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <a
-              href={USER_GUIDE_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-lg border border-cyan-800 bg-slate-950/80 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-slate-900"
-            >
-              View Quick PDF User Guide
-            </a>
-            <a
-              href={DEMO_EXCEL_7_URL}
-              download="QuantumPortfolioOptimizer_demo_7.xlsx"
-              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
-            >
-              Download Excel Workbook for 7 Qubits (Demo License)
-            </a>
-
-            <a
-              href={DEMO_EXCEL_16_URL}
-              download="QuantumPortfolioOptimizer_demo_16.xlsx"
-              className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
-            >
-              Workbook 16 Qubits (Tester License)
-            </a>
-
-            <a
-              href={DEMO_EXCEL_24_URL}
-              download="QuantumPortfolioOptimizer_demo_24.xlsx"
-              className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
-            >
-              Workbook 24 Qubits
-            </a>
-
-            <a
-              href={DEMO_EXCEL_24_URL}
-              download="qaoa-rqp-review_QuantumPortfolioOptimizer_demo_24_qaoa_limited_20260504-065225.json"
-              className="rounded-lg bg-gray-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
-            >
-              Review File 24 Qubits
-            </a>
+            href={USER_GUIDE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-cyan-800 bg-slate-950/80 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-500 hover:bg-slate-900 active:bg-slate-800"
+          >
+            View Quick PDF User Guide
+          </a>
+          <a
+            href={DEMO_EXCEL_7_URL}
+            download="QuantumPortfolioOptimizer_demo_7.xlsx"
+            className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 active:bg-amber-600"
+          >
+            Download Excel Workbook for 7 Qubits (Demo License)
+          </a>
+          <a
+            href={DEMO_EXCEL_16_URL}
+            download="QuantumPortfolioOptimizer_demo_16.xlsx"
+            className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 active:bg-cyan-600"
+          >
+            Workbook 16 Qubits (Tester License)
+          </a>
+          <a
+            href={DEMO_EXCEL_24_URL}
+            download="QuantumPortfolioOptimizer_demo_24.xlsx"
+            className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 active:bg-cyan-600"
+          >
+            Workbook 24 Qubits
+          </a>
+          <a
+            href="/qaoa-rqp/qaoa-rqp-review_QuantumPortfolioOptimizer_demo_24_qaoa_limited_20260504-065225.json"
+            download="qaoa-rqp-review_QuantumPortfolioOptimizer_demo_24_qaoa_limited_20260504-065225.json"
+            className="rounded-lg bg-gray-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-gray-400 active:bg-gray-600"
+          >
+            Review File 24 Qubits
+          </a>
           </div>
         </div>
 
