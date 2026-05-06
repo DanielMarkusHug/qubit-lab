@@ -3836,7 +3836,7 @@ export default function QaoaRqpV9Page() {
               <details className="rounded-2xl border border-slate-800 bg-slate-950/70 p-3">
                 <summary className="cursor-pointer text-cyan-200 font-semibold text-sm">
                   Raw JSON
-                </summary>
+                </summary> 
                 <pre className="mt-3 overflow-x-auto text-xs text-gray-300 bg-black/40 rounded-xl p-3">
                   {JSON.stringify(result, null, 2)}
                 </pre>
