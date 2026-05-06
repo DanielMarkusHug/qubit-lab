@@ -10,7 +10,7 @@ from app.schemas import json_safe
 
 
 def workbook_warnings(optimizer) -> list[str]:
-    warnings: list[str] = []
+    warnings: list[str] = list(getattr(optimizer, "cost_column_warnings", []) or [])
     budget_usd = _float_or_none(getattr(optimizer, "budget_usd", None))
     fixed_usd = _sum_numeric(getattr(optimizer, "fixed_cost", []))
     variable_costs = _numeric_array(getattr(optimizer, "opt_cost", []))

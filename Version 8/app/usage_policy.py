@@ -16,6 +16,7 @@ import yaml
 
 from app.config import Config
 from app.key_store import clear_key_store_cache, get_key_store
+from app.random_seed import effective_random_seed, random_seed_source
 from app.schemas import ApiError, json_safe
 
 
@@ -63,6 +64,7 @@ class RuntimeInputs:
     warm_start: bool = False
     qaoa_shots: int | None = None
     restart_perturbation: float | None = None
+    random_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -334,6 +336,7 @@ def runtime_estimate_payload(mode: str, policy_result: PolicyResult) -> dict[str
                 "warm_start": policy_result.runtime_inputs.warm_start,
                 "qaoa_shots_display": policy_result.effective_settings.get("qaoa_shots_display"),
                 "shots_mode": policy_result.effective_settings.get("shots_mode"),
+                "random_seed": policy_result.runtime_inputs.random_seed,
             },
         }
     )
@@ -379,6 +382,7 @@ def extract_runtime_inputs(optimizer, form_data, usage_level: dict[str, Any] | N
             ("restart_perturbation", "qaoa_restart_perturbation"),
             _float_or_none(getattr(optimizer, "qaoa_restart_perturbation", None)),
         ),
+        random_seed=effective_random_seed(optimizer, form_data),
     )
 
 
@@ -417,6 +421,8 @@ def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs
         "risk_free_rate": _float_or_none(getattr(optimizer, "risk_free", None)),
         "restart_perturbation": runtime_inputs.restart_perturbation,
         "qaoa_restart_perturbation": runtime_inputs.restart_perturbation,
+        "random_seed": runtime_inputs.random_seed,
+        "rng_seed": runtime_inputs.random_seed,
         "sources": {
             "layers": _setting_source(form_data, settings, ("qaoa_p", "layers"), ("qaoa_p",)),
             "iterations": _setting_source(form_data, settings, ("qaoa_maxiter", "iterations"), ("qaoa_maxiter",)),
@@ -457,6 +463,7 @@ def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs
                 ("restart_perturbation", "qaoa_restart_perturbation"),
                 ("qaoa_restart_perturbation",),
             ),
+            "random_seed": random_seed_source(form_data, settings),
         },
     }
     return json_safe(payload)

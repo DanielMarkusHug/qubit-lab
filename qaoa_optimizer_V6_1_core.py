@@ -1046,11 +1046,15 @@ class QAOAOptimizerV61:
             if "Source URL" in col_idx:
                 sh_assets.cell(row_idx, col_idx["Source URL"], "https://pypi.org/project/yfinance/")
 
-            if "Shares" in col_idx and "Approx Cost USD" in col_idx:
+            if "Shares" in col_idx and "Indicative Market Cost USD" in col_idx:
                 shares = sh_assets.cell(row_idx, col_idx["Shares"]).value
                 try:
                     if shares is not None and not pd.isna(shares):
-                        sh_assets.cell(row_idx, col_idx["Approx Cost USD"], float(shares) * float(latest_price[ticker]))
+                        sh_assets.cell(
+                            row_idx,
+                            col_idx["Indicative Market Cost USD"],
+                            float(shares) * float(latest_price[ticker]),
+                        )
                 except Exception:
                     pass
 
@@ -1190,7 +1194,7 @@ class QAOAOptimizerV61:
         if "Allowed" in options_df.columns:
             options_df = options_df.loc[options_df["Allowed"].fillna(1).astype(int) == 1].copy()
 
-        required_option_cols = ["Ticker", "Approx Cost USD", "Expected Return Proxy", "Annual Volatility"]
+        required_option_cols = ["Ticker", "Indicative Market Cost USD", "Expected Return Proxy", "Annual Volatility"]
         missing_option_cols = [col for col in required_option_cols if col not in options_df.columns]
         if missing_option_cols:
             raise OptimizationError(
@@ -1198,12 +1202,12 @@ class QAOAOptimizerV61:
                 f"Missing required columns: {missing_option_cols}"
             )
 
-        for col in ["Approx Cost USD", "Expected Return Proxy", "Annual Volatility"]:
+        for col in ["Indicative Market Cost USD", "Expected Return Proxy", "Annual Volatility"]:
             options_df[col] = pd.to_numeric(options_df[col], errors="coerce")
 
-        if options_df["Approx Cost USD"].isna().any():
-            bad = options_df.loc[options_df["Approx Cost USD"].isna(), "Ticker"].tolist()
-            raise OptimizationError(f"Approx Cost USD missing for options: {bad}")
+        if options_df["Indicative Market Cost USD"].isna().any():
+            bad = options_df.loc[options_df["Indicative Market Cost USD"].isna(), "Ticker"].tolist()
+            raise OptimizationError(f"Indicative Market Cost USD missing for options: {bad}")
         if options_df["Expected Return Proxy"].isna().any():
             bad = options_df.loc[options_df["Expected Return Proxy"].isna(), "Ticker"].tolist()
             raise OptimizationError(f"Expected Return Proxy missing for options: {bad}")
@@ -1211,9 +1215,12 @@ class QAOAOptimizerV61:
             bad = options_df.loc[options_df["Annual Volatility"].isna(), "Ticker"].tolist()
             raise OptimizationError(f"Annual Volatility missing for options: {bad}")
 
-        if (options_df["Approx Cost USD"] <= 0).any():
-            bad = options_df.loc[options_df["Approx Cost USD"] <= 0, ["Ticker", "Approx Cost USD"]]
-            raise OptimizationError(f"Approx Cost USD must be > 0 for all options. Bad rows:\n{bad}")
+        if (options_df["Indicative Market Cost USD"] <= 0).any():
+            bad = options_df.loc[
+                options_df["Indicative Market Cost USD"] <= 0,
+                ["Ticker", "Indicative Market Cost USD"],
+            ]
+            raise OptimizationError(f"Indicative Market Cost USD must be > 0 for all options. Bad rows:\n{bad}")
 
         if not np.isfinite(float(self.budget_usd)) or float(self.budget_usd) <= 0.0:
             raise OptimizationError(f"budget_usd must be a positive finite value, got {self.budget_usd!r}.")
@@ -1274,10 +1281,10 @@ class QAOAOptimizerV61:
         self.asset_universe = asset_universe
         self.decision_ids = variable_options_df["decision_id"].tolist()
         self.opt_tickers = variable_options_df["Ticker"].tolist()
-        self.opt_cost = variable_options_df["Approx Cost USD"].astype(float).to_numpy()
+        self.opt_cost = variable_options_df["Indicative Market Cost USD"].astype(float).to_numpy()
         self.opt_ret = variable_options_df["Expected Return Proxy"].astype(float).to_numpy()
         self.fixed_tickers = fixed_options_df["Ticker"].tolist()
-        self.fixed_cost = fixed_options_df["Approx Cost USD"].astype(float).to_numpy()
+        self.fixed_cost = fixed_options_df["Indicative Market Cost USD"].astype(float).to_numpy()
         self.fixed_ret = fixed_options_df["Expected Return Proxy"].astype(float).to_numpy()
 
         self.n = len(variable_options_df)
@@ -2833,7 +2840,7 @@ class QAOAOptimizerV61:
                     "Company": option["Company"] if "Company" in option.index else option["Ticker"],
                     "Option Label": option["Option Label"] if "Option Label" in option.index else "",
                     "Shares": option["Shares"] if "Shares" in option.index else np.nan,
-                    "Approx Cost USD": float(option["Approx Cost USD"]),
+                    "Indicative Market Cost USD": float(option["Indicative Market Cost USD"]),
                     "Expected Return Proxy": float(option["Expected Return Proxy"]),
                     "Annual Volatility": float(option["Annual Volatility"]),
                     "decision_id": option["decision_id"],

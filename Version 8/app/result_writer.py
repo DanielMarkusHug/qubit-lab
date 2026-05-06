@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from app.config import Config
+from app.cost_columns import INDICATIVE_COST_COLUMN, LEGACY_COST_COLUMN, add_indicative_cost_alias_to_frame
 from app.schemas import json_safe
 from app.usage_policy import runtime_estimate_payload
 from app.workbook_diagnostics import candidate_export_diagnostics, workbook_warnings
@@ -52,7 +53,8 @@ PORTFOLIO_ROW_KEYS = (
     "Company",
     "Option Label",
     "Shares",
-    "Approx Cost USD",
+    INDICATIVE_COST_COLUMN,
+    LEGACY_COST_COLUMN,
     "Expected Return Proxy",
     "Annual Volatility",
     "decision_id",
@@ -72,6 +74,8 @@ IMPORTANT_LOG_PATTERNS = (
     "classical candidate count",
     "classical export requested",
     "qaoa export requested",
+    "random seed",
+    "cost column used",
     "sample count",
 )
 
@@ -189,6 +193,10 @@ def _build_full_classical_response(
         "qaoa_exact_probabilities": bool(getattr(optimizer, "qaoa_limited_exact_probabilities", False)),
         "qaoa_runtime_sec": _safe_attr(optimizer, "qaoa_runtime_sec"),
         "circuit": _circuit_report(optimizer),
+        "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
+        "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
+        "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
+        "cost_column_conflicting_row_count": int(getattr(optimizer, "cost_column_conflicting_row_count", 0) or 0),
         "workbook_warnings": warnings,
         "workbook_warning_count": len(warnings),
         "logs": list(logs or []),
@@ -283,8 +291,10 @@ def _attach_policy_metadata(
             "qaoa_shots_display": getattr(policy_result, "effective_settings", {}).get("qaoa_shots_display"),
             "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
             "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
+            "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
         }
         payload["diagnostics"]["effective_settings"] = getattr(policy_result, "effective_settings", {})
+        payload["diagnostics"]["random_seed"] = getattr(policy_result.runtime_inputs, "random_seed", None)
         if actual_runtime_sec is not None:
             estimated = float(policy_result.estimated_runtime_sec)
             payload["diagnostics"]["actual_runtime_sec"] = float(actual_runtime_sec)
@@ -305,6 +315,10 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
         "classical_candidate_count",
         "qubo_shape",
         "fixed_variable_cross_terms_preserved",
+        "cost_column_used",
+        "cost_column_internal",
+        "cost_column_normalized",
+        "cost_column_conflicting_row_count",
         "workbook_warnings",
         "workbook_warning_count",
         "classical_export_requested_rows",
@@ -330,6 +344,7 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
         "candidate_count",
         "runtime_inputs",
         "effective_settings",
+        "random_seed",
         "usage_level",
         "qaoa_enabled",
         "qaoa_available",
@@ -405,8 +420,16 @@ def build_inspection_response(
                     "qaoa_shots_display": getattr(policy_result, "effective_settings", {}).get("qaoa_shots_display"),
                     "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
                     "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
+                    "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
                 },
                 "effective_settings": getattr(policy_result, "effective_settings", {}),
+                "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
+                "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
+                "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
+                "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
+                "cost_column_conflicting_row_count": int(
+                    getattr(optimizer, "cost_column_conflicting_row_count", 0) or 0
+                ),
                 "logs": cap_logs(logs, 50),
             },
         }
@@ -430,6 +453,9 @@ def build_workbook_summary(optimizer) -> dict[str, Any]:
             "qubo_shape": list(getattr(optimizer, "Q", np.array([])).shape),
             "assets_referenced_by_options": int(len(getattr(optimizer, "asset_universe", []))),
             "settings_count": int(len(getattr(optimizer, "settings", {}))),
+            "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
+            "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
+            "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
         }
     )
 
@@ -996,6 +1022,7 @@ def _sort_df(df: pd.DataFrame, optimizer=None, sort_by: str = "qubo_value", asce
 def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
     if df is None or len(df) == 0:
         return []
+    df = add_indicative_cost_alias_to_frame(df)
     return json_safe(df.replace({np.inf: np.nan, -np.inf: np.nan}).to_dict(orient="records"))
 
 
@@ -1069,6 +1096,7 @@ def _safe_get(row, key: str):
 def _records_with_keys(df: pd.DataFrame, keys: tuple[str, ...]) -> list[dict[str, Any]]:
     if df is None or len(df) == 0:
         return []
+    df = add_indicative_cost_alias_to_frame(df)
     present = [key for key in keys if key in df.columns]
     return df[present].to_dict(orient="records")
 

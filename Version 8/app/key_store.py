@@ -104,6 +104,8 @@ def _safe_key_record(raw: dict[str, Any], store: str) -> dict[str, Any]:
         "general_limits",
         "qaoa_limited_limits",
         "active_run_id",
+        "active_run_ids",
+        "active_run_count",
         "active_run_started_at",
         "active_run_status",
         "max_parallel_runs",

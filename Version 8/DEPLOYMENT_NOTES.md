@@ -149,6 +149,12 @@ gcloud storage buckets describe "gs://$QAOA_JOB_BUCKET" \
 
 The API writes `jobs/{job_id}/input.xlsx`, and the worker writes `jobs/{job_id}/result.json`.
 
+Workbook cost input should use `Indicative Market Cost USD` in the `Assets`
+sheet. The optimizer core reads this column directly for fixed holdings and
+variable blocks, then applies the existing budget normalization unchanged. For
+old workbooks, Version 8 can map a legacy `Approx Cost USD` column into
+`Indicative Market Cost USD` for compatibility.
+
 ## Service Accounts
 
 Create dedicated service accounts if needed:
@@ -205,8 +211,9 @@ gcloud run deploy "$API_SERVICE_NAME" \
   --service-account "$API_SERVICE_ACCOUNT" \
   --allow-unauthenticated \
   --timeout 300s \
-  --memory 2Gi \
-  --cpu 2 \
+  --memory 1Gi \
+  --cpu 1 \
+  --concurrency 20 \
   --env-vars-file /tmp/qaoa-v8-api-env.yaml
 ```
 
@@ -230,11 +237,11 @@ gcloud run jobs create "$WORKER_JOB_NAME" \
   --image "$IMAGE" \
   --region "$REGION" \
   --service-account "$WORKER_SERVICE_ACCOUNT" \
-  --command python \
-  --args -m,app.job_worker \
+  --command=python \
+  --args=-m,app.job_worker \
   --tasks 1 \
   --max-retries 0 \
-  --task-timeout 7200s \
+  --task-timeout 72h \
   --memory 4Gi \
   --cpu 2 \
   --env-vars-file /tmp/qaoa-v8-worker-env.yaml
@@ -248,11 +255,11 @@ gcloud run jobs update "$WORKER_JOB_NAME" \
   --image "$IMAGE" \
   --region "$REGION" \
   --service-account "$WORKER_SERVICE_ACCOUNT" \
-  --command python \
-  --args -m,app.job_worker \
+  --command=python \
+  --args=-m,app.job_worker \
   --tasks 1 \
   --max-retries 0 \
-  --task-timeout 7200s \
+  --task-timeout 72h \
   --memory 4Gi \
   --cpu 2 \
   --env-vars-file /tmp/qaoa-v8-worker-env.yaml
@@ -264,7 +271,7 @@ Set or confirm the worker timeout separately:
 gcloud run jobs update "$WORKER_JOB_NAME" \
   --project "$PROJECT_ID" \
   --region "$REGION" \
-  --task-timeout 7200s
+  --task-timeout 72h
 ```
 
 Grant the API service account permission to execute the worker job after the job exists. The `roles/run.developer` role includes the Cloud Run job execution permissions needed for execution overrides such as `JOB_ID`.
@@ -288,7 +295,7 @@ gcloud run jobs execute "$WORKER_JOB_NAME" \
   --project "$PROJECT_ID" \
   --region "$REGION" \
   --update-env-vars "JOB_ID=$JOB_ID" \
-  --task-timeout 7200s \
+  --task-timeout 72h \
   --wait
 ```
 
@@ -313,6 +320,7 @@ Inspect workbook:
 curl -X POST "$SERVICE_URL/inspect-workbook" \
   -H "X-API-Key: $QAOA_RQP_TEST_API_KEY" \
   -F "mode=classical_only" \
+  -F "random_seed=12345" \
   -F "file=@$WORKBOOK" \
   | python3 -m json.tool
 ```
@@ -325,6 +333,7 @@ JOB_ID="$(
     -H "X-API-Key: $QAOA_RQP_TEST_API_KEY" \
     -F "mode=classical_only" \
     -F "response_level=full" \
+    -F "random_seed=12345" \
     -F "file=@$WORKBOOK" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_id"])'
 )"
@@ -351,6 +360,8 @@ Version 8 reads/writes these collections by default:
 
 - `qaoa_keys`
 - `qaoa_usage_events`
+- `qaoa_key_run_state`
+- `qaoa_key_run_locks`
 - `qaoa_public_run_state`
 - `qaoa_public_run_locks`
 - `qaoa_jobs`
@@ -386,10 +397,16 @@ Progress ranges:
 
 ## Locking And Usage
 
-- Authenticated jobs acquire the existing per-key lock at submission time.
+- Authenticated jobs acquire a per-key run slot at submission time. Each active
+  run has its own lock document, so keys with `max_parallel_runs > 1` can run
+  multiple jobs concurrently up to that limit.
 - Public/no-key jobs acquire the public demo semaphore at submission time.
 - If Cloud Run Job triggering fails, the API releases the acquired lock/slot.
-- The worker releases the lock/slot in a `finally` path on completed, failed, and cancelled jobs.
+- The worker releases the lock/slot in a `finally` path on completed, failed,
+  cancelled, and handled termination-signal paths.
+- Stale authenticated locks can be cleared automatically when the linked job is
+  completed/failed/cancelled or its heartbeat is stale. Admin recovery is still
+  available with `scripts/key_admin_firestore.py clear-lock --key-id ... --confirm`.
 - Successful authenticated completed jobs consume one run.
 - Failed/cancelled/rejected jobs do not consume a run.
 
@@ -398,3 +415,6 @@ Progress ranges:
 - `qaoa_full` remains disabled.
 - `qaoa_limited` runs inside the worker task, not inside the HTTP request.
 - Cancellation is cooperative. Queued jobs can be cancelled immediately; fine-grained cancellation during optimizer iterations is future work.
+- `random_seed` is optional. Reusing the same integer seed improves reproducibility
+  under the same workbook/settings/code/environment, but exact bit-for-bit
+  reproducibility is not guaranteed across runtime or dependency changes.

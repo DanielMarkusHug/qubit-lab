@@ -21,7 +21,7 @@ from app.schemas import ApiError, json_safe
 
 
 _LOCK = threading.Lock()
-_LOCAL_ACTIVE_RUNS: dict[str, dict[str, Any]] = {}
+_LOCAL_ACTIVE_RUNS: dict[str, dict[str, dict[str, Any]]] = {}
 _LOCAL_PUBLIC_RUNS: dict[str, dict[str, Any]] = {}
 
 
@@ -56,31 +56,42 @@ class RunLedger:
         now = dt.datetime.now(dt.timezone.utc)
         stale_after_sec = _lock_stale_after_sec(policy_result)
         with _LOCK:
-            active = _LOCAL_ACTIVE_RUNS.get(key_id)
-            stale_lock_cleared = bool(active) and _active_lock_is_stale(
-                active.get("active_run_started_at"),
-                stale_after_sec,
-                now,
-            )
-            if active and not stale_lock_cleared:
-                _raise_active_run_exists(key_id, active, stale_after_sec)
+            locks = _LOCAL_ACTIVE_RUNS.setdefault(key_id, {})
+            stale_run_ids = [
+                active_run_id
+                for active_run_id, record in locks.items()
+                if _key_lock_is_stale(record, stale_after_sec, now)
+            ]
+            for active_run_id in stale_run_ids:
+                locks.pop(active_run_id, None)
 
-            lock_record = {
-                "active_run_id": run_id,
-                "active_run_started_at": now,
-                "active_run_status": "running",
-                "max_parallel_runs": _max_parallel_runs(key_record),
-                "active_run_user_agent": user_agent,
-                "active_run_ip": ip_address,
-            }
-            _LOCAL_ACTIVE_RUNS[key_id] = lock_record
-            key_record.update(lock_record)
+            active_records = [record for record in locks.values() if record.get("status") == "running"]
+            max_parallel_runs = _max_parallel_runs(key_record)
+            if len(active_records) >= max_parallel_runs:
+                _raise_active_run_exists(key_id, _active_lock_summary(active_records, max_parallel_runs), stale_after_sec)
+
+            lock_record = _key_lock_record(
+                key_id=key_id,
+                key_doc_id=str(key_record.get("_firestore_doc_id") or key_id),
+                run_id=run_id,
+                now=now,
+                stale_after_sec=stale_after_sec,
+                max_parallel_runs=max_parallel_runs,
+                user_agent=user_agent,
+                ip_address=ip_address,
+            )
+            locks[run_id] = lock_record
+            active_records.append(lock_record)
+            _apply_active_summary_to_record(key_record, active_records, max_parallel_runs)
             return {
                 "acquired": True,
                 "store": "local_memory",
-                "stale_lock_cleared": stale_lock_cleared,
+                "active_run_count": len(active_records),
+                "max_parallel_runs": max_parallel_runs,
+                "stale_locks_cleared": len(stale_run_ids),
+                "stale_lock_cleared": bool(stale_run_ids),
                 "stale_after_sec": stale_after_sec,
-                "previous_active_run_id": (active or {}).get("active_run_id"),
+                "previous_active_run_id": stale_run_ids[0] if stale_run_ids else None,
             }
 
     def release_run_lock(self, key_record: dict[str, Any] | None, run_id: str) -> bool:
@@ -90,11 +101,14 @@ class RunLedger:
         if not key_id:
             return False
         with _LOCK:
-            active = _LOCAL_ACTIVE_RUNS.get(key_id)
-            if not active or active.get("active_run_id") != run_id:
+            locks = _LOCAL_ACTIVE_RUNS.get(key_id)
+            if not locks or run_id not in locks:
                 return False
-            _LOCAL_ACTIVE_RUNS.pop(key_id, None)
-            _clear_active_run_fields(key_record)
+            locks.pop(run_id, None)
+            if not locks:
+                _LOCAL_ACTIVE_RUNS.pop(key_id, None)
+            active_records = [record for record in (locks or {}).values() if record.get("status") == "running"]
+            _apply_active_summary_to_record(key_record, active_records, _max_parallel_runs(key_record))
             return True
 
     def acquire_public_run_slot(
@@ -385,11 +399,14 @@ class FirestoreRunLedger(RunLedger):
         if not key_record:
             return {"acquired": False, "skipped": True, "reason": "anonymous_or_public"}
 
+        self._cleanup_stale_key_locks(key_record, policy_result)
         now = dt.datetime.now(dt.timezone.utc)
         stale_after_sec = _lock_stale_after_sec(policy_result)
 
         def acquire(transaction):
             key_ref = self._key_ref(key_record)
+            key_doc_id = self._key_doc_id(key_record)
+            state_ref = self._key_state_ref(key_doc_id)
             snapshot = key_ref.get(transaction=transaction)
             if not getattr(snapshot, "exists", True):
                 raise ApiError(403, "api_key_not_found", "API key record was not found.")
@@ -398,42 +415,83 @@ class FirestoreRunLedger(RunLedger):
                 raise ApiError(403, "api_key_inactive", "API key is inactive.")
 
             key_id = str(record.get("key_id") or key_record.get("key_id") or "")
-            active_run_id = record.get("active_run_id")
-            active_started_at = record.get("active_run_started_at")
-            active = {
-                "active_run_id": active_run_id,
-                "active_run_started_at": active_started_at,
-                "active_run_status": record.get("active_run_status"),
-                "max_parallel_runs": _max_parallel_runs(record),
-            }
-            stale_lock_cleared = bool(active_run_id) and _active_lock_is_stale(
-                active_started_at,
-                stale_after_sec,
-                now,
+            max_parallel_runs = _max_parallel_runs(record)
+            state_snapshot = state_ref.get(transaction=transaction)
+            state = state_snapshot.to_dict() if getattr(state_snapshot, "exists", False) else {}
+            active_count = max(0, _int_or_zero((state or {}).get("active_count")))
+            legacy_active_run_id = record.get("active_run_id")
+            legacy_active_count = 0
+            legacy_stale_lock_cleared = False
+            legacy_lock = None
+            if active_count == 0 and legacy_active_run_id:
+                legacy_lock = _legacy_key_lock_record(record, key_id, key_doc_id, stale_after_sec)
+                legacy_stale_lock_cleared = _key_lock_is_stale(legacy_lock, stale_after_sec, now)
+                if not legacy_stale_lock_cleared:
+                    legacy_active_count = 1
+            effective_active_count = max(active_count, legacy_active_count)
+            if effective_active_count >= max_parallel_runs:
+                active_records = self._active_key_lock_records(key_doc_id)
+                if not active_records and legacy_active_run_id and not legacy_stale_lock_cleared:
+                    active_records = [_legacy_key_lock_record(record, key_id, key_doc_id, stale_after_sec)]
+                _raise_active_run_exists(
+                    key_id,
+                    _active_lock_summary(active_records, max_parallel_runs, fallback_count=effective_active_count),
+                    stale_after_sec,
+                )
+
+            lock_record = _key_lock_record(
+                key_id=key_id,
+                key_doc_id=key_doc_id,
+                run_id=run_id,
+                now=now,
+                stale_after_sec=stale_after_sec,
+                max_parallel_runs=max_parallel_runs,
+                user_agent=user_agent,
+                ip_address=ip_address,
             )
-            if active_run_id and not stale_lock_cleared:
-                _raise_active_run_exists(key_id, active, stale_after_sec)
+            new_count = effective_active_count + 1
 
             updates = {
                 "active_run_id": run_id,
                 "active_run_started_at": now,
                 "active_run_status": "running",
-                "max_parallel_runs": _max_parallel_runs(record),
+                "active_run_count": new_count,
+                "max_parallel_runs": max_parallel_runs,
                 "active_run_user_agent": user_agent,
                 "active_run_ip": ip_address,
                 "updated_at": _server_timestamp(),
             }
+            if legacy_stale_lock_cleared:
+                updates["previous_active_run_id"] = legacy_active_run_id
+            if legacy_active_count and legacy_lock:
+                transaction.set(self._key_lock_ref(key_doc_id, str(legacy_active_run_id)), legacy_lock, merge=True)
+            transaction.set(self._key_lock_ref(key_doc_id, run_id), lock_record, merge=True)
+            transaction.set(
+                state_ref,
+                {
+                    "key_id": key_id,
+                    "key_doc_id": key_doc_id,
+                    "active_count": new_count,
+                    "max_parallel_runs": max_parallel_runs,
+                    "updated_at": _server_timestamp(),
+                },
+                merge=True,
+            )
             transaction.update(key_ref, updates)
             key_record.update(updates)
             return {
                 "acquired": True,
                 "store": "firestore",
-                "stale_lock_cleared": stale_lock_cleared,
+                "active_run_count": new_count,
+                "max_parallel_runs": max_parallel_runs,
+                "stale_lock_cleared": legacy_stale_lock_cleared,
                 "stale_after_sec": stale_after_sec,
-                "previous_active_run_id": active_run_id if stale_lock_cleared else None,
+                "previous_active_run_id": legacy_active_run_id if legacy_stale_lock_cleared else None,
             }
 
-        return self._run_transaction(acquire)
+        result = self._run_transaction(acquire)
+        self._refresh_key_active_summary(key_record)
+        return result
 
     def release_run_lock(self, key_record: dict[str, Any] | None, run_id: str) -> bool:
         if not key_record:
@@ -441,27 +499,85 @@ class FirestoreRunLedger(RunLedger):
 
         def release(transaction):
             key_ref = self._key_ref(key_record)
+            key_doc_id = self._key_doc_id(key_record)
+            state_ref = self._key_state_ref(key_doc_id)
+            lock_ref = self._key_lock_ref(key_doc_id, run_id)
+            lock_snapshot = lock_ref.get(transaction=transaction)
+            if not getattr(lock_snapshot, "exists", False):
+                legacy_snapshot = key_ref.get(transaction=transaction)
+                legacy_record = legacy_snapshot.to_dict() if getattr(legacy_snapshot, "exists", False) else {}
+                if legacy_record.get("active_run_id") != run_id:
+                    return False
+                transaction.update(
+                    key_ref,
+                    {
+                        "active_run_id": None,
+                        "active_run_started_at": None,
+                        "active_run_status": None,
+                        "active_run_user_agent": None,
+                        "active_run_ip": None,
+                        "active_run_count": 0,
+                        "updated_at": _server_timestamp(),
+                    },
+                )
+                transaction.set(
+                    state_ref,
+                    {"active_count": 0, "updated_at": _server_timestamp()},
+                    merge=True,
+                )
+                _clear_active_run_fields(key_record)
+                return True
+
+            lock_record = lock_snapshot.to_dict() or {}
+            if lock_record.get("run_id") != run_id or lock_record.get("status") != "running":
+                return False
             snapshot = key_ref.get(transaction=transaction)
             if not getattr(snapshot, "exists", True):
                 return False
-            record = snapshot.to_dict() or {}
-            if record.get("active_run_id") != run_id:
-                return False
-            transaction.update(
-                key_ref,
+            state_snapshot = state_ref.get(transaction=transaction)
+            state = state_snapshot.to_dict() if getattr(state_snapshot, "exists", False) else {}
+            active_count = max(0, _int_or_zero((state or {}).get("active_count")))
+            new_count = max(active_count - 1, 0)
+            transaction.set(
+                lock_ref,
                 {
-                    "active_run_id": None,
-                    "active_run_started_at": None,
-                    "active_run_status": None,
-                    "active_run_user_agent": None,
-                    "active_run_ip": None,
+                    "status": "released",
+                    "released_at": _server_timestamp(),
+                },
+                merge=True,
+            )
+            transaction.set(
+                state_ref,
+                {
+                    "active_count": new_count,
                     "updated_at": _server_timestamp(),
                 },
+                merge=True,
             )
-            _clear_active_run_fields(key_record)
+            key_updates = {
+                "active_run_count": new_count,
+                "updated_at": _server_timestamp(),
+            }
+            if new_count == 0:
+                key_updates.update(
+                    {
+                        "active_run_id": None,
+                        "active_run_started_at": None,
+                        "active_run_status": None,
+                        "active_run_user_agent": None,
+                        "active_run_ip": None,
+                    }
+                )
+            transaction.update(
+                key_ref,
+                key_updates,
+            )
             return True
 
-        return bool(self._run_transaction(release))
+        released = bool(self._run_transaction(release))
+        if released:
+            self._refresh_key_active_summary(key_record)
+        return released
 
     def acquire_public_run_slot(
         self,
@@ -591,14 +707,138 @@ class FirestoreRunLedger(RunLedger):
         self.client.collection(Config.FIRESTORE_USAGE_COLLECTION).document(run_id).set(record, merge=True)
 
     def _key_ref(self, key_record: dict[str, Any]):
+        return self.client.collection(Config.FIRESTORE_KEY_COLLECTION).document(self._key_doc_id(key_record))
+
+    def _key_doc_id(self, key_record: dict[str, Any]) -> str:
         doc_id = key_record.get("_firestore_doc_id") or key_record.get("key_id")
-        return self.client.collection(Config.FIRESTORE_KEY_COLLECTION).document(str(doc_id))
+        return str(doc_id)
+
+    def _key_state_ref(self, key_doc_id: str):
+        return self.client.collection(Config.FIRESTORE_KEY_RUN_STATE_COLLECTION).document(str(key_doc_id))
+
+    def _key_lock_ref(self, key_doc_id: str, run_id: str):
+        return self.client.collection(Config.FIRESTORE_KEY_RUN_LOCK_COLLECTION).document(
+            _key_lock_doc_id(key_doc_id, run_id)
+        )
 
     def _public_state_ref(self):
         return self.client.collection(Config.FIRESTORE_PUBLIC_RUN_STATE_COLLECTION).document("global")
 
     def _public_lock_ref(self, run_id: str):
         return self.client.collection(Config.FIRESTORE_PUBLIC_RUN_LOCK_COLLECTION).document(str(run_id))
+
+    def _active_key_lock_records(self, key_doc_id: str) -> list[dict[str, Any]]:
+        try:
+            snapshots = list(
+                self.client.collection(Config.FIRESTORE_KEY_RUN_LOCK_COLLECTION)
+                .where("key_doc_id", "==", str(key_doc_id))
+                .stream()
+            )
+        except Exception:
+            return []
+        records = []
+        for snapshot in snapshots:
+            record = snapshot.to_dict() or {}
+            if record.get("status") == "running":
+                record.setdefault("run_id", record.get("active_run_id") or getattr(snapshot, "id", ""))
+                records.append(record)
+        records.sort(key=lambda record: str(record.get("started_at") or ""))
+        return records
+
+    def _cleanup_stale_key_locks(self, key_record: dict[str, Any], policy_result=None) -> int:
+        key_doc_id = self._key_doc_id(key_record)
+        stale_after_sec = _lock_stale_after_sec(policy_result)
+        now = dt.datetime.now(dt.timezone.utc)
+        active_records = self._active_key_lock_records(key_doc_id)
+        stale_run_ids = []
+        for record in active_records:
+            job_record = self._job_record_for_lock(record)
+            if _key_lock_is_stale(record, stale_after_sec, now, job_record=job_record):
+                stale_run_ids.append(str(record.get("run_id") or ""))
+
+        if not stale_run_ids:
+            if active_records:
+                self._refresh_key_active_summary(key_record)
+            return 0
+
+        def cleanup(transaction):
+            state_ref = self._key_state_ref(key_doc_id)
+            state_snapshot = state_ref.get(transaction=transaction)
+            state = state_snapshot.to_dict() if getattr(state_snapshot, "exists", False) else {}
+            active_count = max(0, _int_or_zero((state or {}).get("active_count")))
+            cleared = 0
+            for stale_run_id in stale_run_ids:
+                if not stale_run_id:
+                    continue
+                lock_ref = self._key_lock_ref(key_doc_id, stale_run_id)
+                lock_snapshot = lock_ref.get(transaction=transaction)
+                if not getattr(lock_snapshot, "exists", False):
+                    continue
+                lock_record = lock_snapshot.to_dict() or {}
+                if lock_record.get("status") != "running":
+                    continue
+                job_record = self._job_record_for_lock(lock_record)
+                if not _key_lock_is_stale(lock_record, stale_after_sec, now, job_record=job_record):
+                    continue
+                transaction.set(
+                    lock_ref,
+                    {
+                        "status": "stale_released",
+                        "released_at": _server_timestamp(),
+                        "stale_release_reason": _key_lock_stale_reason(lock_record, stale_after_sec, now, job_record),
+                    },
+                    merge=True,
+                )
+                cleared += 1
+            if cleared:
+                transaction.set(
+                    state_ref,
+                    {
+                        "active_count": max(active_count - cleared, 0),
+                        "updated_at": _server_timestamp(),
+                    },
+                    merge=True,
+                )
+            return cleared
+
+        cleared_count = int(self._run_transaction(cleanup) or 0)
+        self._refresh_key_active_summary(key_record)
+        return cleared_count
+
+    def _refresh_key_active_summary(self, key_record: dict[str, Any]) -> None:
+        try:
+            key_doc_id = self._key_doc_id(key_record)
+            key_ref = self._key_ref(key_record)
+            active_records = self._active_key_lock_records(key_doc_id)
+            max_parallel_runs = _max_parallel_runs(key_record)
+            state_ref = self._key_state_ref(key_doc_id)
+            state_ref.set(
+                {
+                    "key_id": key_record.get("key_id") or key_doc_id,
+                    "key_doc_id": key_doc_id,
+                    "active_count": len(active_records),
+                    "max_parallel_runs": max_parallel_runs,
+                    "updated_at": _server_timestamp(),
+                },
+                merge=True,
+            )
+            summary_updates = _active_summary_updates(active_records, max_parallel_runs)
+            key_ref.set(summary_updates, merge=True)
+            _apply_active_summary_to_record(key_record, active_records, max_parallel_runs)
+        except Exception:
+            return None
+
+    def _job_record_for_lock(self, lock_record: dict[str, Any]) -> dict[str, Any] | None:
+        run_id = str(lock_record.get("run_id") or "")
+        if not run_id:
+            return None
+        try:
+            snapshot = self.client.collection(Config.FIRESTORE_JOB_COLLECTION).document(run_id).get()
+        except Exception:
+            return None
+        if not getattr(snapshot, "exists", False):
+            return None
+        return snapshot.to_dict() or {}
 
     def _cleanup_stale_public_locks(self, policy_result=None) -> int:
         stale_after_sec = _lock_stale_after_sec(policy_result)
@@ -736,6 +976,8 @@ def _license_status(ledger: RunLedger, usage_context) -> dict[str, Any]:
             "expires_at": key_record.get("expires_at"),
             "max_parallel_runs": _max_parallel_runs(key_record),
             "active_run_id": key_record.get("active_run_id"),
+            "active_run_ids": key_record.get("active_run_ids") or [],
+            "active_run_count": _int_or_zero(key_record.get("active_run_count")),
             "active_run_started_at": key_record.get("active_run_started_at"),
             "active_run_status": key_record.get("active_run_status"),
         }
@@ -895,11 +1137,158 @@ def _clear_active_run_fields(record: dict[str, Any]) -> None:
     record["active_run_status"] = None
     record["active_run_user_agent"] = None
     record["active_run_ip"] = None
+    record["active_run_count"] = 0
+    record["active_run_ids"] = []
 
 
 def _max_parallel_runs(record: dict[str, Any] | None) -> int:
     parsed = _int_or_none((record or {}).get("max_parallel_runs"))
     return max(1, parsed or 1)
+
+
+def _key_lock_record(
+    *,
+    key_id: str,
+    key_doc_id: str,
+    run_id: str,
+    now: dt.datetime,
+    stale_after_sec: float,
+    max_parallel_runs: int,
+    user_agent: str | None,
+    ip_address: str | None,
+) -> dict[str, Any]:
+    return json_safe(
+        {
+            "run_id": run_id,
+            "key_id": key_id,
+            "key_doc_id": key_doc_id,
+            "status": "running",
+            "started_at": now,
+            "stale_after_sec": float(stale_after_sec),
+            "max_parallel_runs": int(max_parallel_runs),
+            "active_run_user_agent": user_agent,
+            "active_run_ip": ip_address,
+        }
+    )
+
+
+def _legacy_key_lock_record(
+    record: dict[str, Any],
+    key_id: str,
+    key_doc_id: str,
+    stale_after_sec: float,
+) -> dict[str, Any]:
+    return {
+        "run_id": record.get("active_run_id"),
+        "key_id": key_id,
+        "key_doc_id": key_doc_id,
+        "status": record.get("active_run_status") or "running",
+        "started_at": record.get("active_run_started_at"),
+        "stale_after_sec": stale_after_sec,
+        "max_parallel_runs": _max_parallel_runs(record),
+        "active_run_user_agent": record.get("active_run_user_agent"),
+        "active_run_ip": record.get("active_run_ip"),
+    }
+
+
+def _key_lock_doc_id(key_doc_id: str, run_id: str) -> str:
+    return f"{_doc_id_safe(key_doc_id)}__{_doc_id_safe(run_id)}"
+
+
+def _doc_id_safe(value: str) -> str:
+    return str(value).replace("/", "_")
+
+
+def _active_summary_updates(active_records: list[dict[str, Any]], max_parallel_runs: int) -> dict[str, Any]:
+    if not active_records:
+        return {
+            "active_run_id": None,
+            "active_run_started_at": None,
+            "active_run_status": None,
+            "active_run_user_agent": None,
+            "active_run_ip": None,
+            "active_run_count": 0,
+            "active_run_ids": [],
+            "max_parallel_runs": int(max_parallel_runs),
+            "updated_at": _server_timestamp(),
+        }
+    active_records = sorted(active_records, key=lambda record: str(record.get("started_at") or ""))
+    display_record = active_records[-1]
+    return {
+        "active_run_id": display_record.get("run_id"),
+        "active_run_started_at": display_record.get("started_at"),
+        "active_run_status": "running",
+        "active_run_user_agent": display_record.get("active_run_user_agent"),
+        "active_run_ip": display_record.get("active_run_ip"),
+        "active_run_count": len(active_records),
+        "active_run_ids": [record.get("run_id") for record in active_records if record.get("run_id")],
+        "max_parallel_runs": int(max_parallel_runs),
+        "updated_at": _server_timestamp(),
+    }
+
+
+def _apply_active_summary_to_record(
+    record: dict[str, Any],
+    active_records: list[dict[str, Any]],
+    max_parallel_runs: int,
+) -> None:
+    updates = _active_summary_updates(active_records, max_parallel_runs)
+    record.update(updates)
+
+
+def _active_lock_summary(
+    active_records: list[dict[str, Any]],
+    max_parallel_runs: int,
+    fallback_count: int | None = None,
+) -> dict[str, Any]:
+    active_records = list(active_records or [])
+    first = active_records[0] if active_records else {}
+    active_run_ids = [record.get("run_id") for record in active_records if record.get("run_id")]
+    active_count = len(active_run_ids) if active_run_ids else _int_or_zero(fallback_count)
+    return {
+        "active_run_id": first.get("run_id"),
+        "active_run_ids": active_run_ids,
+        "active_run_count": active_count,
+        "active_run_started_at": first.get("started_at"),
+        "active_run_status": first.get("status") or "running",
+        "max_parallel_runs": max_parallel_runs,
+    }
+
+
+def _key_lock_is_stale(
+    lock_record: dict[str, Any],
+    stale_after_sec: float,
+    now: dt.datetime | None = None,
+    *,
+    job_record: dict[str, Any] | None = None,
+) -> bool:
+    return _key_lock_stale_reason(lock_record, stale_after_sec, now, job_record) is not None
+
+
+def _key_lock_stale_reason(
+    lock_record: dict[str, Any],
+    stale_after_sec: float,
+    now: dt.datetime | None = None,
+    job_record: dict[str, Any] | None = None,
+) -> str | None:
+    status = str((job_record or {}).get("status") or "").strip().lower()
+    if status in {"completed", "failed", "cancelled"}:
+        return f"job_status_{status}"
+    heartbeat_at = (job_record or {}).get("heartbeat_at")
+    heartbeat_stale_after_sec = _heartbeat_stale_after_sec()
+    if heartbeat_at and _active_lock_is_stale(heartbeat_at, heartbeat_stale_after_sec, now):
+        return "job_heartbeat_stale"
+    started_at = lock_record.get("started_at") or lock_record.get("active_run_started_at")
+    if _active_lock_is_stale(started_at, stale_after_sec, now):
+        return "lock_age_stale"
+    return None
+
+
+def _heartbeat_stale_after_sec() -> float:
+    configured = _float_or_none(os.getenv("QAOA_RUN_LOCK_HEARTBEAT_STALE_SEC"))
+    if configured is not None and configured > 0:
+        return configured
+    return 1800.0
 
 
 def _public_max_parallel_runs(usage_context) -> int:
@@ -980,6 +1369,8 @@ def _raise_active_run_exists(key_id: str, active: dict[str, Any], stale_after_se
         {
             "key_id": key_id,
             "active_run_id": active.get("active_run_id"),
+            "active_run_ids": active.get("active_run_ids") or [],
+            "active_run_count": _int_or_zero(active.get("active_run_count")),
             "active_run_started_at": json_safe(active.get("active_run_started_at")),
             "active_run_status": active.get("active_run_status"),
             "max_parallel_runs": _max_parallel_runs(active),

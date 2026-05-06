@@ -62,6 +62,10 @@ def _configure_limited_qaoa(optimizer, runtime_inputs, max_qubits: int | None = 
     optimizer.qaoa_p = int(runtime_inputs.layers)
     optimizer.qaoa_maxiter = int(runtime_inputs.iterations)
     optimizer.qaoa_multistart_restarts = int(runtime_inputs.restarts)
+    if getattr(runtime_inputs, "random_seed", None) is not None:
+        seed = int(runtime_inputs.random_seed)
+        optimizer.rng_seed = seed
+        optimizer.rng_seed_override = seed
 
     optimizer.qaoa_layerwise_warm_start = bool(getattr(runtime_inputs, "warm_start", False))
     if getattr(runtime_inputs, "restart_perturbation", None) is not None:
@@ -100,6 +104,7 @@ def _configure_limited_qaoa(optimizer, runtime_inputs, max_qubits: int | None = 
         "restarts": int(runtime_inputs.restarts),
         "warm_start": bool(getattr(runtime_inputs, "warm_start", False)),
         "restart_perturbation": getattr(runtime_inputs, "restart_perturbation", None),
+        "random_seed": getattr(runtime_inputs, "random_seed", None),
     }
 
 

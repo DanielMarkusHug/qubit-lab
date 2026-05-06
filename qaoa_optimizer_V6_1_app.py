@@ -654,10 +654,13 @@ class OptimizerGUIV61:
 
         option_rows["Ticker"] = option_rows["Ticker"].astype(str)
         option_rows["Decision Role"] = option_rows.apply(QAOAOptimizerV6._decision_role_from_row, axis=1)
-        if "Approx Cost USD" in option_rows.columns:
-            option_rows["Approx Cost USD"] = pd.to_numeric(option_rows["Approx Cost USD"], errors="coerce").fillna(0.0)
+        if "Indicative Market Cost USD" in option_rows.columns:
+            option_rows["Indicative Market Cost USD"] = pd.to_numeric(
+                option_rows["Indicative Market Cost USD"],
+                errors="coerce",
+            ).fillna(0.0)
         else:
-            option_rows["Approx Cost USD"] = 0.0
+            option_rows["Indicative Market Cost USD"] = 0.0
 
         fixed_rows = option_rows.loc[option_rows["Decision Role"].eq("fixed")]
         variable_rows = option_rows.loc[option_rows["Decision Role"].eq("variable")]
@@ -670,7 +673,7 @@ class OptimizerGUIV61:
             "variable_assets": int(variable_rows["Ticker"].nunique()),
             "qubits": int(len(variable_rows)),
             "budget": settings.get("budget_usd", np.nan),
-            "fixed_usd": float(fixed_rows["Approx Cost USD"].sum()),
+            "fixed_usd": float(fixed_rows["Indicative Market Cost USD"].sum()),
         }
 
     def _update_workbook_summary(self):
@@ -1736,10 +1739,10 @@ class OptimizerGUIV61:
         combined = pd.concat(frames, ignore_index=True)
         if "probability" not in combined.columns:
             combined["probability"] = np.nan
-        if "selected_usd" in combined.columns and "Approx Cost USD" in combined.columns:
+        if "selected_usd" in combined.columns and "Indicative Market Cost USD" in combined.columns:
             combined["portfolio_weight"] = np.where(
                 combined["selected_usd"].fillna(0) > 0,
-                combined["Approx Cost USD"].fillna(0) / combined["selected_usd"].replace(0, np.nan),
+                combined["Indicative Market Cost USD"].fillna(0) / combined["selected_usd"].replace(0, np.nan),
                 np.nan,
             )
         return combined
@@ -1773,7 +1776,7 @@ class OptimizerGUIV61:
             options_df["decision_id"] = [
                 f"{ticker}_opt{i + 1}" for i, ticker in enumerate(options_df["Ticker"].astype(str).tolist())
             ]
-        for col in ["Approx Cost USD", "Expected Return Proxy", "Annual Volatility", "Shares"]:
+        for col in ["Indicative Market Cost USD", "Expected Return Proxy", "Annual Volatility", "Shares"]:
             if col in options_df.columns:
                 options_df[col] = pd.to_numeric(options_df[col], errors="coerce")
         options_df["Decision Role"] = options_df.apply(QAOAOptimizerV6._decision_role_from_row, axis=1)
@@ -1815,7 +1818,7 @@ class OptimizerGUIV61:
                 "Company": option.get("Company", option.get("Ticker", "")),
                 "Option Label": option.get("Option Label", ""),
                 "Shares": option.get("Shares", np.nan),
-                "Approx Cost USD": option.get("Approx Cost USD", np.nan),
+                "Indicative Market Cost USD": option.get("Indicative Market Cost USD", np.nan),
                 "Expected Return Proxy": option.get("Expected Return Proxy", np.nan),
                 "Annual Volatility": option.get("Annual Volatility", np.nan),
                 "decision_id": option.get("decision_id", ""),
@@ -1885,12 +1888,12 @@ class OptimizerGUIV61:
                 "Company",
                 "Option Label",
                 "Shares",
-                "Approx Cost USD",
+                "Indicative Market Cost USD",
                 "portfolio_weight",
             ]
             asset_df = group[asset_cols].copy()
             asset_df["Shares"] = asset_df["Shares"].apply(lambda v: "" if pd.isna(v) else f"{float(v):.4f}")
-            asset_df["Approx Cost USD"] = asset_df["Approx Cost USD"].apply(
+            asset_df["Indicative Market Cost USD"] = asset_df["Indicative Market Cost USD"].apply(
                 lambda v: "" if pd.isna(v) else f"{float(v):,.2f}"
             )
             asset_df["portfolio_weight"] = asset_df["portfolio_weight"].apply(
@@ -2679,7 +2682,7 @@ class OptimizerGUIV61:
                 "Company",
                 "Option Label",
                 "Shares",
-                "Approx Cost USD",
+                "Indicative Market Cost USD",
                 "portfolio_weight",
                 "selected_usd",
                 "portfolio_return",
@@ -2697,7 +2700,7 @@ class OptimizerGUIV61:
             "selected_usd": lambda v: f"{float(v):,.2f}",
             "fixed_usd": lambda v: f"{float(v):,.2f}",
             "variable_selected_usd": lambda v: f"{float(v):,.2f}",
-            "Approx Cost USD": lambda v: f"{float(v):,.2f}",
+            "Indicative Market Cost USD": lambda v: f"{float(v):,.2f}",
             "cash_weight": lambda v: f"{100.0 * float(v):.2f}%",
             "portfolio_return": lambda v: f"{float(v):.6f}",
             "portfolio_vol": lambda v: f"{float(v):.6f}",

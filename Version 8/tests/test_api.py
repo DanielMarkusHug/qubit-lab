@@ -152,6 +152,32 @@ def _limited_workbook(tmp_path, qubits: int = 4, source_workbook: Path = SAMPLE_
     return workbook_path
 
 
+def _indicative_cost_workbook(
+    tmp_path,
+    *,
+    keep_legacy: bool = False,
+    add_usd: float = 0.0,
+    source_workbook: Path = SAMPLE_WORKBOOK,
+) -> Path:
+    workbook_path = tmp_path / "indicative_market_cost_input.xlsx"
+    workbook = load_workbook(source_workbook)
+    assets = workbook["Assets"]
+    headers = [cell.value for cell in assets[2]]
+    approx_col = headers.index("Approx Cost USD") + 1
+    if keep_legacy:
+        indicative_col = assets.max_column + 1
+        assets.cell(2, indicative_col).value = "Indicative Market Cost USD"
+    else:
+        indicative_col = approx_col
+        assets.cell(2, indicative_col).value = "Indicative Market Cost USD"
+    for row_idx in range(3, assets.max_row + 1):
+        value = assets.cell(row_idx, approx_col).value
+        if value not in (None, ""):
+            assets.cell(row_idx, indicative_col).value = float(value) + float(add_usd)
+    workbook.save(workbook_path)
+    return workbook_path
+
+
 def _enable_temp_ledger(monkeypatch, tmp_path):
     ledger_path = tmp_path / "run_ledger.json"
     monkeypatch.setenv("QAOA_RQP_ENABLE_LOCAL_LEDGER", "1")
@@ -260,6 +286,9 @@ class _FakeFirestoreClient:
             "qaoa_usage_events": {},
             "qaoa_public_run_state": {},
             "qaoa_public_run_locks": {},
+            "qaoa_key_run_state": {},
+            "qaoa_key_run_locks": {},
+            "qaoa_jobs": {},
         }
         self.positional_where_calls = 0
         self.keyword_where_calls = 0
@@ -336,10 +365,12 @@ def _policy_result():
             warm_start=False,
             qaoa_shots=None,
             restart_perturbation=None,
+            random_seed=None,
         ),
         effective_settings={
             "qaoa_shots_display": "not_applicable",
             "shots_mode": "disabled",
+            "random_seed": None,
         },
     )
 
@@ -511,6 +542,9 @@ def test_capabilities():
     assert payload["qaoa_limited_effective_limits"]["public_demo"]["max_layers"] == 1
     assert payload["usage_levels"]["internal_power"]["qaoa_limited_limits"]["max_qubits"] == 24
     assert payload["qaoa_limited_effective_limits"]["tester"]["max_qubits"] == 16
+    assert payload["qaoa_limited_effective_limits"]["tester"]["max_layers"] == 6
+    assert payload["qaoa_limited_effective_limits"]["tester"]["max_iterations"] == 200
+    assert payload["qaoa_limited_effective_limits"]["tester"]["max_restarts"] == 3
     assert payload["qaoa_limited_effective_limits"]["internal_power"]["max_layers"] == 8
     assert "demo_keys" not in payload
     assert "KEY_HASH_SECRET" not in str(payload)
@@ -539,6 +573,32 @@ def test_async_submission_creates_job_and_returns_job_id(monkeypatch, tmp_path):
     assert "key_hash" in job
     assert ledger.public_acquired is True
     assert ledger.public_released is False
+
+
+def test_async_submission_stores_effective_random_seed(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", lambda job_id: {"triggered": False, "mode": "test"})
+    def _seeded_policy_result(*_args, **_kwargs):
+        base = _policy_result()
+        base.runtime_inputs.random_seed = 987
+        base.effective_settings["random_seed"] = 987
+        base.effective_settings["rng_seed"] = 987
+        return base
+
+    monkeypatch.setattr(main_module, "validate_problem_policy", _seeded_policy_result)
+
+    response = _post_async(headers={"X-API-Key": "DEMO-123"}, mode="classical_only", random_seed="987")
+    payload = response.get_json()
+    job = get_job_store().get_job(payload["job_id"])
+
+    assert response.status_code == 202
+    assert job["settings"]["random_seed"] == "987"
+    assert job["settings"]["rng_seed"] == "987"
+    assert job["settings"]["effective_settings"]["random_seed"] == 987
+    assert job["settings"]["runtime_inputs"]["random_seed"] == 987
+    assert any("Random seed: 987" in line for line in job["logs_tail"])
 
 
 def test_async_status_and_result_before_completion(monkeypatch, tmp_path):
@@ -696,7 +756,7 @@ def test_async_authenticated_active_lock_rejection(monkeypatch, tmp_path):
     assert ledger.released is False
 
 
-def _create_local_worker_job(tmp_path, monkeypatch, *, job_id: str = "job_test_worker_001"):
+def _create_local_worker_job(tmp_path, monkeypatch, *, job_id: str = "job_test_worker_001", settings: dict | None = None):
     monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
     usage_level = load_usage_config()["usage_levels"]["public_demo"]
     usage_context = UsageContext(
@@ -712,7 +772,7 @@ def _create_local_worker_job(tmp_path, monkeypatch, *, job_id: str = "job_test_w
             job_id=job_id,
             mode="classical_only",
             response_level="full",
-            settings={"mode": "classical_only", "response_level": "full"},
+            settings=settings or {"mode": "classical_only", "response_level": "full"},
             input_info=input_info,
             usage_context=usage_context,
             policy_result=_policy_result(),
@@ -766,6 +826,58 @@ def test_worker_marks_completed_and_releases_public_lock(monkeypatch, tmp_path):
     result_response = app.test_client().get(f"/jobs/{job_id}/result")
     assert result_response.status_code == 200
     assert result_response.get_json()["run_id"] == job_id
+
+
+def test_worker_preserves_random_seed_in_final_result(monkeypatch, tmp_path):
+    settings = {"mode": "classical_only", "response_level": "full", "random_seed": "321", "rng_seed": "321"}
+    job_id = _create_local_worker_job(tmp_path, monkeypatch, job_id="job_test_worker_seed", settings=settings)
+    ledger = _RouteLockLedger()
+    optimizer = SimpleNamespace(
+        n=3,
+        qaoa_p=1,
+        qaoa_maxiter=10,
+        qaoa_multistart_restarts=1,
+        qaoa_layerwise_warm_start=False,
+        qaoa_shots=None,
+        classical_results=[{"bitstring": "101"}],
+        progress_callback=lambda _message, _progress=None: None,
+    )
+
+    def _seeded_policy_result(*_args, **_kwargs):
+        base = _policy_result()
+        base.runtime_inputs.random_seed = 321
+        base.effective_settings["random_seed"] = 321
+        base.effective_settings["rng_seed"] = 321
+        return base
+
+    def _seeded_response(run_id, *_args, **kwargs):
+        policy = kwargs["policy_result"]
+        return {
+            "status": "completed",
+            "run_id": run_id,
+            "model_version": "8.0.0",
+            "mode": "classical_only",
+            "diagnostics": {
+                "random_seed": policy.runtime_inputs.random_seed,
+                "effective_settings": policy.effective_settings,
+            },
+        }
+
+    monkeypatch.setattr(job_worker_module, "get_run_ledger", lambda: ledger)
+    monkeypatch.setattr(job_worker_module, "validate_required_input_sheets", lambda _path: None)
+    monkeypatch.setattr(job_worker_module, "workbook_structure", lambda _path: {})
+    monkeypatch.setattr(job_worker_module, "build_qubo_from_workbook", lambda _path, _log, _settings=None: optimizer)
+    monkeypatch.setattr(job_worker_module, "validate_problem_policy", _seeded_policy_result)
+    monkeypatch.setattr(job_worker_module, "run_classical_optimizer", lambda current, logs: (current, logs))
+    monkeypatch.setattr(job_worker_module, "build_classical_response", _seeded_response)
+
+    job_worker_module.run_job(job_id)
+    result = app.test_client().get(f"/jobs/{job_id}/result").get_json()
+    job = get_job_store().get_job(job_id)
+
+    assert result["diagnostics"]["random_seed"] == 321
+    assert result["diagnostics"]["effective_settings"]["random_seed"] == 321
+    assert any("Random seed: 321" in line for line in job["logs_tail"])
 
 
 def test_worker_marks_failed_and_releases_public_lock(monkeypatch, tmp_path):
@@ -1143,6 +1255,74 @@ def test_firestore_run_lock_different_keys_can_run_independently():
     assert client.data["qaoa_keys"]["firestore-demo-002"]["active_run_id"] == "run-second"
 
 
+def test_firestore_run_lock_allows_same_key_until_max_parallel_runs():
+    client = _FakeFirestoreClient()
+    client.data["qaoa_keys"]["firestore-demo-001"] = {
+        "key_id": "firestore-demo-001",
+        "usage_level": "qualified_demo",
+        "status": "active",
+        "max_runs": 10,
+        "used_runs": 0,
+        "remaining_runs": 10,
+        "max_parallel_runs": 3,
+        "expires_at": "2099-01-01T00:00:00Z",
+    }
+    key_record = {
+        **client.data["qaoa_keys"]["firestore-demo-001"],
+        "level": "qualified_demo",
+        "_firestore_doc_id": "firestore-demo-001",
+    }
+    ledger = FirestoreRunLedger(client=client, transactional=_identity_transactional)
+
+    for index in range(1, 4):
+        lock_info = ledger.acquire_run_lock(key_record, f"run-{index}", policy_result=_policy_result())
+        assert lock_info["acquired"] is True
+        assert lock_info["active_run_count"] == index
+
+    assert client.data["qaoa_key_run_state"]["firestore-demo-001"]["active_count"] == 3
+    assert client.data["qaoa_keys"]["firestore-demo-001"]["active_run_count"] == 3
+    assert set(client.data["qaoa_keys"]["firestore-demo-001"]["active_run_ids"]) == {"run-1", "run-2", "run-3"}
+
+    with pytest.raises(ApiError) as exc_info:
+        ledger.acquire_run_lock(key_record, "run-4", policy_result=_policy_result())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "active_run_exists"
+    assert exc_info.value.details["active_run_count"] == 3
+    assert exc_info.value.details["max_parallel_runs"] == 3
+    assert set(exc_info.value.details["active_run_ids"]) == {"run-1", "run-2", "run-3"}
+
+
+def test_firestore_run_lock_release_one_parallel_run_leaves_others_active():
+    client = _FakeFirestoreClient()
+    client.data["qaoa_keys"]["firestore-demo-001"] = {
+        "key_id": "firestore-demo-001",
+        "usage_level": "qualified_demo",
+        "status": "active",
+        "max_runs": 10,
+        "used_runs": 0,
+        "remaining_runs": 10,
+        "max_parallel_runs": 3,
+        "expires_at": "2099-01-01T00:00:00Z",
+    }
+    key_record = {
+        **client.data["qaoa_keys"]["firestore-demo-001"],
+        "level": "qualified_demo",
+        "_firestore_doc_id": "firestore-demo-001",
+    }
+    ledger = FirestoreRunLedger(client=client, transactional=_identity_transactional)
+    ledger.acquire_run_lock(key_record, "run-1", policy_result=_policy_result())
+    ledger.acquire_run_lock(key_record, "run-2", policy_result=_policy_result())
+
+    assert ledger.release_run_lock(key_record, "run-1") is True
+
+    assert client.data["qaoa_key_run_locks"]["firestore-demo-001__run-1"]["status"] == "released"
+    assert client.data["qaoa_key_run_locks"]["firestore-demo-001__run-2"]["status"] == "running"
+    assert client.data["qaoa_key_run_state"]["firestore-demo-001"]["active_count"] == 1
+    assert client.data["qaoa_keys"]["firestore-demo-001"]["active_run_count"] == 1
+    assert client.data["qaoa_keys"]["firestore-demo-001"]["active_run_ids"] == ["run-2"]
+
+
 def test_firestore_run_lock_stale_lock_is_cleared_and_overwritten():
     client = _FakeFirestoreClient()
     old_started_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=3)
@@ -1171,6 +1351,47 @@ def test_firestore_run_lock_stale_lock_is_cleared_and_overwritten():
     assert lock_info["stale_lock_cleared"] is True
     assert lock_info["previous_active_run_id"] == "run-stale"
     assert client.data["qaoa_keys"]["firestore-demo-001"]["active_run_id"] == "run-new"
+
+
+def test_firestore_run_lock_clears_finished_job_lock_before_capacity_check():
+    client = _FakeFirestoreClient()
+    client.data["qaoa_keys"]["firestore-demo-001"] = {
+        "key_id": "firestore-demo-001",
+        "usage_level": "qualified_demo",
+        "status": "active",
+        "max_runs": 10,
+        "used_runs": 0,
+        "remaining_runs": 10,
+        "max_parallel_runs": 1,
+        "expires_at": "2099-01-01T00:00:00Z",
+    }
+    started_at = dt.datetime.now(dt.timezone.utc)
+    client.data["qaoa_key_run_state"]["firestore-demo-001"] = {"active_count": 1, "max_parallel_runs": 1}
+    client.data["qaoa_key_run_locks"]["firestore-demo-001__run-finished"] = {
+        "run_id": "run-finished",
+        "key_id": "firestore-demo-001",
+        "key_doc_id": "firestore-demo-001",
+        "status": "running",
+        "started_at": started_at,
+    }
+    client.data["qaoa_jobs"]["run-finished"] = {
+        "job_id": "run-finished",
+        "status": "failed",
+        "heartbeat_at": started_at,
+    }
+    key_record = {
+        **client.data["qaoa_keys"]["firestore-demo-001"],
+        "level": "qualified_demo",
+        "_firestore_doc_id": "firestore-demo-001",
+    }
+    ledger = FirestoreRunLedger(client=client, transactional=_identity_transactional)
+
+    lock_info = ledger.acquire_run_lock(key_record, "run-new", policy_result=_policy_result())
+
+    assert lock_info["acquired"] is True
+    assert client.data["qaoa_key_run_locks"]["firestore-demo-001__run-finished"]["status"] == "stale_released"
+    assert client.data["qaoa_key_run_locks"]["firestore-demo-001__run-new"]["status"] == "running"
+    assert client.data["qaoa_key_run_state"]["firestore-demo-001"]["active_count"] == 1
 
 
 def test_run_qaoa_releases_lock_in_finally_on_success(monkeypatch):
@@ -1394,6 +1615,8 @@ def test_key_admin_create_writes_lock_fields_and_single_raw_key(monkeypatch, cap
     assert "qlab_generated-secret" not in json.dumps(stored, default=str)
     assert stored["max_parallel_runs"] == 3
     assert stored["active_run_id"] is None
+    assert stored["active_run_ids"] == []
+    assert stored["active_run_count"] == 0
     assert stored["active_run_started_at"] is None
     assert stored["active_run_status"] is None
     assert stored["active_run_user_agent"] is None
@@ -1417,6 +1640,8 @@ def test_key_admin_show_handles_missing_lock_fields(capsys):
     assert "key_hash" not in payload
     assert payload["max_parallel_runs"] == 1
     assert payload["active_run_id"] == "none"
+    assert payload["active_run_ids"] == []
+    assert payload["active_run_count"] == 0
     assert payload["active_run_started_at"] == "none"
     assert payload["active_run_status"] == "idle"
     assert payload["active_run_user_agent"] == "none"
@@ -1462,10 +1687,19 @@ def test_key_admin_clear_lock_clears_fields(capsys):
     client.data["qaoa_keys"]["locked-key"] = {
         "key_id": "locked-key",
         "active_run_id": "run-active",
+        "active_run_ids": ["run-active"],
+        "active_run_count": 1,
         "active_run_started_at": "2026-01-01T00:00:00Z",
         "active_run_status": "running",
         "active_run_user_agent": "pytest",
         "active_run_ip": "127.0.0.1",
+    }
+    client.data["qaoa_key_run_state"]["locked-key"] = {"active_count": 1}
+    client.data["qaoa_key_run_locks"]["locked-key__run-active"] = {
+        "run_id": "run-active",
+        "key_id": "locked-key",
+        "key_doc_id": "locked-key",
+        "status": "running",
     }
 
     assert key_admin_firestore._clear_lock(client, "locked-key", confirm=True) == 0
@@ -1474,11 +1708,15 @@ def test_key_admin_clear_lock_clears_fields(capsys):
 
     assert "active_run_lock: cleared" in output
     assert stored["active_run_id"] is None
+    assert stored["active_run_ids"] == []
+    assert stored["active_run_count"] == 0
     assert stored["active_run_started_at"] is None
     assert stored["active_run_status"] is None
     assert stored["active_run_user_agent"] is None
     assert stored["active_run_ip"] is None
     assert "cleared_lock_at" in stored
+    assert client.data["qaoa_key_run_state"]["locked-key"]["active_count"] == 0
+    assert client.data["qaoa_key_run_locks"]["locked-key__run-active"]["status"] == "admin_cleared"
 
 
 def test_key_admin_usage_uses_field_filter_without_positional_where(monkeypatch, capsys):
@@ -1743,6 +1981,18 @@ def test_public_demo_default_response_level_is_full(tmp_path):
     assert payload["diagnostics"]["effective_settings"]["shots_mode"] == "disabled"
 
 
+def test_classical_run_reports_indicative_market_cost_rows(tmp_path):
+    limited = _limited_workbook(tmp_path, qubits=4)
+    workbook_path = _indicative_cost_workbook(tmp_path, source_workbook=limited)
+    response = _post_run_file(workbook_path, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["diagnostics"]["cost_column_used"] == "Indicative Market Cost USD"
+    assert payload["selected_blocks"]
+    assert "Indicative Market Cost USD" in payload["selected_blocks"][0]
+
+
 def test_all_usage_levels_accept_all_response_levels():
     usage_levels = load_usage_config()["usage_levels"]
 
@@ -1803,6 +2053,41 @@ def test_inspect_workbook_uses_workbook_settings_when_form_missing():
     assert effective["qaoa_shots_display"] == "not_applicable"
 
 
+def test_inspect_workbook_uses_indicative_market_cost_column(tmp_path):
+    workbook_path = _indicative_cost_workbook(tmp_path)
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["diagnostics"]["cost_column_used"] == "Indicative Market Cost USD"
+    assert payload["diagnostics"]["cost_column_internal"] == "Indicative Market Cost USD"
+    assert payload["diagnostics"]["cost_column_normalized"] is False
+    assert payload["workbook_summary"]["cost_column_used"] == "Indicative Market Cost USD"
+
+
+def test_indicative_market_cost_overrides_legacy_approx_cost_when_both_exist(tmp_path):
+    workbook_path = _indicative_cost_workbook(tmp_path, keep_legacy=True, add_usd=1.0)
+    workbook = load_workbook(workbook_path, read_only=True, data_only=True)
+    assets = workbook["Assets"]
+    headers = [cell.value for cell in assets[2]]
+    indicative_col = headers.index("Indicative Market Cost USD") + 1
+    expected_universe = sum(
+        float(assets.cell(row_idx, indicative_col).value)
+        for row_idx in range(3, assets.max_row + 1)
+        if assets.cell(row_idx, indicative_col).value not in (None, "")
+    )
+    workbook.close()
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["workbook_summary"]["variable_candidate_universe"] == pytest.approx(expected_universe)
+    assert payload["diagnostics"]["cost_column_conflicting_row_count"] > 0
+    assert any("Indicative Market Cost USD was used" in warning for warning in payload["diagnostics"]["workbook_warnings"])
+
+
 def test_inspect_workbook_form_values_override_workbook_settings():
     response = _post_inspect(
         headers={"X-API-Key": "DEMO-123"},
@@ -1832,6 +2117,55 @@ def test_inspect_workbook_form_values_override_workbook_settings():
     assert effective["sources"]["layers"] == "form"
     assert effective["sources"]["lambda_budget"] == "form"
     assert payload["runtime_estimate"]["basis"]["layers"] == 2
+
+
+def test_inspect_workbook_random_seed_form_field_is_effective():
+    response = _post_inspect(headers={"X-API-Key": "DEMO-123"}, mode="classical_only", random_seed="12345")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["diagnostics"]["effective_settings"]["random_seed"] == 12345
+    assert payload["diagnostics"]["effective_settings"]["rng_seed"] == 12345
+    assert payload["diagnostics"]["effective_settings"]["sources"]["random_seed"] == "form"
+    assert payload["diagnostics"]["runtime_inputs"]["random_seed"] == 12345
+    assert payload["diagnostics"]["random_seed"] == 12345
+    assert any("Random seed: 12345" in line for line in payload["diagnostics"]["logs"])
+
+
+def test_inspect_workbook_without_random_seed_still_uses_workbook_seed_if_present():
+    response = _post_inspect(headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["diagnostics"]["effective_settings"]["random_seed"] == 42
+    assert payload["diagnostics"]["effective_settings"]["sources"]["random_seed"] == "workbook"
+
+
+def test_inspect_workbook_random_seed_zero_is_valid():
+    response = _post_inspect(headers={"X-API-Key": "DEMO-123"}, mode="classical_only", random_seed="0")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["diagnostics"]["effective_settings"]["random_seed"] == 0
+    assert payload["diagnostics"]["random_seed"] == 0
+
+
+def test_inspect_workbook_rejects_non_integer_random_seed():
+    response = _post_inspect(headers={"X-API-Key": "DEMO-123"}, mode="classical_only", random_seed="not-an-int")
+    payload = response.get_json()
+
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "invalid_random_seed"
+    assert payload["error"]["details"]["field"] == "random_seed"
+
+
+def test_inspect_workbook_rejects_out_of_range_random_seed():
+    response = _post_inspect(headers={"X-API-Key": "DEMO-123"}, mode="classical_only", random_seed=str(2**32))
+    payload = response.get_json()
+
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "invalid_random_seed"
+    assert payload["error"]["details"]["max"] == 4294967295
 
 
 def test_workbook_budget_sanity_warnings_are_non_blocking():
@@ -2364,6 +2698,30 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert reporting["charts"]["qubo_breakdown_classical"].startswith("data:image/png;base64,")
 
 
+def test_qaoa_limited_same_random_seed_repeats_best_bitstring(tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=3)
+    common_fields = {
+        "mode": "qaoa_limited",
+        "response_level": "compact",
+        "layers": "1",
+        "iterations": "2",
+        "restarts": "1",
+        "warm_start": "false",
+        "random_seed": "2468",
+    }
+
+    first = _post_run_file(workbook_path, headers={"X-API-Key": "TESTER-123"}, **common_fields)
+    second = _post_run_file(workbook_path, headers={"X-API-Key": "TESTER-123"}, **common_fields)
+    first_payload = first.get_json()
+    second_payload = second.get_json()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first_payload["diagnostics"]["random_seed"] == 2468
+    assert second_payload["diagnostics"]["random_seed"] == 2468
+    assert first_payload["best_bitstring"] == second_payload["best_bitstring"]
+
+
 def test_tester_qaoa_limited_runs_14_qubit_small_workbook():
     response = _post_run(
         headers={"X-API-Key": "TESTER-123"},
@@ -2396,9 +2754,9 @@ def test_qaoa_limited_rejects_runtime_limits(tmp_path):
         workbook_path,
         headers={"X-API-Key": "TESTER-123"},
         mode="qaoa_limited",
-        qaoa_p="4",
-        qaoa_maxiter="51",
-        qaoa_multistart_restarts="3",
+        qaoa_p="7",
+        qaoa_maxiter="201",
+        qaoa_multistart_restarts="4",
     )
     payload = response.get_json()
 
@@ -2406,12 +2764,12 @@ def test_qaoa_limited_rejects_runtime_limits(tmp_path):
     assert payload["error"]["code"] == "qaoa_limited_limit_exceeded"
     assert payload["error"]["details"]["usage_level"] == "tester"
     assert payload["error"]["details"]["field"] == "layers"
-    assert payload["error"]["details"]["requested"] == 4
-    assert payload["error"]["details"]["allowed"] == 3
+    assert payload["error"]["details"]["requested"] == 7
+    assert payload["error"]["details"]["allowed"] == 6
     exceeded = {entry["field"]: entry for entry in payload["error"]["details"]["exceeded"]}
-    assert exceeded["layers"]["allowed"] == 3
-    assert exceeded["iterations"]["allowed"] == 50
-    assert exceeded["restarts"]["allowed"] == 2
+    assert exceeded["layers"]["allowed"] == 6
+    assert exceeded["iterations"]["allowed"] == 200
+    assert exceeded["restarts"]["allowed"] == 3
     assert payload["license"]["usage_level"] == "tester"
 
 
@@ -2435,7 +2793,7 @@ def test_internal_power_qaoa_limited_accepts_14_qubits_above_tester_layer_cap(mo
         headers={"X-API-Key": INTERNAL_POWER_KEY},
         mode="qaoa_limited",
         response_level="compact",
-        qaoa_p="4",
+        qaoa_p="7",
         qaoa_maxiter="10",
         qaoa_multistart_restarts="1",
     )

@@ -31,6 +31,14 @@ class Config:
         "QAOA_FIRESTORE_PUBLIC_RUN_LOCK_COLLECTION",
         "qaoa_public_run_locks",
     )
+    FIRESTORE_KEY_RUN_STATE_COLLECTION = os.getenv(
+        "QAOA_FIRESTORE_KEY_RUN_STATE_COLLECTION",
+        "qaoa_key_run_state",
+    )
+    FIRESTORE_KEY_RUN_LOCK_COLLECTION = os.getenv(
+        "QAOA_FIRESTORE_KEY_RUN_LOCK_COLLECTION",
+        "qaoa_key_run_locks",
+    )
     FIRESTORE_JOB_COLLECTION = os.getenv("QAOA_FIRESTORE_JOB_COLLECTION", "qaoa_jobs")
 
     JOB_BUCKET = os.getenv("QAOA_JOB_BUCKET")

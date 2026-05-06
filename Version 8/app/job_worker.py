@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
+import signal
 import tempfile
 import time
 import traceback
@@ -19,11 +20,16 @@ from app.job_store import get_job_store
 from app.key_store import get_key_store
 from app.qaoa_engine import QAOAExecutionError, run_qaoa_limited
 from app.qubo_builder import build_qubo_from_workbook, load_legacy_optimizer_symbols
+from app.random_seed import random_seed_display
 from app.result_writer import build_classical_response
 from app.run_ledger import get_run_ledger
 from app.schemas import ApiError, json_safe
 from app.usage_policy import usage_context_from_key_record, validate_problem_policy
 from app.workbook_diagnostics import append_workbook_warning_logs, candidate_export_log_lines, workbook_warning_log_lines
+
+
+class WorkerTerminationRequested(Exception):
+    """Raised when Cloud Run asks the worker task to terminate."""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,6 +61,7 @@ def run_job(job_id: str) -> dict[str, Any]:
     optimizer = None
     policy_result = None
     execution_started = False
+    previous_signal_handlers = _install_termination_handlers(job_id)
 
     try:
         usage_context = _usage_context_from_job(job)
@@ -89,6 +96,9 @@ def run_job(job_id: str) -> dict[str, Any]:
             reporter.update(line, progress_pct=12.0, phase="model_validation")
         _append_mode_logs(logs, mode, inspection=False)
         policy_result = validate_problem_policy(usage_context, optimizer, mode, settings)
+        seed_log = f"Random seed: {random_seed_display(policy_result.runtime_inputs.random_seed)}"
+        logs.append(seed_log)
+        reporter.update(seed_log, progress_pct=14.0, phase="model_validation")
         reporter.max_iterations = max(
             1,
             int(policy_result.runtime_inputs.layers)
@@ -251,11 +261,37 @@ def run_job(job_id: str) -> dict[str, Any]:
         job_store.append_log(job_id, f"Job failed: {_safe_error_message(exc)}", phase="failed")
         return job_store.get_job(job_id) or {}
     finally:
+        _restore_signal_handlers(previous_signal_handlers)
         if usage_context is not None:
             _release_job_lock(ledger, usage_context, job_id)
         else:
             _release_job_lock_from_job(ledger, job, job_id)
         cleanup_temp_file(tmp_path)
+
+
+def _install_termination_handlers(job_id: str) -> dict[int, Any]:
+    previous_handlers: dict[int, Any] = {}
+
+    def _handle(signum, _frame):
+        raise WorkerTerminationRequested(f"Worker received termination signal {signum} for job_id={job_id}.")
+
+    for signum in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGINT", None)):
+        if signum is None:
+            continue
+        try:
+            previous_handlers[int(signum)] = signal.getsignal(signum)
+            signal.signal(signum, _handle)
+        except Exception:
+            continue
+    return previous_handlers
+
+
+def _restore_signal_handlers(previous_handlers: dict[int, Any]) -> None:
+    for signum, handler in previous_handlers.items():
+        try:
+            signal.signal(signum, handler)
+        except Exception:
+            continue
 
 
 class JobProgressReporter:

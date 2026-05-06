@@ -146,6 +146,8 @@ def _create_key(client, args) -> int:
         "remaining_runs": max(max_runs - used_runs, 0),
         "max_parallel_runs": max_parallel_runs,
         "active_run_id": None,
+        "active_run_ids": [],
+        "active_run_count": 0,
         "active_run_started_at": None,
         "active_run_status": None,
         "active_run_user_agent": None,
@@ -231,9 +233,21 @@ def _clear_lock(client, key_id: str, *, confirm: bool = False) -> int:
         return 2
 
     now = _utc_now()
+    _clear_per_run_lock_docs(client, key_id, now)
+    client.collection(Config.FIRESTORE_KEY_RUN_STATE_COLLECTION).document(key_id).set(
+        {
+            "key_id": key_id,
+            "key_doc_id": key_id,
+            "active_count": 0,
+            "updated_at": now,
+        },
+        merge=True,
+    )
     doc_ref.set(
         {
             "active_run_id": None,
+            "active_run_ids": [],
+            "active_run_count": 0,
             "active_run_started_at": None,
             "active_run_status": None,
             "active_run_user_agent": None,
@@ -425,6 +439,29 @@ def _recent_usage_events(client, *, days: int, scan_limit: int) -> list[dict[str
     return events
 
 
+def _clear_per_run_lock_docs(client, key_id: str, cleared_at: str) -> int:
+    try:
+        snapshots = list(client.collection(Config.FIRESTORE_KEY_RUN_LOCK_COLLECTION).stream())
+    except Exception:
+        return 0
+    cleared = 0
+    for snapshot in snapshots:
+        data = snapshot.to_dict() or {}
+        if str(data.get("key_id") or data.get("key_doc_id") or "") != str(key_id):
+            continue
+        if data.get("status") != "running":
+            continue
+        client.collection(Config.FIRESTORE_KEY_RUN_LOCK_COLLECTION).document(snapshot.id).set(
+            {
+                "status": "admin_cleared",
+                "released_at": cleared_at,
+            },
+            merge=True,
+        )
+        cleared += 1
+    return cleared
+
+
 def _get_key(client, key_id: str) -> dict[str, Any]:
     snapshot = client.collection(Config.FIRESTORE_KEY_COLLECTION).document(key_id).get()
     if not getattr(snapshot, "exists", False):
@@ -445,14 +482,17 @@ def _safe_key_payload(data: dict[str, Any], *, show_hash: bool = False) -> dict[
 def _apply_lock_display_defaults(payload: dict[str, Any]) -> None:
     payload["max_parallel_runs"] = _int_or_one(payload.get("max_parallel_runs"))
     payload["active_run_id"] = _display_or_none(payload.get("active_run_id"))
+    payload["active_run_ids"] = payload.get("active_run_ids") or []
+    payload["active_run_count"] = _int_or_zero(payload.get("active_run_count"))
     payload["active_run_started_at"] = _display_or_none(payload.get("active_run_started_at"))
-    payload["active_run_status"] = payload.get("active_run_status") or "idle"
+    payload["active_run_status"] = payload.get("active_run_status") or ("running" if payload["active_run_count"] else "idle")
     payload["active_run_user_agent"] = _display_or_none(payload.get("active_run_user_agent"))
     payload["active_run_ip"] = _display_or_none(payload.get("active_run_ip"))
 
 
 def _active_run_indicator(data: dict[str, Any]) -> str:
-    return "running" if data.get("active_run_id") else "idle"
+    active_count = _int_or_zero(data.get("active_run_count"))
+    return "running" if active_count > 0 or data.get("active_run_id") else "idle"
 
 
 def _display_or_none(value) -> Any:

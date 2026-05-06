@@ -54,9 +54,9 @@ tester:
   show_identity: true
   qaoa_limited_limits:
     max_qubits: 16
-    max_layers: 3
-    max_iterations: 50
-    max_restarts: 2
+    max_layers: 6
+    max_iterations: 200
+    max_restarts: 3
     max_estimated_runtime_sec: 2700
 
 internal_power:
@@ -98,6 +98,27 @@ internal_qaoa_30:
     max_iterations: 300
     max_restarts: 3
     max_estimated_runtime_sec: 7200
+
+internal_ultra:
+  level_id: 5
+  requires_key: true
+  display_name: "Internal Ultra"
+  max_qubits: 35
+  max_layers: 10
+  max_iterations: 300
+  max_restarts: 3
+  max_estimated_runtime_sec: 2592000
+  max_upload_mb: 25
+  allowed_modes: ["classical_only", "qaoa_limited", "qaoa_full"]
+  allowed_response_levels: ["compact", "standard", "full"]
+  show_identity: true
+  max_parallel_runs: 3
+  qaoa_limited_limits:
+    max_qubits: 35
+    max_layers: 10
+    max_iterations: 300
+    max_restarts: 3
+    max_estimated_runtime_sec: 2592000
 
 runtime_estimator:
   alpha_qaoa_statevector: 0.0000005

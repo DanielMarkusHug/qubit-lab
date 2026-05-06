@@ -31,6 +31,25 @@ legacy tests, but long QAOA runs should use the async job flow.
 fields as `/run-qaoa` where practical. It validates the key, policy, workbook,
 QUBO size, runtime limits, and active-run lock before creating the job.
 
+Optional form fields include `mode`, `response_level`, `layers`, `iterations`,
+`restarts`, `warm_start`, `lambda_budget`, `lambda_variance`, `risk_free_rate`,
+`restart_perturbation`, `qaoa_shots`, and `random_seed`.
+
+`random_seed` is optional. Empty or missing means auto/unset unless the workbook
+contains a random-seed setting such as `rng_seed`. The same seed improves
+reproducibility for the same workbook, code, settings, and environment, but exact
+bit-for-bit reproducibility is not guaranteed across dependency versions or
+runtime environments. Accepted seeds are integers in the unsigned 32-bit range:
+`0 <= random_seed <= 4294967295`.
+
+The Version 8-facing workbook cost column is `Indicative Market Cost USD`.
+The optimizer core reads that column directly for both fixed holdings and
+variable blocks, then applies the existing budget normalization unchanged. For
+old workbooks, Version 8 can map a legacy `Approx Cost USD` column into
+`Indicative Market Cost USD` for compatibility. If both columns are present,
+`Indicative Market Cost USD` is used for both the classical and QAOA paths;
+differing legacy values are reported as workbook warnings.
+
 Successful submission returns quickly:
 
 ```json
@@ -49,6 +68,8 @@ Version 8 uses the existing Version 7 collections:
 
 - `qaoa_keys`
 - `qaoa_usage_events`
+- `qaoa_key_run_state`
+- `qaoa_key_run_locks`
 - `qaoa_public_run_state`
 - `qaoa_public_run_locks`
 
@@ -167,6 +188,7 @@ curl -X POST http://127.0.0.1:8080/run-qaoa-async \
   -H "X-API-Key: TESTER-123" \
   -F "mode=classical_only" \
   -F "response_level=full" \
+  -F "random_seed=12345" \
   -F "file=@/Users/danielhug/code/qubit-lab/QAOA-Optimizer/Version 3/parametric_assets_only_input_small.xlsx" \
   | python3 -m json.tool
 ```
@@ -213,7 +235,7 @@ Run:
 Current expected result:
 
 ```text
-81 passed
+99 passed
 ```
 
 ## Production Environment
@@ -246,3 +268,7 @@ QAOA_RQP_LEDGER_STORE=firestore
 - `qaoa_limited` keeps the same effective usage-level limits as Version 7.
 - The long-running worker is the only component expected to run for many
   minutes. The API service should return quickly.
+- Authenticated `max_parallel_runs` is enforced with per-run lock documents.
+  A key can run up to its configured active-run count, stale/dead locks can be
+  recovered from job status/heartbeat, and `clear-lock --confirm` remains the
+  manual admin recovery path.

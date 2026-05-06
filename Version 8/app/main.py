@@ -30,12 +30,15 @@ from app.key_store import get_key_store
 from app.license_service import require_api_key
 from app.qaoa_engine import QAOAExecutionError, raise_qaoa_full_disabled, run_qaoa_limited
 from app.qubo_builder import build_qubo_from_workbook, load_legacy_optimizer_symbols
+from app.random_seed import random_seed_display
 from app.result_writer import build_classical_response, build_inspection_response
 from app.run_ledger import get_run_ledger
 from app.schemas import ApiError, json_safe, make_job_id, make_run_id
 from app.usage_policy import (
     DEFAULT_RESPONSE_LEVEL,
+    build_effective_settings,
     capabilities_payload,
+    extract_runtime_inputs,
     generate_key_hash,
     normalize_mode,
     resolve_usage_context,
@@ -47,6 +50,7 @@ from app.usage_policy import (
 from app.workbook_diagnostics import (
     append_workbook_warning_logs,
     candidate_export_log_lines,
+    workbook_warnings,
     workbook_warning_log_lines,
 )
 
@@ -145,8 +149,8 @@ def register_routes(flask_app: Flask) -> None:
                     "budget_term": 0.125,
                 },
                 "selected_blocks": [
-                    {"Ticker": "DEMO-A", "decision_role": "variable", "Approx Cost USD": 500000.0},
-                    {"Ticker": "DEMO-C", "decision_role": "variable", "Approx Cost USD": 250000.0},
+                    {"Ticker": "DEMO-A", "decision_role": "variable", "Indicative Market Cost USD": 500000.0},
+                    {"Ticker": "DEMO-C", "decision_role": "variable", "Indicative Market Cost USD": 250000.0},
                 ],
                 "diagnostics": {
                     "message": "Dummy response only; no workbook was optimized.",
@@ -197,6 +201,7 @@ def register_routes(flask_app: Flask) -> None:
             append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
+            _append_random_seed_log(logs, policy_result)
             logs.append("Inspection only: optimization execution skipped.")
             logs.append("QAOA execution status: not executed during workbook inspection.")
             payload = build_inspection_response(
@@ -212,6 +217,12 @@ def register_routes(flask_app: Flask) -> None:
         except ApiError as exc:
             if usage_context is not None:
                 exc.license_info = ledger.safe_license_summary(usage_context)
+            if optimizer is not None:
+                exc.details = dict(exc.details or {})
+                exc.details.setdefault(
+                    "diagnostics",
+                    _inspection_error_diagnostics(usage_context, optimizer, mode, request.form, locals().get("logs", [])),
+                )
             raise
         except _legacy_optimization_error_type() as exc:
             logger.info("Optimizer validation error during workbook inspection: %s", exc)
@@ -263,6 +274,7 @@ def register_routes(flask_app: Flask) -> None:
             append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=False)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
+            _append_random_seed_log(logs, policy_result)
 
             if mode == "qaoa_full":
                 raise_qaoa_full_disabled(submitted_mode=submitted_mode)
@@ -549,6 +561,7 @@ def register_routes(flask_app: Flask) -> None:
             logs.extend(warning_lines)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
+            _append_random_seed_log(logs, policy_result)
 
             if mode == "qaoa_full":
                 raise_qaoa_full_disabled(submitted_mode=submitted_mode)
@@ -595,6 +608,11 @@ def register_routes(flask_app: Flask) -> None:
             job_created = True
             for line in warning_lines:
                 job_store.append_log(job_id, line, phase="validation")
+            job_store.append_log(
+                job_id,
+                f"Random seed: {random_seed_display(policy_result.runtime_inputs.random_seed)}",
+                phase="validation",
+            )
             trigger_info = trigger_cloud_run_job(job_id)
             if trigger_info.get("triggered"):
                 job_store.update_job(job_id, {"trigger": json_safe(trigger_info), "heartbeat_at": _utc_now()})
@@ -781,6 +799,45 @@ def _append_mode_logs(logs: list[str], mode: str, inspection: bool = False) -> N
         logs.append("QAOA execution status: qaoa_full disabled for synchronous execution.")
 
 
+def _append_random_seed_log(logs: list[str], policy_result) -> None:
+    logs.append(f"Random seed: {random_seed_display(policy_result.runtime_inputs.random_seed)}")
+
+
+def _inspection_error_diagnostics(usage_context, optimizer, mode: str, form_data, logs: list[str]) -> dict:
+    diagnostics = {
+        "service": Config.SERVICE_NAME,
+        "usage_level": getattr(usage_context, "usage_level_name", None),
+        "workbook_warnings": workbook_warnings(optimizer),
+        "workbook_warning_count": len(workbook_warnings(optimizer)),
+        "cost_column_used": getattr(optimizer, "input_cost_column", None),
+        "cost_column_internal": getattr(optimizer, "internal_cost_column", None),
+        "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
+        "logs": list(logs or [])[-50:],
+    }
+    try:
+        runtime_inputs = extract_runtime_inputs(
+            optimizer,
+            form_data,
+            usage_level=getattr(usage_context, "usage_level", {}) if usage_context is not None else {},
+            mode=mode,
+        )
+        effective_settings = build_effective_settings(optimizer, mode, runtime_inputs, form_data)
+        diagnostics["runtime_inputs"] = {
+            "layers": runtime_inputs.layers,
+            "iterations": runtime_inputs.iterations,
+            "restarts": runtime_inputs.restarts,
+            "warm_start": runtime_inputs.warm_start,
+            "qaoa_shots": runtime_inputs.qaoa_shots,
+            "restart_perturbation": runtime_inputs.restart_perturbation,
+            "random_seed": runtime_inputs.random_seed,
+        }
+        diagnostics["effective_settings"] = effective_settings
+        diagnostics["random_seed"] = runtime_inputs.random_seed
+    except Exception:
+        logger.debug("Could not attach inspection diagnostics to error response.", exc_info=True)
+    return json_safe(diagnostics)
+
+
 def _elapsed(start_time: float) -> float:
     return float(max(time.perf_counter() - start_time, 0.0))
 
@@ -794,6 +851,10 @@ def _client_ip() -> str | None:
 
 def _job_settings_from_request(mode: str, response_level: str, form_data, policy_result) -> dict:
     settings = {key: str(value) for key, value in form_data.items()}
+    effective_seed = policy_result.effective_settings.get("random_seed")
+    if effective_seed is not None:
+        settings["random_seed"] = str(effective_seed)
+        settings["rng_seed"] = str(effective_seed)
     settings["mode"] = mode
     settings["response_level"] = response_level
     settings["effective_settings"] = json_safe(policy_result.effective_settings)
@@ -805,6 +866,7 @@ def _job_settings_from_request(mode: str, response_level: str, form_data, policy
             "warm_start": policy_result.runtime_inputs.warm_start,
             "qaoa_shots": policy_result.runtime_inputs.qaoa_shots,
             "restart_perturbation": policy_result.runtime_inputs.restart_perturbation,
+            "random_seed": policy_result.runtime_inputs.random_seed,
         }
     )
     return settings

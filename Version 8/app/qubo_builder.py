@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from app.cost_columns import annotate_optimizer_cost_columns, normalize_cost_column_for_legacy
+from app.random_seed import form_random_seed
 from app.schemas import ApiError
 
 
@@ -23,11 +25,14 @@ def load_legacy_optimizer_symbols():
 
 def build_qubo_from_workbook(workbook_path: Path, log_callback: Callable[[str], None], form_data: Any | None = None):
     optimizer_cls, _ = load_legacy_optimizer_symbols()
+    sanitized_log = _sanitizing_log_callback(log_callback)
+    cost_column_info = normalize_cost_column_for_legacy(workbook_path, sanitized_log)
     optimizer = optimizer_cls(
         str(workbook_path),
         refresh_override=False,
         enable_qaoa_override=False,
         enable_classical_override=True,
+        rng_seed_override=form_random_seed(form_data),
         qaoa_p_override=_form_int_override(form_data, ("qaoa_p", "layers")),
         qaoa_maxiter_override=_form_int_override(form_data, ("qaoa_maxiter", "iterations")),
         qaoa_shots_override=_form_int_override(form_data, ("qaoa_shots",)),
@@ -49,11 +54,12 @@ def build_qubo_from_workbook(workbook_path: Path, log_callback: Callable[[str], 
             ("lambda_variance", "risk_lambda", "variance_lambda"),
         ),
         risk_free_rate_override=_form_float_override(form_data, ("risk_free_rate", "risk_free_rate_annual")),
-        log_callback=_sanitizing_log_callback(log_callback),
+        log_callback=sanitized_log,
         progress_callback=lambda _message, _progress=None: None,
     )
     optimizer.load_input()
     optimizer.build_qubo()
+    annotate_optimizer_cost_columns(optimizer, cost_column_info)
     return optimizer
 
 
