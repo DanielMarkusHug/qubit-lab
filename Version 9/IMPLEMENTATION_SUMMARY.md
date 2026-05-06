@@ -13,6 +13,18 @@ baseline, keeping Version 8 deployable as-is.
 - `app/job_store.py`
 - `app/job_storage.py`
 - `app/cloud_run_jobs.py`
+- `app/type_constraints.py`
+
+## Version 9 Feature Extension
+
+- Optional exact type-budget constraints, controlled by `Additional Type
+  Constraints` and `Type A` through `Type E` settings.
+- Stable `Assets` columns: `Type A Size`, `Type B Size`, `Type C Size`,
+  `Type D Size`, and `Type E Size`.
+- Normalized QUBO penalties:
+  `lambda_k * (sum_i (type_k_size_i / budget_k) * x_i - 1)^2`.
+- Result diagnostics and candidate rows include per-type achieved amounts,
+  deviations, relative deviations, and penalty contributions.
 
 ## Preserved
 

@@ -50,6 +50,14 @@ old workbooks, Version 9 can map a legacy `Approx Cost USD` column into
 `Indicative Market Cost USD` is used for both the classical and QAOA paths;
 differing legacy values are reported as workbook warnings.
 
+Version 9 also supports 0 to 5 optional exact type-budget constraints. The
+Assets sheet may define stable numeric columns `Type A Size` through
+`Type E Size`. The Settings sheet controls them with `Additional Type
+Constraints` plus `Type X Name`, `Type X Budget`, and `Type X Budget Penalty`
+for each active type. These add normalized exact penalties of the form
+`lambda_k * (sum_i (type_k_size_i / budget_k) * x_i - 1)^2`. See
+[`docs/excel_format_v9.md`](docs/excel_format_v9.md).
+
 Successful submission returns quickly:
 
 ```json
@@ -110,6 +118,7 @@ QAOA_FIRESTORE_PUBLIC_RUN_LOCK_COLLECTION=qaoa_public_run_locks_v9
 - `progress.eta_seconds_high`
 - `latest_log`
 - `logs_tail`, capped to 50 entries
+- `additional_type_constraints` in diagnostics/result payloads when configured
 - `result.available`
 - `result.storage_path`
 - `result.summary`

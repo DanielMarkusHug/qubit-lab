@@ -11,6 +11,7 @@ from typing import Any, Callable
 from app.cost_columns import annotate_optimizer_cost_columns, normalize_cost_column_for_legacy
 from app.random_seed import form_random_seed
 from app.schemas import ApiError
+from app.type_constraints import apply_additional_type_constraints
 
 
 def load_legacy_optimizer_symbols():
@@ -24,7 +25,7 @@ def load_legacy_optimizer_symbols():
 
 
 def build_qubo_from_workbook(workbook_path: Path, log_callback: Callable[[str], None], form_data: Any | None = None):
-    optimizer_cls, _ = load_legacy_optimizer_symbols()
+    optimizer_cls, optimization_error = load_legacy_optimizer_symbols()
     sanitized_log = _sanitizing_log_callback(log_callback)
     cost_column_info = normalize_cost_column_for_legacy(workbook_path, sanitized_log)
     optimizer = optimizer_cls(
@@ -59,6 +60,11 @@ def build_qubo_from_workbook(workbook_path: Path, log_callback: Callable[[str], 
     )
     optimizer.load_input()
     optimizer.build_qubo()
+    apply_additional_type_constraints(
+        optimizer,
+        error_cls=optimization_error,
+        log_callback=sanitized_log,
+    )
     annotate_optimizer_cost_columns(optimizer, cost_column_info)
     return optimizer
 

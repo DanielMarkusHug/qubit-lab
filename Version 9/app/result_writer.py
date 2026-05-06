@@ -15,6 +15,13 @@ import pandas as pd
 from app.config import Config
 from app.cost_columns import INDICATIVE_COST_COLUMN, LEGACY_COST_COLUMN, add_indicative_cost_alias_to_frame
 from app.schemas import json_safe
+from app.type_constraints import (
+    achievements_for_bitvec,
+    constraints_for_json,
+    type_budget_term_columns,
+    type_candidate_columns,
+    type_size_columns,
+)
 from app.usage_policy import runtime_estimate_payload
 from app.workbook_diagnostics import candidate_export_diagnostics, workbook_warnings
 
@@ -25,6 +32,7 @@ BEST_METRIC_KEYS = (
     "return_term",
     "risk_term",
     "budget_term",
+    "type_budget_term",
     "qubo_reconstructed",
     "selected_usd",
     "fixed_usd",
@@ -59,6 +67,25 @@ PORTFOLIO_ROW_KEYS = (
     "Annual Volatility",
     "decision_id",
 )
+
+
+def _best_metric_keys(optimizer) -> tuple[str, ...]:
+    keys = list(BEST_METRIC_KEYS)
+    for key in type_candidate_columns(optimizer):
+        if key not in keys:
+            keys.append(key)
+    return tuple(keys)
+
+
+def _portfolio_row_keys(optimizer) -> tuple[str, ...]:
+    keys = list(PORTFOLIO_ROW_KEYS)
+    for key in type_size_columns(optimizer):
+        if key not in keys:
+            keys.append(key)
+    for key in type_candidate_columns(optimizer):
+        if key not in keys:
+            keys.append(key)
+    return tuple(keys)
 
 
 IMPORTANT_LOG_PATTERNS = (
@@ -197,10 +224,15 @@ def _build_full_classical_response(
         "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
         "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
         "cost_column_conflicting_row_count": int(getattr(optimizer, "cost_column_conflicting_row_count", 0) or 0),
-        "workbook_warnings": warnings,
-        "workbook_warning_count": len(warnings),
-        "logs": list(logs or []),
-    }
+            "workbook_warnings": warnings,
+            "workbook_warning_count": len(warnings),
+            "additional_type_constraints_count": int(
+                getattr(optimizer, "additional_type_constraints_count", 0) or 0
+            ),
+            "additional_type_constraints": constraints_for_json(optimizer),
+            "additional_type_budget_achievements": achievements_for_bitvec(optimizer, bitvec),
+            "logs": list(logs or []),
+        }
     diagnostics.update(candidate_export_diagnostics(optimizer))
 
     return json_safe(
@@ -220,6 +252,7 @@ def _build_full_classical_response(
                 "return_term": _safe_get(best, "return_term"),
                 "risk_term": _safe_get(best, "risk_term"),
                 "budget_term": _safe_get(best, "budget_term"),
+                "type_budget_term": _safe_get(best, "type_budget_term"),
                 "qubo_reconstructed": _safe_get(best, "qubo_reconstructed"),
             },
             "portfolio_metrics": {
@@ -241,9 +274,9 @@ def _build_full_classical_response(
                     "max_position_usd",
                 )
             },
-            "best_candidate": {key: _safe_get(best, key) for key in BEST_METRIC_KEYS if key in best.index},
-            "selected_blocks": _records_with_keys(selected_rows, PORTFOLIO_ROW_KEYS),
-            "top_candidates": _records_with_keys(top_candidates, BEST_METRIC_KEYS),
+            "best_candidate": {key: _safe_get(best, key) for key in _best_metric_keys(optimizer) if key in best.index},
+            "selected_blocks": _records_with_keys(selected_rows, _portfolio_row_keys(optimizer)),
+            "top_candidates": _records_with_keys(top_candidates, _best_metric_keys(optimizer)),
             "reporting": _build_reporting(optimizer, include_charts=include_reporting_charts),
             "diagnostics": diagnostics,
         }
@@ -321,6 +354,9 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
         "cost_column_conflicting_row_count",
         "workbook_warnings",
         "workbook_warning_count",
+        "additional_type_constraints_count",
+        "additional_type_constraints",
+        "additional_type_budget_achievements",
         "classical_export_requested_rows",
         "classical_export_actual_rows",
         "classical_export_cap_applied",
@@ -430,6 +466,10 @@ def build_inspection_response(
                 "cost_column_conflicting_row_count": int(
                     getattr(optimizer, "cost_column_conflicting_row_count", 0) or 0
                 ),
+                "additional_type_constraints_count": int(
+                    getattr(optimizer, "additional_type_constraints_count", 0) or 0
+                ),
+                "additional_type_constraints": constraints_for_json(optimizer),
                 "logs": cap_logs(logs, 50),
             },
         }
@@ -456,6 +496,8 @@ def build_workbook_summary(optimizer) -> dict[str, Any]:
             "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
             "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
             "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
+            "additional_type_constraints_count": int(getattr(optimizer, "additional_type_constraints_count", 0) or 0),
+            "additional_type_constraints": constraints_for_json(optimizer),
         }
     )
 
@@ -550,6 +592,9 @@ def _build_reporting_summary(optimizer) -> dict[str, Any]:
         "best_overview_return_term": _series_get(best_overview, "return_term"),
         "best_overview_risk_term": _series_get(best_overview, "risk_term"),
         "best_overview_budget_term": _series_get(best_overview, "budget_term"),
+        "best_overview_type_budget_term": _series_get(best_overview, "type_budget_term"),
+        "additional_type_constraints_count": int(getattr(optimizer, "additional_type_constraints_count", 0) or 0),
+        "additional_type_constraints": constraints_for_json(optimizer),
         "best_overview_cash_weight": _series_get(best_overview, "cash_weight"),
         "optimization_iterations": int(len(history)) if isinstance(history, pd.DataFrame) else 0,
     }
@@ -646,12 +691,34 @@ def _candidate_summary(
         "return_term": _series_get(row, "return_term"),
         "risk_term": _series_get(row, "risk_term"),
         "budget_term": _series_get(row, "budget_term"),
+        "type_budget_term": _series_get(row, "type_budget_term"),
+        "additional_type_budget_achievements": _type_achievements_from_row(row),
         "portfolio_return": _series_get(row, "portfolio_return"),
         "portfolio_vol": _series_get(row, "portfolio_vol"),
         "sharpe_like": _series_get(row, "sharpe_like"),
         "cash_weight": _series_get(row, "cash_weight"),
         "probability": _series_get(row, "probability"),
     }
+
+
+def _type_achievements_from_row(row) -> list[dict[str, Any]]:
+    achievements = []
+    for prefix in ("type_a", "type_b", "type_c", "type_d", "type_e"):
+        if _series_get(row, f"{prefix}_budget") is None:
+            continue
+        achievements.append(
+            {
+                "id": prefix,
+                "name": _series_get(row, f"{prefix}_name"),
+                "budget": _series_get(row, f"{prefix}_budget"),
+                "achieved_raw": _series_get(row, f"{prefix}_achieved"),
+                "achieved_normalized": _series_get(row, f"{prefix}_normalized_achieved"),
+                "raw_deviation": _series_get(row, f"{prefix}_deviation"),
+                "relative_deviation": _series_get(row, f"{prefix}_relative_deviation"),
+                "normalized_penalty_contribution": _series_get(row, f"{prefix}_penalty"),
+            }
+        )
+    return achievements
 
 
 def _build_reporting_charts(optimizer) -> dict[str, str | None]:
@@ -722,7 +789,11 @@ def _risk_return_chart(optimizer, metric: str, title: str) -> str | None:
 
 def _qubo_breakdown_chart(optimizer) -> str | None:
     df = _sort_df(getattr(optimizer, "classical_results", pd.DataFrame()), optimizer, "qubo_value", True).head(10)
-    terms = ("return_term", "risk_term", "budget_term")
+    terms = tuple(
+        term
+        for term in ("return_term", "risk_term", "budget_term", "type_budget_term")
+        if term != "type_budget_term" or term in df.columns
+    )
     if df is None or len(df) == 0 or not all(term in df.columns for term in terms):
         return None
 
@@ -732,7 +803,12 @@ def _qubo_breakdown_chart(optimizer) -> str | None:
     labels = [f"C{idx + 1}" for idx in range(len(df))]
     bottoms_pos = np.zeros(len(df))
     bottoms_neg = np.zeros(len(df))
-    colors = {"return_term": "#2ED8A3", "risk_term": "#FFB04D", "budget_term": "#FF5E7A"}
+    colors = {
+        "return_term": "#2ED8A3",
+        "risk_term": "#FFB04D",
+        "budget_term": "#FF5E7A",
+        "type_budget_term": "#A78BFA",
+    }
     for term in terms:
         values = pd.to_numeric(df[term], errors="coerce").fillna(0.0).to_numpy(dtype=float)
         positive = np.where(values > 0, values, 0.0)
@@ -758,7 +834,9 @@ def _quantum_qubo_breakdown_chart(optimizer) -> str | None:
 
 
 def _single_qubo_breakdown_chart(row, title: str) -> str | None:
-    terms = ("return_term", "risk_term", "budget_term")
+    terms = ["return_term", "risk_term", "budget_term"]
+    if _series_get(row, "type_budget_term") is not None:
+        terms.append("type_budget_term")
     values = []
     for term in terms:
         value = _series_get(row, term)
@@ -769,9 +847,15 @@ def _single_qubo_breakdown_chart(row, title: str) -> str | None:
     if qubo_value is None:
         return None
 
-    labels = ["Return", "Risk", "Budget", "QUBO"]
+    labels = ["Return", "Risk", "Budget"]
+    if "type_budget_term" in terms:
+        labels.append("Type")
+    labels.append("QUBO")
     heights = values + [float(qubo_value)]
-    colors = ["#2ED8A3", "#FFB04D", "#FF5E7A", "#1EC8FF"]
+    colors = ["#2ED8A3", "#FFB04D", "#FF5E7A"]
+    if "type_budget_term" in terms:
+        colors.append("#A78BFA")
+    colors.append("#1EC8FF")
     fig, ax = plt.subplots(figsize=(8, 5.2))
     _style_axis(fig, ax, title)
     ax.bar(labels, heights, color=colors, alpha=0.9)

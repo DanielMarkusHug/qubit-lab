@@ -29,6 +29,7 @@ import app.main as main_module  # noqa: E402
 import app.job_worker as job_worker_module  # noqa: E402
 import app.qaoa_engine as qaoa_engine_module  # noqa: E402
 from app.main import app, create_app  # noqa: E402
+from app.qubo_builder import build_qubo_from_workbook  # noqa: E402
 from app.key_store import FirestoreApiKeyStore  # noqa: E402
 from app.job_storage import GcsJobStorage, get_job_storage  # noqa: E402
 from app.job_store import get_job_store, initial_job_document  # noqa: E402
@@ -176,6 +177,76 @@ def _indicative_cost_workbook(
             assets.cell(row_idx, indicative_col).value = float(value) + float(add_usd)
     workbook.save(workbook_path)
     return workbook_path
+
+
+def _type_constraint_workbook(
+    tmp_path,
+    *,
+    qubits: int = 3,
+    constraint_count: int | str | float = 1,
+    include_type_a_size: bool = True,
+    include_type_b_size: bool = False,
+    type_a_budget=100.0,
+    type_a_penalty=30.0,
+    type_b_budget=50.0,
+    type_b_penalty=12.0,
+    type_a_values: list[float] | None = None,
+    type_b_values: list[float] | None = None,
+) -> Path:
+    source_path = _limited_workbook(tmp_path, qubits=qubits)
+    workbook_path = tmp_path / f"type_constraints_{len(list(tmp_path.glob('type_constraints_*.xlsx')))}.xlsx"
+    workbook = load_workbook(source_path)
+    assets = workbook["Assets"]
+    settings = workbook["Settings"]
+
+    if include_type_a_size:
+        _set_asset_column(assets, "Type A Size", type_a_values or [20.0, 50.0, 80.0, 10.0, 5.0])
+    if include_type_b_size:
+        _set_asset_column(assets, "Type B Size", type_b_values or [5.0, 15.0, 30.0, 45.0, 60.0])
+
+    _set_setting(settings, "Additional Type Constraints", constraint_count)
+    count_as_float = float(constraint_count)
+    if count_as_float >= 1:
+        _set_setting(settings, "Type A Name", "Bond")
+        _set_setting(settings, "Type A Budget", type_a_budget)
+        _set_setting(settings, "Type A Budget Penalty", type_a_penalty)
+    if count_as_float >= 2:
+        _set_setting(settings, "Type B Name", "Equity")
+        _set_setting(settings, "Type B Budget", type_b_budget)
+        _set_setting(settings, "Type B Budget Penalty", type_b_penalty)
+
+    workbook.save(workbook_path)
+    return workbook_path
+
+
+def _set_asset_column(assets, header: str, values: list[float]) -> None:
+    headers = [cell.value for cell in assets[2]]
+    if header in headers:
+        col_idx = headers.index(header) + 1
+    else:
+        col_idx = assets.max_column + 1
+        assets.cell(2, col_idx).value = header
+
+    ticker_col = headers.index("Ticker") + 1
+    value_idx = 0
+    for row_idx in range(3, assets.max_row + 1):
+        if assets.cell(row_idx, ticker_col).value in (None, ""):
+            continue
+        assets.cell(row_idx, col_idx).value = values[value_idx % len(values)]
+        value_idx += 1
+
+
+def _set_setting(settings, key: str, value) -> None:
+    headers = [cell.value for cell in settings[2]]
+    key_col = headers.index("Key") + 1
+    value_col = headers.index("Value") + 1
+    for row_idx in range(3, settings.max_row + 1):
+        if settings.cell(row_idx, key_col).value == key:
+            settings.cell(row_idx, value_col).value = value
+            return
+    row_idx = settings.max_row + 1
+    settings.cell(row_idx, key_col).value = key
+    settings.cell(row_idx, value_col).value = value
 
 
 def _enable_temp_ledger(monkeypatch, tmp_path):
@@ -2086,6 +2157,216 @@ def test_indicative_market_cost_overrides_legacy_approx_cost_when_both_exist(tmp
     assert payload["workbook_summary"]["variable_candidate_universe"] == pytest.approx(expected_universe)
     assert payload["diagnostics"]["cost_column_conflicting_row_count"] > 0
     assert any("Indicative Market Cost USD was used" in warning for warning in payload["diagnostics"]["workbook_warnings"])
+
+
+def test_existing_workbook_missing_additional_type_constraints_defaults_to_zero():
+    response = _post_inspect(headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["workbook_summary"]["additional_type_constraints_count"] == 0
+    assert payload["workbook_summary"]["additional_type_constraints"] == []
+    assert payload["diagnostics"]["additional_type_constraints_count"] == 0
+    assert payload["diagnostics"]["additional_type_constraints"] == []
+
+
+def test_additional_type_constraints_zero_adds_no_qubo_terms(tmp_path):
+    base_path = _limited_workbook(tmp_path, qubits=3)
+    zero_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=0)
+
+    base = build_qubo_from_workbook(base_path, lambda _message: None)
+    zero = build_qubo_from_workbook(zero_path, lambda _message: None)
+
+    assert zero.additional_type_constraints_count == 0
+    np.testing.assert_allclose(zero.Q, base.Q)
+    assert zero.constant == pytest.approx(base.constant)
+
+
+def test_one_additional_type_constraint_parses_and_inspects(tmp_path):
+    workbook_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=1)
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    constraints = payload["diagnostics"]["additional_type_constraints"]
+    assert payload["workbook_summary"]["additional_type_constraints_count"] == 1
+    assert constraints[0]["id"] == "type_a"
+    assert constraints[0]["name"] == "Bond"
+    assert constraints[0]["budget"] == pytest.approx(100.0)
+    assert constraints[0]["penalty"] == pytest.approx(30.0)
+    assert constraints[0]["size_column"] == "Type A Size"
+
+
+def test_multiple_additional_type_constraints_parse(tmp_path):
+    workbook_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=3,
+        constraint_count=2,
+        include_type_b_size=True,
+    )
+    optimizer = build_qubo_from_workbook(workbook_path, lambda _message: None)
+
+    assert optimizer.additional_type_constraints_count == 2
+    assert [item["id"] for item in optimizer.additional_type_constraints] == ["type_a", "type_b"]
+    assert [item["label"] for item in optimizer.additional_type_constraints] == ["Bond", "Equity"]
+
+
+def test_additional_type_constraint_qubo_expansion_is_normalized(tmp_path):
+    base_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=0)
+    typed_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=3,
+        constraint_count=1,
+        type_a_values=[20.0, 50.0, 80.0],
+        type_a_budget=100.0,
+        type_a_penalty=30.0,
+    )
+    base = build_qubo_from_workbook(base_path, lambda _message: None)
+    typed = build_qubo_from_workbook(typed_path, lambda _message: None)
+
+    b = typed.variable_options_df["Type A Size"].astype(float).to_numpy() / 100.0
+    expected_delta = np.zeros_like(base.Q)
+    for i in range(len(b)):
+        expected_delta[i, i] += 30.0 * (b[i] ** 2 - 2.0 * b[i])
+        for j in range(i + 1, len(b)):
+            expected_delta[i, j] += 2.0 * 30.0 * b[i] * b[j]
+
+    np.testing.assert_allclose(typed.Q - base.Q, expected_delta)
+    assert typed.constant - base.constant == pytest.approx(30.0)
+
+    bitvec = np.array([1, 0, 1], dtype=int)
+    normalized = float(np.dot(b, bitvec))
+    expected_penalty = 30.0 * (normalized - 1.0) ** 2
+    breakdown = typed.qubo_term_breakdown(bitvec)
+    stats = typed.portfolio_stats(bitvec)
+
+    assert breakdown["type_budget_term"] == pytest.approx(expected_penalty)
+    assert breakdown["type_a_penalty"] == pytest.approx(expected_penalty)
+    assert breakdown["qubo_reconstructed"] == pytest.approx(typed.qubo_value(bitvec))
+    assert stats["type_a_achieved"] == pytest.approx(100.0)
+    assert stats["type_a_relative_deviation"] == pytest.approx(0.0)
+
+
+def test_multiple_additional_type_constraints_are_additive(tmp_path):
+    base_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=0)
+    typed_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=3,
+        constraint_count=2,
+        include_type_b_size=True,
+        type_a_values=[20.0, 50.0, 80.0],
+        type_b_values=[5.0, 15.0, 30.0],
+        type_a_budget=100.0,
+        type_a_penalty=30.0,
+        type_b_budget=50.0,
+        type_b_penalty=12.0,
+    )
+    base = build_qubo_from_workbook(base_path, lambda _message: None)
+    typed = build_qubo_from_workbook(typed_path, lambda _message: None)
+
+    a = typed.variable_options_df["Type A Size"].astype(float).to_numpy() / 100.0
+    b = typed.variable_options_df["Type B Size"].astype(float).to_numpy() / 50.0
+    expected_delta = np.zeros_like(base.Q)
+    for sizes, penalty in ((a, 30.0), (b, 12.0)):
+        for i in range(len(sizes)):
+            expected_delta[i, i] += penalty * (sizes[i] ** 2 - 2.0 * sizes[i])
+            for j in range(i + 1, len(sizes)):
+                expected_delta[i, j] += 2.0 * penalty * sizes[i] * sizes[j]
+
+    np.testing.assert_allclose(typed.Q - base.Q, expected_delta)
+    assert typed.constant - base.constant == pytest.approx(42.0)
+
+
+def test_missing_active_type_size_column_fails_clearly(tmp_path):
+    workbook_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=3,
+        constraint_count=1,
+        include_type_a_size=False,
+    )
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 422
+    assert payload["error"]["code"] == "optimization_error"
+    assert "Type A Size column is required" in payload["error"]["message"]
+
+
+def test_additional_type_constraints_count_must_be_integer_range(tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=3)
+    workbook = load_workbook(workbook_path)
+    _set_setting(workbook["Settings"], "Additional Type Constraints", 1.5)
+    workbook.save(workbook_path)
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 422
+    assert "Additional Type Constraints must be an integer from 0 to 5" in payload["error"]["message"]
+
+
+def test_type_size_values_must_be_numeric_when_present(tmp_path):
+    workbook_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=1)
+    workbook = load_workbook(workbook_path)
+    assets = workbook["Assets"]
+    headers = [cell.value for cell in assets[2]]
+    type_a_col = headers.index("Type A Size") + 1
+    assets.cell(3, type_a_col).value = "bad-size"
+    workbook.save(workbook_path)
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 422
+    assert "Type A Size values must be numeric" in payload["error"]["message"]
+
+
+def test_invalid_type_budget_setting_fails_clearly(tmp_path):
+    workbook_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=3,
+        constraint_count=1,
+        type_a_budget="not-a-number",
+    )
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 422
+    assert "Type A Budget must be numeric" in payload["error"]["message"]
+
+
+def test_type_budget_must_be_positive_for_normalization(tmp_path):
+    workbook_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=3,
+        constraint_count=1,
+        type_a_budget=0.0,
+    )
+
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 422
+    assert "Type A Budget must be > 0" in payload["error"]["message"]
+
+
+def test_run_qaoa_output_includes_additional_type_budget_diagnostics(tmp_path):
+    workbook_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=1)
+
+    response = _post_run_file(workbook_path, mode="classical_only")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["diagnostics"]["additional_type_constraints_count"] == 1
+    assert payload["diagnostics"]["additional_type_constraints"][0]["id"] == "type_a"
+    assert payload["diagnostics"]["additional_type_budget_achievements"][0]["id"] == "type_a"
+    assert "type_budget_term" in payload["components"]
+    assert "type_a_achieved" in payload["best_candidate"]
+    assert "type_a_penalty" in payload["top_candidates"][0]
+    assert "Type A Size" in payload["selected_blocks"][0]
 
 
 def test_inspect_workbook_form_values_override_workbook_settings():

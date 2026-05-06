@@ -163,6 +163,12 @@ variable blocks, then applies the existing budget normalization unchanged. For
 old workbooks, Version 9 can map a legacy `Approx Cost USD` column into
 `Indicative Market Cost USD` for compatibility.
 
+Version 9 workbooks may also define optional exact type-budget constraints:
+`Additional Type Constraints` in `Settings`, plus `Type A Size` through
+`Type E Size` in `Assets` and the corresponding `Type X Name`, `Type X Budget`,
+and `Type X Budget Penalty` settings. These are V9-only workbook additions;
+Version 8 workbooks without them continue to run unchanged.
+
 ## Service Accounts
 
 Create dedicated service accounts if needed:

@@ -34,6 +34,7 @@ from app.random_seed import random_seed_display
 from app.result_writer import build_classical_response, build_inspection_response
 from app.run_ledger import get_run_ledger
 from app.schemas import ApiError, json_safe, make_job_id, make_run_id
+from app.type_constraints import constraints_for_json
 from app.usage_policy import (
     DEFAULT_RESPONSE_LEVEL,
     build_effective_settings,
@@ -812,6 +813,8 @@ def _inspection_error_diagnostics(usage_context, optimizer, mode: str, form_data
         "cost_column_used": getattr(optimizer, "input_cost_column", None),
         "cost_column_internal": getattr(optimizer, "internal_cost_column", None),
         "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
+        "additional_type_constraints_count": int(getattr(optimizer, "additional_type_constraints_count", 0) or 0),
+        "additional_type_constraints": constraints_for_json(optimizer),
         "logs": list(logs or [])[-50:],
     }
     try:
