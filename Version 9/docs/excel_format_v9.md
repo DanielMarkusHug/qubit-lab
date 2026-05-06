@@ -43,9 +43,10 @@ IDs: `type_a`, `type_b`, `type_c`, `type_d`, and `type_e`.
 For each active type constraint:
 
 ```text
-lambda_k * (sum_i (type_k_size_i / budget_k) * x_i - 1)^2
+lambda_k * ((fixed_type_exposure_k + sum_i variable_type_size_i * x_i) / budget_k - 1)^2
 ```
 
-This is an exact normalized target penalty. Version 9 does not implement
-`<=` or `>=` slack-variable variants for these additional type budgets.
-
+This is an exact normalized portfolio-level target penalty. Fixed rows
+contribute to the offset, and selected variable rows contribute through the
+binary decision vector. Version 9 does not implement `<=` or `>=`
+slack-variable variants for these additional type budgets.

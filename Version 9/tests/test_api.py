@@ -165,11 +165,16 @@ def _indicative_cost_workbook(
     assets = workbook["Assets"]
     headers = [cell.value for cell in assets[2]]
     approx_col = headers.index("Approx Cost USD") + 1
+    existing_indicative_col = (
+        headers.index("Indicative Market Cost USD") + 1
+        if "Indicative Market Cost USD" in headers
+        else None
+    )
     if keep_legacy:
-        indicative_col = assets.max_column + 1
+        indicative_col = existing_indicative_col or assets.max_column + 1
         assets.cell(2, indicative_col).value = "Indicative Market Cost USD"
     else:
-        indicative_col = approx_col
+        indicative_col = existing_indicative_col or approx_col
         assets.cell(2, indicative_col).value = "Indicative Market Cost USD"
     for row_idx in range(3, assets.max_row + 1):
         value = assets.cell(row_idx, approx_col).value
@@ -192,6 +197,7 @@ def _type_constraint_workbook(
     type_b_penalty=12.0,
     type_a_values: list[float] | None = None,
     type_b_values: list[float] | None = None,
+    decision_roles: list[str] | None = None,
 ) -> Path:
     source_path = _limited_workbook(tmp_path, qubits=qubits)
     workbook_path = tmp_path / f"type_constraints_{len(list(tmp_path.glob('type_constraints_*.xlsx')))}.xlsx"
@@ -203,6 +209,8 @@ def _type_constraint_workbook(
         _set_asset_column(assets, "Type A Size", type_a_values or [20.0, 50.0, 80.0, 10.0, 5.0])
     if include_type_b_size:
         _set_asset_column(assets, "Type B Size", type_b_values or [5.0, 15.0, 30.0, 45.0, 60.0])
+    if decision_roles is not None:
+        _set_asset_roles(assets, decision_roles)
 
     _set_setting(settings, "Additional Type Constraints", constraint_count)
     count_as_float = float(constraint_count)
@@ -233,6 +241,23 @@ def _set_asset_column(assets, header: str, values: list[float]) -> None:
         if assets.cell(row_idx, ticker_col).value in (None, ""):
             continue
         assets.cell(row_idx, col_idx).value = values[value_idx % len(values)]
+        value_idx += 1
+
+
+def _set_asset_roles(assets, roles: list[str]) -> None:
+    headers = [cell.value for cell in assets[2]]
+    ticker_col = headers.index("Ticker") + 1
+    if "Decision Role" in headers:
+        role_col = headers.index("Decision Role") + 1
+    else:
+        role_col = assets.max_column + 1
+        assets.cell(2, role_col).value = "Decision Role"
+
+    value_idx = 0
+    for row_idx in range(3, assets.max_row + 1):
+        if assets.cell(row_idx, ticker_col).value in (None, ""):
+            continue
+        assets.cell(row_idx, role_col).value = roles[value_idx % len(roles)]
         value_idx += 1
 
 
@@ -2212,31 +2237,43 @@ def test_multiple_additional_type_constraints_parse(tmp_path):
     assert [item["label"] for item in optimizer.additional_type_constraints] == ["Bond", "Equity"]
 
 
-def test_additional_type_constraint_qubo_expansion_is_normalized(tmp_path):
-    base_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=0)
+def test_additional_type_constraint_qubo_expansion_includes_fixed_offset(tmp_path):
+    roles = ["fixed", "variable", "variable", "variable"]
+    type_a_values = [40.0, 20.0, 40.0, 80.0]
+    base_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=4,
+        constraint_count=0,
+        type_a_values=type_a_values,
+        decision_roles=roles,
+    )
     typed_path = _type_constraint_workbook(
         tmp_path,
-        qubits=3,
+        qubits=4,
         constraint_count=1,
-        type_a_values=[20.0, 50.0, 80.0],
+        type_a_values=type_a_values,
         type_a_budget=100.0,
         type_a_penalty=30.0,
+        decision_roles=roles,
     )
     base = build_qubo_from_workbook(base_path, lambda _message: None)
     typed = build_qubo_from_workbook(typed_path, lambda _message: None)
 
     b = typed.variable_options_df["Type A Size"].astype(float).to_numpy() / 100.0
+    fixed_exposure = float(typed.fixed_options_df["Type A Size"].astype(float).sum())
+    c = fixed_exposure / 100.0 - 1.0
     expected_delta = np.zeros_like(base.Q)
     for i in range(len(b)):
-        expected_delta[i, i] += 30.0 * (b[i] ** 2 - 2.0 * b[i])
+        expected_delta[i, i] += 30.0 * (2.0 * c * b[i] + b[i] ** 2)
         for j in range(i + 1, len(b)):
             expected_delta[i, j] += 2.0 * 30.0 * b[i] * b[j]
 
     np.testing.assert_allclose(typed.Q - base.Q, expected_delta)
-    assert typed.constant - base.constant == pytest.approx(30.0)
+    assert fixed_exposure == pytest.approx(40.0)
+    assert typed.constant - base.constant == pytest.approx(30.0 * c**2)
 
-    bitvec = np.array([1, 0, 1], dtype=int)
-    normalized = float(np.dot(b, bitvec))
+    bitvec = np.array([1, 1, 0], dtype=int)
+    normalized = float(fixed_exposure / 100.0 + np.dot(b, bitvec))
     expected_penalty = 30.0 * (normalized - 1.0) ** 2
     breakdown = typed.qubo_term_breakdown(bitvec)
     stats = typed.portfolio_stats(bitvec)
@@ -2244,8 +2281,31 @@ def test_additional_type_constraint_qubo_expansion_is_normalized(tmp_path):
     assert breakdown["type_budget_term"] == pytest.approx(expected_penalty)
     assert breakdown["type_a_penalty"] == pytest.approx(expected_penalty)
     assert breakdown["qubo_reconstructed"] == pytest.approx(typed.qubo_value(bitvec))
+    assert stats["type_a_fixed"] == pytest.approx(40.0)
+    assert stats["type_a_variable_selected"] == pytest.approx(60.0)
     assert stats["type_a_achieved"] == pytest.approx(100.0)
     assert stats["type_a_relative_deviation"] == pytest.approx(0.0)
+
+
+def test_type_constraint_can_be_reached_by_fixed_plus_variable_exposure(tmp_path):
+    workbook_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=4,
+        constraint_count=1,
+        type_a_values=[40.0, 20.0, 40.0, 80.0],
+        type_a_budget=100.0,
+        type_a_penalty=30.0,
+        decision_roles=["fixed", "variable", "variable", "variable"],
+    )
+    optimizer = build_qubo_from_workbook(workbook_path, lambda _message: None)
+
+    stats = optimizer.portfolio_stats(np.array([1, 1, 0], dtype=int))
+
+    assert stats["type_a_fixed"] == pytest.approx(40.0)
+    assert stats["type_a_variable_selected"] == pytest.approx(60.0)
+    assert stats["type_a_achieved"] == pytest.approx(100.0)
+    assert stats["type_a_variable_selected"] < stats["type_a_budget"]
+    assert stats["type_a_penalty"] == pytest.approx(0.0)
 
 
 def test_multiple_additional_type_constraints_are_additive(tmp_path):
@@ -2354,7 +2414,13 @@ def test_type_budget_must_be_positive_for_normalization(tmp_path):
 
 
 def test_run_qaoa_output_includes_additional_type_budget_diagnostics(tmp_path):
-    workbook_path = _type_constraint_workbook(tmp_path, qubits=3, constraint_count=1)
+    workbook_path = _type_constraint_workbook(
+        tmp_path,
+        qubits=4,
+        constraint_count=1,
+        type_a_values=[40.0, 20.0, 40.0, 80.0],
+        decision_roles=["fixed", "variable", "variable", "variable"],
+    )
 
     response = _post_run_file(workbook_path, mode="classical_only")
     payload = response.get_json()
@@ -2362,10 +2428,20 @@ def test_run_qaoa_output_includes_additional_type_budget_diagnostics(tmp_path):
     assert response.status_code == 200
     assert payload["diagnostics"]["additional_type_constraints_count"] == 1
     assert payload["diagnostics"]["additional_type_constraints"][0]["id"] == "type_a"
-    assert payload["diagnostics"]["additional_type_budget_achievements"][0]["id"] == "type_a"
+    achievement = payload["diagnostics"]["additional_type_budget_achievements"][0]
+    assert achievement["id"] == "type_a"
+    assert achievement["total_achieved_exposure"] == pytest.approx(
+        achievement["fixed_exposure"] + achievement["variable_selected_exposure"]
+    )
     assert "type_budget_term" in payload["components"]
     assert "type_a_achieved" in payload["best_candidate"]
+    assert payload["best_candidate"]["type_a_fixed"] == pytest.approx(40.0)
+    assert payload["best_candidate"]["type_a_achieved"] == pytest.approx(
+        payload["best_candidate"]["type_a_fixed"] + payload["best_candidate"]["type_a_variable_selected"]
+    )
     assert "type_a_penalty" in payload["top_candidates"][0]
+    assert "type_a_fixed" in payload["top_candidates"][0]
+    assert "type_a_variable_selected" in payload["top_candidates"][0]
     assert "Type A Size" in payload["selected_blocks"][0]
 
 

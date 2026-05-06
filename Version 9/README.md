@@ -55,7 +55,7 @@ Assets sheet may define stable numeric columns `Type A Size` through
 `Type E Size`. The Settings sheet controls them with `Additional Type
 Constraints` plus `Type X Name`, `Type X Budget`, and `Type X Budget Penalty`
 for each active type. These add normalized exact penalties of the form
-`lambda_k * (sum_i (type_k_size_i / budget_k) * x_i - 1)^2`. See
+`lambda_k * ((fixed_type_exposure_k + sum_i variable_type_size_i * x_i) / budget_k - 1)^2`. See
 [`docs/excel_format_v9.md`](docs/excel_format_v9.md).
 
 Successful submission returns quickly:

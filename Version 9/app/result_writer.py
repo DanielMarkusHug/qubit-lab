@@ -711,10 +711,15 @@ def _type_achievements_from_row(row) -> list[dict[str, Any]]:
                 "id": prefix,
                 "name": _series_get(row, f"{prefix}_name"),
                 "budget": _series_get(row, f"{prefix}_budget"),
+                "fixed_exposure": _series_get(row, f"{prefix}_fixed"),
+                "variable_selected_exposure": _series_get(row, f"{prefix}_variable_selected"),
+                "total_achieved_exposure": _series_get(row, f"{prefix}_achieved"),
+                "normalized_total_achieved": _series_get(row, f"{prefix}_normalized_achieved"),
                 "achieved_raw": _series_get(row, f"{prefix}_achieved"),
                 "achieved_normalized": _series_get(row, f"{prefix}_normalized_achieved"),
                 "raw_deviation": _series_get(row, f"{prefix}_deviation"),
                 "relative_deviation": _series_get(row, f"{prefix}_relative_deviation"),
+                "penalty_contribution": _series_get(row, f"{prefix}_penalty"),
                 "normalized_penalty_contribution": _series_get(row, f"{prefix}_penalty"),
             }
         )

@@ -2,9 +2,9 @@
 
 This module intentionally layers the Version 9 extension around the existing
 V6.1 optimizer object instead of changing the shared optimizer core. The QUBO
-math below follows the requested normalized exact target term:
+math below follows the requested portfolio-level normalized exact target term:
 
-    lambda_k * (sum_i (type_size_i / budget_k) * x_i - 1)^2
+    lambda_k * ((fixed_type_exposure_k + sum_i type_size_i * x_i) / budget_k - 1)^2
 """
 
 from __future__ import annotations
@@ -48,20 +48,22 @@ def apply_additional_type_constraints(
     for constraint in constraints:
         penalty = float(constraint["penalty"])
         b = np.asarray(constraint["normalized_sizes"], dtype=float)
+        c = float(constraint["fixed_normalized_offset"])
         if len(b) != q.shape[0]:
             raise error_cls(
                 f"{constraint['size_column']} length mismatch: expected {q.shape[0]} variable rows, got {len(b)}."
             )
         for i in range(len(b)):
-            q[i, i] += penalty * (b[i] ** 2 - 2.0 * b[i])
+            q[i, i] += penalty * (2.0 * c * b[i] + b[i] ** 2)
             for j in range(i + 1, len(b)):
                 q[i, j] += 2.0 * penalty * b[i] * b[j]
-        constant_delta += penalty
+        constant_delta += penalty * c**2
         if log_callback is not None:
             log_callback(
                 "Additional type constraint "
                 f"{constraint['id']} ({constraint['label']}): "
                 f"budget={constraint['budget']}, penalty={constraint['penalty']}, "
+                f"fixed_exposure={constraint['fixed_exposure']}, "
                 f"size_column={constraint['size_column']}"
             )
 
@@ -121,6 +123,8 @@ def parse_additional_type_constraints(optimizer, *, error_cls: type[Exception] =
             else np.zeros(len(fixed_df), dtype=float)
         )
         normalized_sizes = variable_sizes / budget
+        fixed_exposure = float(fixed_sizes.sum()) if len(fixed_sizes) else 0.0
+        fixed_normalized_exposure = fixed_exposure / float(budget)
         constraints.append(
             {
                 "id": slot["id"],
@@ -134,6 +138,9 @@ def parse_additional_type_constraints(optimizer, *, error_cls: type[Exception] =
                 "raw_sizes": variable_sizes.astype(float),
                 "fixed_raw_sizes": fixed_sizes.astype(float),
                 "normalized_sizes": normalized_sizes.astype(float),
+                "fixed_exposure": fixed_exposure,
+                "fixed_normalized_exposure": fixed_normalized_exposure,
+                "fixed_normalized_offset": fixed_normalized_exposure - 1.0,
                 "active": True,
             }
         )
@@ -145,17 +152,23 @@ def constraints_for_json(optimizer) -> list[dict[str, Any]]:
     for constraint in getattr(optimizer, "additional_type_constraints", []) or []:
         raw_sizes = np.asarray(constraint.get("raw_sizes", []), dtype=float)
         fixed_sizes = np.asarray(constraint.get("fixed_raw_sizes", []), dtype=float)
+        fixed_exposure = float(constraint.get("fixed_exposure", fixed_sizes.sum() if len(fixed_sizes) else 0.0))
+        budget = float(constraint["budget"])
         rows.append(
             {
                 "id": constraint["id"],
                 "name": constraint["label"],
                 "label": constraint["label"],
                 "size_column": constraint["size_column"],
-                "budget": float(constraint["budget"]),
+                "budget": budget,
                 "penalty": float(constraint["penalty"]),
                 "active": bool(constraint.get("active", True)),
                 "variable_size_sum": float(raw_sizes.sum()) if len(raw_sizes) else 0.0,
                 "fixed_size_sum": float(fixed_sizes.sum()) if len(fixed_sizes) else 0.0,
+                "fixed_exposure": fixed_exposure,
+                "fixed_normalized_exposure": float(fixed_exposure / budget) if budget else 0.0,
+                "baseline_no_variable_exposure": fixed_exposure,
+                "baseline_no_variable_normalized": float(fixed_exposure / budget) if budget else 0.0,
             }
         )
     return rows
@@ -169,8 +182,13 @@ def achievements_for_bitvec(optimizer, bitvec) -> list[dict[str, Any]]:
         normalized_sizes = np.asarray(constraint["normalized_sizes"], dtype=float)
         budget = float(constraint["budget"])
         penalty = float(constraint["penalty"])
-        achieved = float(np.dot(raw_sizes, x)) if len(raw_sizes) else 0.0
-        normalized = float(np.dot(normalized_sizes, x)) if len(normalized_sizes) else 0.0
+        fixed_exposure = float(constraint.get("fixed_exposure", 0.0))
+        variable_selected = float(np.dot(raw_sizes, x)) if len(raw_sizes) else 0.0
+        achieved = fixed_exposure + variable_selected
+        normalized = (
+            float(constraint.get("fixed_normalized_exposure", fixed_exposure / budget))
+            + (float(np.dot(normalized_sizes, x)) if len(normalized_sizes) else 0.0)
+        )
         deviation = achieved - budget
         relative = normalized - 1.0
         contribution = float(penalty * relative**2)
@@ -180,11 +198,17 @@ def achievements_for_bitvec(optimizer, bitvec) -> list[dict[str, Any]]:
                 "name": constraint["label"],
                 "label": constraint["label"],
                 "budget": budget,
+                "penalty": penalty,
                 "penalty_weight": penalty,
+                "fixed_exposure": fixed_exposure,
+                "variable_selected_exposure": variable_selected,
+                "total_achieved_exposure": achieved,
+                "normalized_total_achieved": normalized,
                 "achieved_raw": achieved,
                 "achieved_normalized": normalized,
                 "raw_deviation": float(deviation),
                 "relative_deviation": float(relative),
+                "penalty_contribution": contribution,
                 "normalized_penalty_contribution": contribution,
                 "active": True,
             }
@@ -201,6 +225,8 @@ def type_candidate_columns(optimizer) -> list[str]:
                 f"{prefix}_name",
                 f"{prefix}_achieved",
                 f"{prefix}_normalized_achieved",
+                f"{prefix}_fixed",
+                f"{prefix}_variable_selected",
                 f"{prefix}_budget",
                 f"{prefix}_deviation",
                 f"{prefix}_relative_deviation",
@@ -227,12 +253,14 @@ def type_budget_metrics_for_bitvec(optimizer, bitvec) -> dict[str, Any]:
         metrics.update(
             {
                 f"{prefix}_name": row["name"],
-                f"{prefix}_achieved": row["achieved_raw"],
-                f"{prefix}_normalized_achieved": row["achieved_normalized"],
+                f"{prefix}_achieved": row["total_achieved_exposure"],
+                f"{prefix}_normalized_achieved": row["normalized_total_achieved"],
+                f"{prefix}_fixed": row["fixed_exposure"],
+                f"{prefix}_variable_selected": row["variable_selected_exposure"],
                 f"{prefix}_budget": row["budget"],
                 f"{prefix}_deviation": row["raw_deviation"],
                 f"{prefix}_relative_deviation": row["relative_deviation"],
-                f"{prefix}_penalty": row["normalized_penalty_contribution"],
+                f"{prefix}_penalty": row["penalty_contribution"],
             }
         )
     return metrics

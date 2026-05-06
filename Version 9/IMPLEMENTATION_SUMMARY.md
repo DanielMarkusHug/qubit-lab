@@ -21,8 +21,8 @@ baseline, keeping Version 8 deployable as-is.
   Constraints` and `Type A` through `Type E` settings.
 - Stable `Assets` columns: `Type A Size`, `Type B Size`, `Type C Size`,
   `Type D Size`, and `Type E Size`.
-- Normalized QUBO penalties:
-  `lambda_k * (sum_i (type_k_size_i / budget_k) * x_i - 1)^2`.
+- Normalized portfolio-level QUBO penalties:
+  `lambda_k * ((fixed_type_exposure_k + sum_i variable_type_size_i * x_i) / budget_k - 1)^2`.
 - Result diagnostics and candidate rows include per-type achieved amounts,
   deviations, relative deviations, and penalty contributions.
 
