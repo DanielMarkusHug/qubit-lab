@@ -398,7 +398,6 @@ type SavedQaoaSnapshot = {
 
 const API_URL =
   process.env.NEXT_PUBLIC_QAOA_RQP_V9_API_URL ??
-  process.env.NEXT_PUBLIC_QAOA_RQP_API_URL ??
   "https://qaoa-rqp-api-v9-fxkphe6o4a-oa.a.run.app";
 
 const USER_GUIDE_URL = "/qaoa-rqp/QAOA_RQP_Quick_User_Guide.pdf";
@@ -839,16 +838,9 @@ function getAchievementBudget(achievement: AdditionalTypeAchievement) {
     achievement.raw_budget_target ??
     achievement.budget ??
     achievement.target ??
-    getNumber(achievement["budget_target"])
-  );
-}
-
-function getAchievementAchieved(achievement: AdditionalTypeAchievement) {
-  return (
-    achievement.achieved_raw_amount ??
-    achievement.achieved ??
-    getNumber(achievement["raw_achieved"]) ??
-    getNumber(achievement["amount"])
+    getNumber(achievement["budget_target"]) ??
+    getNumber(achievement["raw_budget"]) ??
+    getNumber(achievement["target_budget"])
   );
 }
 
@@ -856,24 +848,124 @@ function getAchievementNormalized(achievement: AdditionalTypeAchievement) {
   return (
     achievement.achieved_normalized_amount ??
     achievement.achieved_normalized ??
-    getNumber(achievement["normalized_achieved"])
+    getNumber(achievement["normalized_achieved"]) ??
+    getNumber(achievement["normalized_amount"]) ??
+    getNumber(achievement["achieved_normalized_value"])
   );
 }
 
 function getAchievementDeviation(achievement: AdditionalTypeAchievement) {
-  return (
+  const direct =
     achievement.raw_deviation ??
     achievement.deviation ??
-    getNumber(achievement["budget_deviation"])
+    getNumber(achievement["budget_deviation"]) ??
+    getNumber(achievement["raw_budget_deviation"]);
+
+  if (direct !== undefined) return direct;
+
+  const budget = getAchievementBudget(achievement);
+  const normalized = getAchievementNormalized(achievement);
+
+  if (budget !== undefined && normalized !== undefined) {
+    return budget * normalized - budget;
+  }
+
+  return undefined;
+}
+
+function getAchievementRelativeDeviation(achievement: AdditionalTypeAchievement) {
+  const direct =
+    achievement.relative_deviation ??
+    getNumber(achievement["relative_budget_deviation"]) ??
+    getNumber(achievement["relative_deviation_pct"]);
+
+  if (direct !== undefined) return direct;
+
+  const normalized = getAchievementNormalized(achievement);
+  if (normalized !== undefined) return normalized - 1;
+
+  const budget = getAchievementBudget(achievement);
+  const deviation = getAchievementDeviation(achievement);
+
+  if (budget !== undefined && budget !== 0 && deviation !== undefined) {
+    return deviation / budget;
+  }
+
+  return undefined;
+}
+
+function getAchievementAchieved(achievement: AdditionalTypeAchievement) {
+  const direct =
+    achievement.achieved_raw_amount ??
+    achievement.achieved ??
+    getNumber(achievement["raw_achieved"]) ??
+    getNumber(achievement["amount"]) ??
+    getNumber(achievement["raw_amount"]) ??
+    getNumber(achievement["achieved_amount"]) ??
+    getNumber(achievement["achieved_budget"]) ??
+    getNumber(achievement["achieved_value"]);
+
+  if (direct !== undefined) return direct;
+
+  const budget = getAchievementBudget(achievement);
+  const normalized = getAchievementNormalized(achievement);
+
+  if (budget !== undefined && normalized !== undefined) {
+    return budget * normalized;
+  }
+
+  const deviation = getAchievementDeviation(achievement);
+
+  if (budget !== undefined && deviation !== undefined) {
+    return budget + deviation;
+  }
+
+  return undefined;
+}
+
+function getConstraintForAchievement(
+  achievement: AdditionalTypeAchievement,
+  constraints: AdditionalTypeConstraint[]
+) {
+  const achievementId = formatText(achievement.id, "");
+
+  if (achievementId) {
+    const byId = constraints.find(
+      (constraint) => formatText(constraint.id, "") === achievementId
+    );
+    if (byId) return byId;
+  }
+
+  const achievementLabel = getAchievementLabel(achievement);
+
+  return constraints.find(
+    (constraint) => getTypeConstraintLabel(constraint) === achievementLabel
   );
 }
 
-function getAchievementPenalty(achievement: AdditionalTypeAchievement) {
-  return (
+function getAchievementPenalty(
+  achievement: AdditionalTypeAchievement,
+  constraints: AdditionalTypeConstraint[] = []
+) {
+  const direct =
     achievement.penalty_contribution ??
     achievement.penalty ??
-    getNumber(achievement["type_budget_penalty"])
-  );
+    getNumber(achievement["type_budget_penalty"]) ??
+    getNumber(achievement["penalty_value"]);
+
+  if (direct !== undefined) return direct;
+
+  const normalized = getAchievementNormalized(achievement);
+  const matchingConstraint = getConstraintForAchievement(achievement, constraints);
+  const penaltyWeight = matchingConstraint
+    ? getTypeConstraintPenalty(matchingConstraint)
+    : undefined;
+
+  if (normalized !== undefined && penaltyWeight !== undefined) {
+    return penaltyWeight * Math.pow(normalized - 1, 2);
+  }
+
+  return undefined;
 }
 
 function normalizeTypeConstraints(value: unknown): AdditionalTypeConstraint[] {
@@ -1117,31 +1209,43 @@ function TypeConstraintsPanel({
               </tr>
             </thead>
             <tbody>
-              {achievements.map((achievement, idx) => (
-                <tr key={`${achievement.id ?? idx}`} className="border-b border-slate-800">
-                  <td className="py-1.5 pr-3 text-gray-200">
-                    {getAchievementLabel(achievement)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-gray-300">
-                    {formatCurrency(getAchievementBudget(achievement), currencyCode)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-gray-300">
-                    {formatCurrency(getAchievementAchieved(achievement), currencyCode)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-gray-300">
-                    {formatNumber(getAchievementNormalized(achievement), 5)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-gray-300">
-                    {formatCurrency(getAchievementDeviation(achievement), currencyCode)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-gray-300">
-                    {formatPercent(achievement.relative_deviation, 3)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-gray-300">
-                    {formatNumber(getAchievementPenalty(achievement), 6)}
-                  </td>
-                </tr>
-              ))}
+              {achievements.map((achievement, idx) => {
+                const budget = getAchievementBudget(achievement);
+                const achieved = getAchievementAchieved(achievement);
+                const normalized = getAchievementNormalized(achievement);
+                const deviation = getAchievementDeviation(achievement);
+                const relativeDeviation = getAchievementRelativeDeviation(achievement);
+                const penalty = getAchievementPenalty(achievement, constraints);
+
+                return (
+                  <tr
+                    key={`${achievement.id ?? idx}`}
+                    className="border-b border-slate-800"
+                  >
+                    <td className="py-1.5 pr-3 text-gray-200">
+                      {getAchievementLabel(achievement)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {formatCurrency(budget, currencyCode)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {formatCurrency(achieved, currencyCode)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {formatNumber(normalized, 5)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {formatCurrency(deviation, currencyCode)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {formatPercent(relativeDeviation, 3)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {formatNumber(penalty, 6)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -3836,7 +3940,7 @@ export default function QaoaRqpV9Page() {
               <details className="rounded-2xl border border-slate-800 bg-slate-950/70 p-3">
                 <summary className="cursor-pointer text-cyan-200 font-semibold text-sm">
                   Raw JSON
-                </summary> 
+                </summary>
                 <pre className="mt-3 overflow-x-auto text-xs text-gray-300 bg-black/40 rounded-xl p-3">
                   {JSON.stringify(result, null, 2)}
                 </pre>
