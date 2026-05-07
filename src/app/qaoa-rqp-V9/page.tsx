@@ -460,6 +460,8 @@ function formatProbability(value: unknown) {
 }
 
 function formatCurrency(value: unknown, currencyCode = "USD") {
+  void currencyCode;
+
   const number = getNumber(value);
   if (number === undefined) return "n/a";
 
