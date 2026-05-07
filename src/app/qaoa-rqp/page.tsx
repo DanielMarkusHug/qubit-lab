@@ -1015,9 +1015,36 @@ function ErrorBox({
 }) {
   if (!error) return null;
 
-  const activeRunId = error.details
-    ? formatText((error.details as Record<string, unknown>).active_run_id, "")
-    : "";
+  const details =
+    error.details && typeof error.details === "object" && !Array.isArray(error.details)
+      ? (error.details as Record<string, unknown>)
+      : undefined;
+
+  const activeRunId = details ? formatText(details.active_run_id, "") : "";
+
+  const scalarDetails = details
+    ? Object.entries(details).filter(([key, value]) => {
+        if (key === "diagnostics" || key === "runtime_estimate") return false;
+        if (value === null || value === undefined) return false;
+        if (typeof value === "object") return false;
+        return true;
+      })
+    : [];
+
+  const hasTechnicalDetails = Boolean(
+    details && (details.diagnostics || details.runtime_estimate)
+  );
+
+  const binaryVariables = details ? getNumber(details.binary_variables) : undefined;
+  const maxQubits = details
+    ? getNumber(details.max_qubits) ?? getNumber(details.license_max_qubits)
+    : undefined;
+  const usageLevel = details ? formatText(details.usage_level, "") : "";
+
+  const showQubitLimitHint =
+    error.code === "qubit_limit_exceeded" &&
+    binaryVariables !== undefined &&
+    maxQubits !== undefined;
 
   return (
     <div className="rounded-xl border border-red-800 bg-red-950/40 p-3 text-red-100">
@@ -1025,6 +1052,15 @@ function ErrorBox({
       <div className="text-xs mt-1">
         {error.message ?? "The backend rejected this request."}
       </div>
+
+      {showQubitLimitHint && (
+        <div className="mt-3 rounded-lg border border-amber-800 bg-amber-950/30 p-2 text-xs text-amber-100">
+          This workbook has {binaryVariables} decision variables, but the current
+          {usageLevel ? ` ${usageLevel}` : ""} limit allows {maxQubits}. Enter a
+          license key with sufficient limits and press Check License, then inspect
+          the workbook again.
+        </div>
+      )}
 
       {activeRunId && onReconnect && (
         <button
@@ -1035,19 +1071,38 @@ function ErrorBox({
         </button>
       )}
 
-      {error.details && Object.keys(error.details).length > 0 && (
+      {scalarDetails.length > 0 && (
         <div className="mt-3 rounded-lg border border-red-900/70 bg-black/20 p-2">
           <div className="text-xs font-semibold text-red-200 mb-1">Details</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-            {Object.entries(error.details).map(([key, value]) => (
+            {scalarDetails.map(([key, value]) => (
               <InfoRow key={key} label={key} value={formatText(value)} />
             ))}
           </div>
         </div>
       )}
+
+      {hasTechnicalDetails && (
+        <details className="mt-3 rounded-lg border border-slate-800 bg-black/20 p-2">
+          <summary className="cursor-pointer text-xs font-semibold text-red-200">
+            Technical diagnostics
+          </summary>
+          <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-black/30 p-2 text-xs text-gray-300">
+            {JSON.stringify(
+              {
+                diagnostics: details?.diagnostics,
+                runtime_estimate: details?.runtime_estimate,
+              },
+              null,
+              2
+            )}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }
+
 
 function getBitIndexLabel(block: CandidateRow) {
   const role = String(block.decision_role ?? "").toLowerCase();
