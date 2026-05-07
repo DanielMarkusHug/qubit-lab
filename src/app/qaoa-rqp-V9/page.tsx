@@ -396,6 +396,20 @@ type SavedQaoaSnapshot = {
   client_logs?: string[];
 };
 
+type RawJsonDataDownload = {
+  schema: "qaoa-rqp-v9-raw-json-data";
+  schema_version: 1;
+  downloaded_at: string;
+  frontend: {
+    page: "qaoa-rqp-v9";
+    api_url: string;
+  };
+  original_filename?: string | null;
+  inspect_result?: InspectResult | null;
+  result?: RunResult | null;
+  job_status?: JobStatus | null;
+};
+
 const API_URL =
   process.env.NEXT_PUBLIC_QAOA_RQP_V9_API_URL ??
   "https://qaoa-rqp-api-v9-fxkphe6o4a-oa.a.run.app";
@@ -450,9 +464,7 @@ function formatCurrency(value: unknown, currencyCode = "USD") {
   if (number === undefined) return "n/a";
 
   return number.toLocaleString("en-US", {
-    style: "currency",
-    currency: currencyCode,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
 }
 
@@ -569,6 +581,10 @@ function timestampForFilename() {
 
 function reviewFilename(workbookName: string | null, mode: string) {
   return `qaoa-rqp-v9-review_${safeFileStem(workbookName)}_${mode}_${timestampForFilename()}.json`;
+}
+
+function rawJsonFilename(workbookName: string | null) {
+  return `qaoa-rqp-v9-raw-json_${safeFileStem(workbookName)}_${timestampForFilename()}.json`;
 }
 
 function getGeneralLimits(license?: LicenseStatus | null): LimitBlock | undefined {
@@ -1755,6 +1771,10 @@ export default function QaoaRqpV9Page() {
     return Boolean(result || inspectResult || jobStatus || backendJobLogs.length > 0);
   }, [result, inspectResult, jobStatus, backendJobLogs]);
 
+  const canDownloadRawJson = useMemo(() => {
+    return Boolean(result || inspectResult || jobStatus);
+  }, [result, inspectResult, jobStatus]);
+
   const knownQubits = useMemo(() => {
     return getNumber(
       reportingSummary?.decision_variables ??
@@ -1978,6 +1998,43 @@ export default function QaoaRqpV9Page() {
 
     setReviewFileMessage(`Saved ${filename}`);
     addLog(`Review file saved: ${filename}`);
+  }
+
+  function downloadRawJsonData() {
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+
+    const payload: RawJsonDataDownload = {
+      schema: "qaoa-rqp-v9-raw-json-data",
+      schema_version: 1,
+      downloaded_at: new Date().toISOString(),
+      frontend: {
+        page: "qaoa-rqp-v9",
+        api_url: API_URL,
+      },
+      original_filename: workbookFilename ?? file?.name ?? inspectResult?.filename ?? null,
+      inspect_result: inspectResult,
+      result,
+      job_status: jobStatus,
+    };
+
+    const filename = rawJsonFilename(payload.original_filename ?? null);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    setReviewFileMessage(`Saved ${filename}`);
+    addLog(`Raw JSON data downloaded: ${filename}`);
   }
 
   async function loadReviewFileFromInput(event: React.ChangeEvent<HTMLInputElement>) {
@@ -3190,6 +3247,14 @@ export default function QaoaRqpV9Page() {
                 className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
               >
                 Save Review File
+              </button>
+
+              <button
+                onClick={downloadRawJsonData}
+                disabled={!canDownloadRawJson}
+                className="mt-2 w-full rounded-lg bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
+              >
+                Download Raw JSON Data
               </button>
 
               <button
