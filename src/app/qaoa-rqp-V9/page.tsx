@@ -15,6 +15,11 @@ type LimitBlock = {
 
 type EffectiveSettings = {
   response_level?: string | null;
+  requested_run_mode?: string | null;
+  run_mode?: string | null;
+  simulation_backend?: string | null;
+  legacy_run_mode_alias?: boolean | null;
+  hardware_replay?: boolean | null;
   layers?: number | null;
   p?: number | null;
   iterations?: number | null;
@@ -70,6 +75,11 @@ type Diagnostics = Record<string, unknown> & {
   effective_settings?: EffectiveSettings;
   runtime_inputs?: Record<string, unknown>;
   circuit?: Record<string, unknown>;
+  requested_run_mode?: string | null;
+  run_mode?: string | null;
+  simulation_backend?: string | null;
+  legacy_run_mode_alias?: boolean | null;
+  hardware_replay?: boolean | null;
 
   raw_estimated_runtime_sec?: number;
   estimated_runtime_sec?: number;
@@ -130,8 +140,12 @@ type LicenseStatus = {
   allowed_modes?: string[];
   allowed_response_levels?: string[];
   general_limits?: LimitBlock;
+  qaoa_lightning_sim_limits?: LimitBlock;
+  qaoa_tensor_sim_limits?: LimitBlock;
   qaoa_limited_limits?: LimitBlock;
   limits?: LimitBlock & {
+    qaoa_lightning_sim?: LimitBlock;
+    qaoa_tensor_sim?: LimitBlock;
     qaoa_limited?: LimitBlock;
   };
 };
@@ -426,6 +440,58 @@ const REVIEW_FILE_24_URL =
 const ACTIVE_JOB_STORAGE_KEY = "qaoa-rqp-v9-active-job-id";
 const TYPE_IDS = ["type_a", "type_b", "type_c", "type_d", "type_e"];
 
+const CLASSICAL_MODE = "classical_only";
+const QAOA_LIGHTNING_SIM_MODE = "qaoa_lightning_sim";
+const QAOA_TENSOR_SIM_MODE = "qaoa_tensor_sim";
+const LEGACY_QAOA_LIMITED_MODE = "qaoa_limited";
+const DEFAULT_RUN_MODE = QAOA_LIGHTNING_SIM_MODE;
+
+const RUN_MODE_OPTIONS = [
+  {
+    value: CLASSICAL_MODE,
+    label: "Classical Only",
+  },
+  {
+    value: QAOA_LIGHTNING_SIM_MODE,
+    label: "QAOA Lightning Sim",
+  },
+  {
+    value: QAOA_TENSOR_SIM_MODE,
+    label: "QAOA Tensor Sim",
+  },
+] as const;
+
+const RUN_MODE_LABELS: Record<string, string> = {
+  [CLASSICAL_MODE]: "Classical Only",
+  [QAOA_LIGHTNING_SIM_MODE]: "QAOA Lightning Sim",
+  [QAOA_TENSOR_SIM_MODE]: "QAOA Tensor Sim",
+  [LEGACY_QAOA_LIMITED_MODE]: "QAOA Lightning Sim (legacy alias)",
+};
+
+function normalizeRunMode(value?: string | null) {
+  const mode = value || DEFAULT_RUN_MODE;
+  return mode === LEGACY_QAOA_LIMITED_MODE ? QAOA_LIGHTNING_SIM_MODE : mode;
+}
+
+function toSelectableRunMode(value?: string | null) {
+  const mode = normalizeRunMode(value);
+  return RUN_MODE_OPTIONS.some((option) => option.value === mode)
+    ? mode
+    : DEFAULT_RUN_MODE;
+}
+
+function isQaoaSimulationMode(value: string) {
+  const mode = normalizeRunMode(value);
+  return mode === QAOA_LIGHTNING_SIM_MODE || mode === QAOA_TENSOR_SIM_MODE;
+}
+
+function simulationBackendForMode(value?: string | null) {
+  const mode = normalizeRunMode(value);
+  if (mode === QAOA_LIGHTNING_SIM_MODE) return "lightning.qubit";
+  if (mode === QAOA_TENSOR_SIM_MODE) return "default.tensor";
+  return "n/a";
+}
+
 function getNumber(value: unknown): number | undefined {
   return typeof value === "number" && !Number.isNaN(value) ? value : undefined;
 }
@@ -483,6 +549,17 @@ function formatText(value: unknown, fallback = "n/a") {
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function displayRunMode(value: unknown, fallback = "n/a") {
+  if (typeof value !== "string" || value === "") return fallback;
+  return RUN_MODE_LABELS[value] ?? value;
+}
+
+function formatAllowedRunModes(value: unknown) {
+  if (!Array.isArray(value)) return formatText(value);
+  if (value.length === 0) return "n/a";
+  return value.map((item) => displayRunMode(item)).join(", ");
 }
 
 function formatQuboShape(value: unknown) {
@@ -582,7 +659,9 @@ function timestampForFilename() {
 }
 
 function reviewFilename(workbookName: string | null, mode: string) {
-  return `qaoa-rqp-v9-review_${safeFileStem(workbookName)}_${mode}_${timestampForFilename()}.json`;
+  return `qaoa-rqp-v9-review_${safeFileStem(workbookName)}_${normalizeRunMode(
+    mode
+  )}_${timestampForFilename()}.json`;
 }
 
 function rawJsonFilename(workbookName: string | null) {
@@ -593,8 +672,36 @@ function getGeneralLimits(license?: LicenseStatus | null): LimitBlock | undefine
   return license?.general_limits ?? license?.limits;
 }
 
-function getQaoaLimitedLimits(license?: LicenseStatus | null): LimitBlock | undefined {
-  return license?.qaoa_limited_limits ?? license?.limits?.qaoa_limited;
+function getQaoaModeLimits(
+  license?: LicenseStatus | null,
+  selectedMode = DEFAULT_RUN_MODE
+): LimitBlock | undefined {
+  const mode = normalizeRunMode(selectedMode);
+  if (mode === QAOA_TENSOR_SIM_MODE) {
+    return (
+      license?.qaoa_tensor_sim_limits ??
+      license?.limits?.qaoa_tensor_sim ??
+      license?.qaoa_lightning_sim_limits ??
+      license?.limits?.qaoa_lightning_sim ??
+      license?.qaoa_limited_limits ??
+      license?.limits?.qaoa_limited
+    );
+  }
+
+  return (
+    license?.qaoa_lightning_sim_limits ??
+    license?.limits?.qaoa_lightning_sim ??
+    license?.qaoa_limited_limits ??
+    license?.limits?.qaoa_limited
+  );
+}
+
+function isRunModeAllowed(license: LicenseStatus | null | undefined, selectedMode: string) {
+  const allowedModes = license?.allowed_modes;
+  if (!allowedModes || allowedModes.length === 0) return true;
+
+  const effectiveMode = normalizeRunMode(selectedMode);
+  return allowedModes.some((allowedMode) => normalizeRunMode(allowedMode) === effectiveMode);
 }
 
 function getStringArray(value: unknown): string[] {
@@ -670,6 +777,69 @@ function getQaoaShotsDisplay(...sources: Array<Diagnostics | undefined>) {
   }
 
   return "";
+}
+
+function getRunModeDiagnostics(
+  fallbackMode: string,
+  ...sources: Array<Diagnostics | undefined>
+) {
+  let requestedRunMode = "";
+  let runMode = "";
+  let simulationBackend = "";
+  let legacyRunModeAlias: boolean | undefined;
+  let hardwareReplay: boolean | undefined;
+
+  for (const diagnostics of sources) {
+    if (!diagnostics) continue;
+
+    if (!requestedRunMode) {
+      requestedRunMode = formatText(
+        diagnostics.requested_run_mode ??
+          getEffectiveSetting(diagnostics, "requested_run_mode"),
+        ""
+      );
+    }
+
+    if (!runMode) {
+      runMode = formatText(
+        diagnostics.run_mode ?? getEffectiveSetting(diagnostics, "run_mode"),
+        ""
+      );
+    }
+
+    if (!simulationBackend) {
+      simulationBackend = formatText(
+        diagnostics.simulation_backend ??
+          getEffectiveSetting(diagnostics, "simulation_backend"),
+        ""
+      );
+    }
+
+    if (legacyRunModeAlias === undefined) {
+      legacyRunModeAlias = getBoolean(
+        diagnostics.legacy_run_mode_alias ??
+          getEffectiveSetting(diagnostics, "legacy_run_mode_alias")
+      );
+    }
+
+    if (hardwareReplay === undefined) {
+      hardwareReplay = getBoolean(
+        diagnostics.hardware_replay ?? getEffectiveSetting(diagnostics, "hardware_replay")
+      );
+    }
+  }
+
+  const effectiveMode = normalizeRunMode(runMode || requestedRunMode || fallbackMode);
+  const requestedMode = requestedRunMode || effectiveMode;
+
+  return {
+    requestedRunMode: requestedMode,
+    runMode: effectiveMode,
+    simulationBackend: simulationBackend || simulationBackendForMode(effectiveMode),
+    legacyRunModeAlias:
+      legacyRunModeAlias ?? requestedMode === LEGACY_QAOA_LIMITED_MODE,
+    hardwareReplay: hardwareReplay ?? false,
+  };
 }
 
 function getRuntimeEstimateFromInspect(result?: InspectResult | null): RuntimeEstimate | undefined {
@@ -788,8 +958,6 @@ function estimateRuntimeSeconds({
     const base = qubits !== undefined ? Math.max(2, qubits * 0.25) : 5;
     return Math.min(base, runtimeCap ?? 60);
   }
-
-  if (mode === "qaoa_full") return undefined;
 
   const q = qubits ?? 10;
   const qubitFactor = Math.pow(2, Math.max(q - 7, 0) / 2.2);
@@ -1689,7 +1857,7 @@ export default function QaoaRqpV9Page() {
   const [file, setFile] = useState<File | null>(null);
   const [workbookFilename, setWorkbookFilename] = useState<string | null>(null);
 
-  const [mode, setMode] = useState("classical_only");
+  const [mode, setMode] = useState(DEFAULT_RUN_MODE);
   const [responseLevel, setResponseLevel] = useState("full");
 
   const [layers, setLayers] = useState(1);
@@ -1785,6 +1953,18 @@ export default function QaoaRqpV9Page() {
   const qaoaShotsDisplay = getQaoaShotsDisplay(diagnostics, inspectDiagnostics);
   const isExactShotsMode = shotsMode === "exact" || qaoaShotsDisplay === "exact";
   const effectiveRandomSeed = getEffectiveRandomSeed(diagnostics, inspectDiagnostics);
+  const runModeDiagnostics = useMemo(
+    () => getRunModeDiagnostics(mode, diagnostics, inspectDiagnostics),
+    [mode, diagnostics, inspectDiagnostics]
+  );
+  const selectedModeAllowed = useMemo(
+    () => isRunModeAllowed(license, mode),
+    [license, mode]
+  );
+  const qaoaModeLimits = useMemo(
+    () => getQaoaModeLimits(license, mode),
+    [license, mode]
+  );
 
   const typeConstraints = useMemo(
     () => getTypeConstraintsFromSources(diagnostics, inspectDiagnostics, inspectSummary),
@@ -1843,10 +2023,10 @@ export default function QaoaRqpV9Page() {
   }, [reportingSummary, result, diagnostics, inspectSummary]);
 
   const runtimeCap = useMemo(() => {
-    if (mode === "qaoa_limited") {
+    if (isQaoaSimulationMode(mode)) {
       return (
         inspectRuntimeEstimate?.max_estimated_runtime_sec ??
-        getQaoaLimitedLimits(license)?.max_estimated_runtime_sec
+        qaoaModeLimits?.max_estimated_runtime_sec
       );
     }
 
@@ -1854,7 +2034,7 @@ export default function QaoaRqpV9Page() {
       inspectRuntimeEstimate?.max_estimated_runtime_sec ??
       getGeneralLimits(license)?.max_estimated_runtime_sec
     );
-  }, [license, mode, inspectRuntimeEstimate]);
+  }, [license, mode, inspectRuntimeEstimate, qaoaModeLimits]);
 
   const preRunEstimateSec = useMemo(() => {
     const backendEstimate =
@@ -2001,6 +2181,24 @@ export default function QaoaRqpV9Page() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!license || selectedModeAllowed) return;
+
+    const fallback =
+      [DEFAULT_RUN_MODE, CLASSICAL_MODE, QAOA_TENSOR_SIM_MODE].find((candidate) =>
+        isRunModeAllowed(license, candidate)
+      ) ?? DEFAULT_RUN_MODE;
+
+    if (fallback !== mode) {
+      setMode(fallback);
+      addLog(
+        `Selected run mode is not allowed for this key. Switched to ${displayRunMode(
+          fallback
+        )}.`
+      );
+    }
+  }, [license, mode, selectedModeAllowed]);
+
   function saveReviewFile() {
     setReviewFileError(null);
     setReviewFileMessage(null);
@@ -2114,9 +2312,13 @@ export default function QaoaRqpV9Page() {
 
       clearPollInterval();
 
+      const requestedReviewMode = snapshot.ui_state?.mode ?? DEFAULT_RUN_MODE;
+      const reviewMode = toSelectableRunMode(requestedReviewMode);
+      const loadedLegacyMode = requestedReviewMode === LEGACY_QAOA_LIMITED_MODE;
+
       setFile(null);
       setWorkbookFilename(snapshot.original_filename ?? selectedFile.name);
-      setMode(snapshot.ui_state?.mode ?? "classical_only");
+      setMode(reviewMode);
       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
       setLayers(snapshot.ui_state?.layers ?? 1);
       setIterations(snapshot.ui_state?.iterations ?? 80);
@@ -2143,7 +2345,11 @@ export default function QaoaRqpV9Page() {
       settingsTouchedRef.current = true;
       setSettingsLoadedFromWorkbook(false);
 
-      const msg = `Loaded review file: ${selectedFile.name}`;
+      const msg = loadedLegacyMode
+        ? `Loaded review file: ${selectedFile.name}. Legacy mode mapped to ${displayRunMode(
+            reviewMode
+          )}.`
+        : `Loaded review file: ${selectedFile.name}`;
       setReviewFileMessage(msg);
       addLog(msg);
     } catch (err) {
@@ -2747,7 +2953,7 @@ export default function QaoaRqpV9Page() {
 
             <a
               href={REVIEW_FILE_24_URL}
-              download="qaoa-rqp-review_QuantumPortfolioOptimizer_demo_24_qaoa_limited_20260504-065225.json"
+              download="qaoa-rqp-review_QuantumPortfolioOptimizer_demo_24_qaoa_lightning_sim_20260504-065225.json"
               className="rounded-lg bg-gray-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-gray-400 active:bg-gray-600"
             >
               Review File 24 Qubits
@@ -2846,10 +3052,10 @@ export default function QaoaRqpV9Page() {
 
                   <div className="mt-2 rounded-xl border border-amber-900/60 bg-amber-950/20 p-2">
                     <div className="text-xs font-semibold text-amber-200 mb-1">
-                      QAOA limited limits
+                      Selected QAOA simulator limits
                     </div>
                     <div className="text-xs leading-relaxed text-amber-100/80 break-words">
-                      {formatLimitBlock(getQaoaLimitedLimits(license))}
+                      {formatLimitBlock(qaoaModeLimits)}
                     </div>
                   </div>
 
@@ -2858,7 +3064,7 @@ export default function QaoaRqpV9Page() {
                       Allowed modes
                     </div>
                     <div className="text-xs leading-relaxed text-gray-300 break-words">
-                      {formatText(license.allowed_modes)}
+                      {formatAllowedRunModes(license.allowed_modes)}
                     </div>
                   </div>
 
@@ -2973,22 +3179,41 @@ export default function QaoaRqpV9Page() {
                 }}
                 className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
               >
-                <option value="classical_only">classical_only</option>
-                <option value="qaoa_limited">qaoa_limited</option>
-                <option value="qaoa_full">qaoa_full disabled</option>
+                {RUN_MODE_OPTIONS.map((option) => {
+                  const allowed = isRunModeAllowed(license, option.value);
+
+                  return (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={!allowed}
+                    >
+                      {option.label}
+                      {allowed ? "" : " (not allowed by key)"}
+                    </option>
+                  );
+                })}
               </select>
 
-              {mode === "qaoa_limited" && (
+              {mode === QAOA_LIGHTNING_SIM_MODE && (
                 <div className="mb-3 rounded-xl border border-amber-700 bg-amber-950/30 p-2 text-xs text-amber-100">
-                  QAOA limited mode runs as an asynchronous backend job. Availability
-                  and limits depend on the active key or public demo limits.
+                  QAOA Lightning Sim runs as an asynchronous backend job on
+                  PennyLane lightning.qubit. Availability and limits depend on the
+                  active key or public demo limits.
                 </div>
               )}
 
-              {mode === "qaoa_full" && (
+              {mode === QAOA_TENSOR_SIM_MODE && (
                 <div className="mb-3 rounded-xl border border-yellow-700 bg-yellow-950/30 p-2 text-xs text-yellow-100">
-                  QAOA full mode is still disabled by the backend. Use qaoa_limited
-                  for current cloud runs.
+                  QAOA Tensor Sim is experimental and uses PennyLane default.tensor.
+                  Your key must allow this simulator mode.
+                </div>
+              )}
+
+              {!selectedModeAllowed && (
+                <div className="mb-3 rounded-xl border border-red-800 bg-red-950/30 p-2 text-xs text-red-100">
+                  The selected run mode is not allowed for the current key. Choose an
+                  allowed mode or use a key with tensor simulation access.
                 </div>
               )}
 
@@ -3480,7 +3705,7 @@ export default function QaoaRqpV9Page() {
                 <p className="mt-3 text-xs leading-relaxed text-gray-400">
                   {quantumSummary?.future_source
                     ? `Future source: ${quantumSummary.future_source}.`
-                    : "This block displays the best QUBO result from exported quantum samples when qaoa_limited is run successfully."}
+                    : "This block displays the best QUBO result from exported quantum samples when a QAOA simulator run completes successfully."}
                 </p>
               </Panel>
             </div>
@@ -3720,7 +3945,7 @@ export default function QaoaRqpV9Page() {
                     <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
                       Quantum portfolio metrics will be populated from the best
                       QUBO candidate within the exported QAOA sample set once
-                      qaoa_limited runs successfully.
+                      a QAOA simulator run completes successfully.
                     </QuantumPlaceholder>
                   )}
                 </Panel>
@@ -3810,7 +4035,7 @@ export default function QaoaRqpV9Page() {
                   ) : (
                     <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
                       Quantum QUBO terms will be populated from QAOA_Samples and
-                      QAOA_Best_QUBO once qaoa_limited runs successfully.
+                      QAOA_Best_QUBO once a QAOA simulator run completes successfully.
                     </QuantumPlaceholder>
                   )}
                 </Panel>
@@ -3869,7 +4094,7 @@ export default function QaoaRqpV9Page() {
                   <QuantumPlaceholder title="No QAOA samples available">
                     No QAOA samples are available in the current response. This
                     section will show the best QUBO candidates from exported
-                    QAOA samples once qaoa_limited completes successfully.
+                    QAOA samples once a QAOA simulator run completes successfully.
                   </QuantumPlaceholder>
                 )}
               </Panel>
@@ -3931,6 +4156,33 @@ export default function QaoaRqpV9Page() {
                     <InfoRow
                       label="Backend service"
                       value={formatText(diagnostics.service)}
+                    />
+                    <InfoRow
+                      label="Requested mode"
+                      value={displayRunMode(runModeDiagnostics.requestedRunMode)}
+                    />
+                    <InfoRow
+                      label="Effective mode"
+                      value={displayRunMode(runModeDiagnostics.runMode)}
+                    />
+                    <InfoRow
+                      label="Simulation backend"
+                      value={formatText(runModeDiagnostics.simulationBackend)}
+                    />
+                    <InfoRow
+                      label="Legacy mode alias"
+                      value={formatText(runModeDiagnostics.legacyRunModeAlias)}
+                    />
+                    <InfoRow
+                      label="Hardware replay"
+                      value={formatText(runModeDiagnostics.hardwareReplay)}
+                    />
+                    <InfoRow
+                      label="Effective response level"
+                      value={formatText(
+                        getEffectiveSetting(diagnostics, "response_level") ??
+                          responseLevel
+                      )}
                     />
                     <InfoRow
                       label="Model version"
