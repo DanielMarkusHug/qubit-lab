@@ -18,6 +18,12 @@ VERSION_DIR = REPO_ROOT / "Version 9"
 sys.path.insert(0, str(VERSION_DIR))
 
 from app.qubo_builder import build_qubo_from_workbook  # noqa: E402
+from app.ibm_circuit import (  # noqa: E402
+    build_qiskit_qaoa_circuit,
+    qaoa_operation_counts,
+    qaoa_operation_plan,
+    qiskit_counts_to_optimizer_probabilities,
+)
 
 
 ASSETS = [
@@ -167,6 +173,47 @@ def test_exact_qaoa_circuit_probabilities_match_independent_dense_simulation(
         key=lambda bits: optimizer.qubo_value(np.asarray(bits, dtype=int)),
     )
     assert best_exact_row["bitstring"] == "".join(map(str, brute_best_bits))
+
+
+def test_ibm_operation_plan_matches_audited_qaoa_circuit(tmp_path):
+    optimizer = _build_audit_optimizer(tmp_path)
+    params = np.array([0.37, -0.21], dtype=float)
+    h, j_terms, _offset = optimizer._qubo_to_ising(optimizer.Q, optimizer.constant)
+
+    operations = qaoa_operation_plan(optimizer.n, h, j_terms, params[:1], params[1:])
+    actual_probs = _probabilities_from_operation_plan(optimizer.n, operations)
+    expected_probs = _dense_qaoa_probabilities(optimizer, params)
+
+    np.testing.assert_allclose(actual_probs, expected_probs, atol=1e-10)
+
+    counts = qaoa_operation_counts(operations)
+    assert counts["h"] == optimizer.n
+    assert counts["rx"] == optimizer.n
+    assert counts["cx"] == 2 * len(j_terms)
+    assert counts["rz"] == len([value for value in h if abs(value) > 1e-12]) + len(j_terms)
+
+
+def test_qiskit_count_keys_decode_to_optimizer_bitstring_order():
+    probabilities = qiskit_counts_to_optimizer_probabilities({"01": 3, "10": 1}, n_qubits=2)
+
+    assert probabilities == {
+        "01": pytest.approx(0.25),
+        "10": pytest.approx(0.75),
+    }
+
+
+def test_qiskit_circuit_export_metadata_when_qiskit_available(tmp_path):
+    pytest.importorskip("qiskit")
+    optimizer = _build_audit_optimizer(tmp_path)
+    params = np.array([0.37, -0.21], dtype=float)
+    h, j_terms, _offset = optimizer._qubo_to_ising(optimizer.Q, optimizer.constant)
+
+    circuit = build_qiskit_qaoa_circuit(optimizer.n, h, j_terms, params[:1], params[1:])
+
+    assert circuit.metadata["qaoa_rqp_export"] is True
+    assert circuit.metadata["counts_decoder"] == "reverse_qiskit_count_key"
+    assert circuit.num_qubits == optimizer.n
+    assert any(instruction.operation.name == "measure" for instruction in circuit.data)
 
 
 def test_candidate_ranking_matches_bruteforce_qubo_order(tmp_path):
@@ -326,3 +373,58 @@ def _expected_qubo_from_probabilities(optimizer, probs: np.ndarray) -> float:
         bits = np.asarray(list(map(int, format(state_idx, f"0{optimizer.n}b"))), dtype=int)
         expected += float(probability) * optimizer.qubo_value(bits)
     return float(expected)
+
+
+def _probabilities_from_operation_plan(n_qubits: int, operations) -> np.ndarray:
+    state = np.zeros(2**n_qubits, dtype=complex)
+    state[0] = 1.0
+    for operation in operations:
+        if operation.name == "h":
+            state = _apply_single_qubit_gate(state, _hadamard(), operation.qubits[0], n_qubits)
+        elif operation.name == "rz":
+            state = _apply_single_qubit_gate(state, _rz(float(operation.angle)), operation.qubits[0], n_qubits)
+        elif operation.name == "rx":
+            state = _apply_single_qubit_gate(state, _rx(float(operation.angle)), operation.qubits[0], n_qubits)
+        elif operation.name == "cx":
+            state = _apply_cx(state, operation.qubits[0], operation.qubits[1], n_qubits)
+        else:
+            raise AssertionError(f"Unexpected operation in test plan: {operation}")
+    probs = np.square(np.abs(state)).astype(float)
+    return probs / float(np.sum(probs))
+
+
+def _apply_single_qubit_gate(state: np.ndarray, gate: np.ndarray, wire: int, n_qubits: int) -> np.ndarray:
+    tensor = state.reshape((2,) * n_qubits)
+    moved = np.moveaxis(tensor, wire, 0)
+    updated = np.tensordot(gate, moved, axes=([1], [0]))
+    updated = np.moveaxis(updated, 0, wire)
+    return updated.reshape(-1)
+
+
+def _apply_cx(state: np.ndarray, control: int, target: int, n_qubits: int) -> np.ndarray:
+    output = np.empty_like(state)
+    for state_idx, amplitude in enumerate(state):
+        bits = list(format(state_idx, f"0{n_qubits}b"))
+        if bits[control] == "1":
+            bits[target] = "0" if bits[target] == "1" else "1"
+        output[int("".join(bits), 2)] = amplitude
+    return output
+
+
+def _hadamard() -> np.ndarray:
+    return np.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex) / np.sqrt(2.0)
+
+
+def _rz(theta: float) -> np.ndarray:
+    return np.array(
+        [[np.exp(-0.5j * theta), 0.0], [0.0, np.exp(0.5j * theta)]],
+        dtype=complex,
+    )
+
+
+def _rx(theta: float) -> np.ndarray:
+    half = 0.5 * float(theta)
+    return np.array(
+        [[np.cos(half), -1j * np.sin(half)], [-1j * np.sin(half), np.cos(half)]],
+        dtype=complex,
+    )

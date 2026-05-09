@@ -14,6 +14,7 @@ import pandas as pd
 
 from app.config import Config
 from app.cost_columns import INDICATIVE_COST_COLUMN, LEGACY_COST_COLUMN, add_indicative_cost_alias_to_frame
+from app.ibm_circuit import qaoa_ibm_circuit_metadata
 from app.schemas import json_safe
 from app.type_constraints import (
     achievements_for_bitvec,
@@ -1081,6 +1082,13 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "shots_mode": "disabled",
                 "qaoa_shots": _safe_int(getattr(optimizer, "qaoa_shots", None)),
                 "qaoa_shots_display": "not_applicable",
+                "ibm": {
+                    "available": False,
+                    "provider": "ibm_quantum",
+                    "sdk": "qiskit",
+                    "reason": "QAOA was not executed for this response.",
+                    "hardware_submission": "not_configured",
+                },
             }
         )
 
@@ -1124,6 +1132,7 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "qaoa_shots": None if shots_mode == "exact" else qaoa_shots,
                 "qaoa_shots_display": "exact" if shots_mode == "exact" else (str(qaoa_shots) if qaoa_shots is not None else None),
                 "counts_are_estimated": True,
+                "ibm": qaoa_ibm_circuit_metadata(optimizer),
             }
         )
     except Exception as exc:
