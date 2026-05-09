@@ -38,6 +38,26 @@ type EffectiveSettings = {
   random_seed?: number | null;
 };
 
+type WorkerProfileId = "small" | "medium" | "large";
+
+type WorkerProfileMetadata = {
+  label?: string;
+  cpu?: number;
+  memory_gib?: number;
+  description?: string;
+  enabled?: boolean;
+  required_level?: string | null;
+};
+
+type MemoryHistoryPoint = {
+  timestamp?: string | null;
+  elapsed_sec?: number | null;
+  memory_used_gib?: number | null;
+  memory_limit_gib?: number | null;
+  memory_remaining_gib?: number | null;
+  memory_used_pct?: number | null;
+};
+
 type AdditionalTypeConstraint = Record<string, unknown> & {
   id?: string;
   name?: string;
@@ -121,6 +141,18 @@ type Diagnostics = Record<string, unknown> & {
   additional_type_constraints?: AdditionalTypeConstraint[];
   additional_type_constraints_count?: number;
   additional_type_budget_achievements?: AdditionalTypeAchievement[];
+
+  worker_profile?: string | null;
+  worker_profile_label?: string | null;
+  worker_job_name?: string | null;
+  configured_cpu?: number | null;
+  configured_memory_gib?: number | null;
+  memory_used_gib?: number | null;
+  memory_limit_gib?: number | null;
+  memory_remaining_gib?: number | null;
+  memory_used_pct?: number | null;
+  peak_memory_used_gib?: number | null;
+  memory_history?: MemoryHistoryPoint[];
 };
 
 type LicenseStatus = {
@@ -139,6 +171,8 @@ type LicenseStatus = {
   max_estimated_runtime_sec?: number;
   allowed_modes?: string[];
   allowed_response_levels?: string[];
+  allowed_worker_profiles?: string[];
+  worker_profiles?: Record<string, WorkerProfileMetadata>;
   general_limits?: LimitBlock;
   qaoa_lightning_sim_limits?: LimitBlock;
   qaoa_tensor_sim_limits?: LimitBlock;
@@ -248,6 +282,17 @@ type RunResult = {
   run_id?: string;
   license?: LicenseStatus;
   diagnostics?: Diagnostics;
+  worker_profile?: string | null;
+  worker_profile_label?: string | null;
+  worker_job_name?: string | null;
+  configured_cpu?: number | null;
+  configured_memory_gib?: number | null;
+  memory_used_gib?: number | null;
+  memory_limit_gib?: number | null;
+  memory_remaining_gib?: number | null;
+  memory_used_pct?: number | null;
+  peak_memory_used_gib?: number | null;
+  memory_history?: MemoryHistoryPoint[];
   components?: Record<string, unknown>;
   best_candidate?: Record<string, unknown>;
   top_candidates?: CandidateRow[];
@@ -349,6 +394,17 @@ type JobStatus = {
   heartbeat_at?: string | null;
   finished_at?: string | null;
   result_available?: boolean;
+  worker_profile?: string | null;
+  worker_profile_label?: string | null;
+  worker_job_name?: string | null;
+  configured_cpu?: number | null;
+  configured_memory_gib?: number | null;
+  memory_used_gib?: number | null;
+  memory_limit_gib?: number | null;
+  memory_remaining_gib?: number | null;
+  memory_used_pct?: number | null;
+  peak_memory_used_gib?: number | null;
+  memory_history?: MemoryHistoryPoint[];
   result?: {
     available?: boolean;
     storage_path?: string | null;
@@ -371,6 +427,11 @@ type AsyncSubmitResponse = {
   status_url?: string;
   result_url?: string;
   license?: LicenseStatus;
+  worker_profile?: string | null;
+  worker_profile_label?: string | null;
+  worker_job_name?: string | null;
+  configured_cpu?: number | null;
+  configured_memory_gib?: number | null;
   error?: {
     code?: string;
     message?: string;
@@ -398,6 +459,7 @@ type SavedQaoaSnapshot = {
     risk_lambda: number;
     risk_free_rate: number;
     qaoa_shots: number;
+    worker_profile?: string;
     restart_perturbation: number;
     random_seed?: number | "";
   };
@@ -445,6 +507,7 @@ const QAOA_LIGHTNING_SIM_MODE = "qaoa_lightning_sim";
 const QAOA_TENSOR_SIM_MODE = "qaoa_tensor_sim";
 const LEGACY_QAOA_LIMITED_MODE = "qaoa_limited";
 const DEFAULT_RUN_MODE = QAOA_LIGHTNING_SIM_MODE;
+const DEFAULT_WORKER_PROFILE: WorkerProfileId = "small";
 
 const RUN_MODE_OPTIONS = [
   {
@@ -467,6 +530,39 @@ const RUN_MODE_LABELS: Record<string, string> = {
   [QAOA_TENSOR_SIM_MODE]: "QAOA Tensor Sim",
   [LEGACY_QAOA_LIMITED_MODE]: "QAOA Lightning Sim (legacy alias)",
 };
+
+const WORKER_PROFILE_OPTIONS: Array<{
+  value: WorkerProfileId;
+  label: string;
+  cpu: number;
+  memory_gib: number;
+  description: string;
+  required_level?: string;
+}> = [
+  {
+    value: "small",
+    label: "Small",
+    cpu: 2,
+    memory_gib: 4,
+    description: "For small examples and quick tests",
+  },
+  {
+    value: "medium",
+    label: "Medium",
+    cpu: 4,
+    memory_gib: 16,
+    description: "For larger simulations",
+    required_level: "trial",
+  },
+  {
+    value: "large",
+    label: "Large",
+    cpu: 8,
+    memory_gib: 32,
+    description: "For heavy QAOA runs",
+    required_level: "power",
+  },
+];
 
 function normalizeRunMode(value?: string | null) {
   const mode = value || DEFAULT_RUN_MODE;
@@ -702,6 +798,132 @@ function isRunModeAllowed(license: LicenseStatus | null | undefined, selectedMod
 
   const effectiveMode = normalizeRunMode(selectedMode);
   return allowedModes.some((allowedMode) => normalizeRunMode(allowedMode) === effectiveMode);
+}
+
+function normalizeWorkerProfile(value?: string | null): WorkerProfileId {
+  return value === "medium" || value === "large" || value === "small"
+    ? value
+    : DEFAULT_WORKER_PROFILE;
+}
+
+function isWorkerProfileAllowed(
+  license: LicenseStatus | null | undefined,
+  selectedProfile: string
+) {
+  const profile = normalizeWorkerProfile(selectedProfile);
+  const allowed = license?.allowed_worker_profiles;
+  if (allowed && allowed.length > 0) return allowed.includes(profile);
+  if (!license) return profile === "small";
+  const level = String(license.usage_level ?? "").toLowerCase();
+  if (profile === "small") return true;
+  if (profile === "medium") {
+    return ["tester", "internal_power", "internal_qaoa_30", "internal_ultra"].includes(level);
+  }
+  return ["internal_power", "internal_qaoa_30", "internal_ultra"].includes(level);
+}
+
+function allowedWorkerProfileFallback(license: LicenseStatus | null | undefined) {
+  return (
+    WORKER_PROFILE_OPTIONS.find((option) => isWorkerProfileAllowed(license, option.value))
+      ?.value ?? DEFAULT_WORKER_PROFILE
+  );
+}
+
+function workerProfileInfo(
+  license: LicenseStatus | null | undefined,
+  selectedProfile: string
+) {
+  const profile = normalizeWorkerProfile(selectedProfile);
+  const fromBackend = license?.worker_profiles?.[profile];
+  const fromLocal = WORKER_PROFILE_OPTIONS.find((option) => option.value === profile);
+  return {
+    value: profile,
+    label: fromBackend?.label ?? fromLocal?.label ?? profile,
+    cpu: getNumber(fromBackend?.cpu) ?? fromLocal?.cpu,
+    memory_gib: getNumber(fromBackend?.memory_gib) ?? fromLocal?.memory_gib,
+    description: fromBackend?.description ?? fromLocal?.description ?? "",
+    required_level: fromBackend?.required_level ?? fromLocal?.required_level ?? null,
+  };
+}
+
+function workerProfileResourceText(profile: {
+  cpu?: number;
+  memory_gib?: number;
+}) {
+  if (profile.cpu === undefined || profile.memory_gib === undefined) return "n/a";
+  return `${profile.cpu} vCPU / ${profile.memory_gib} GiB RAM`;
+}
+
+function requiredWorkerProfileText(profile: WorkerProfileMetadata | { required_level?: string | null }) {
+  if (profile.required_level === "trial") return "Requires Trial key";
+  if (profile.required_level === "power") return "Requires Power key";
+  return "Available";
+}
+
+function memoryHistoryFromSources(
+  result?: RunResult | null,
+  jobStatus?: JobStatus | null,
+  diagnostics?: Diagnostics
+): MemoryHistoryPoint[] {
+  const sources = [result?.memory_history, jobStatus?.memory_history, diagnostics?.memory_history];
+  for (const source of sources) {
+    if (Array.isArray(source) && source.length > 0) return source;
+  }
+  return [];
+}
+
+function memoryValueFromSources(
+  key: keyof Pick<
+    RunResult,
+    | "memory_used_gib"
+    | "memory_limit_gib"
+    | "memory_remaining_gib"
+    | "memory_used_pct"
+    | "peak_memory_used_gib"
+    | "configured_memory_gib"
+    | "configured_cpu"
+  >,
+  result?: RunResult | null,
+  jobStatus?: JobStatus | null,
+  diagnostics?: Diagnostics
+) {
+  return getNumber(result?.[key] ?? jobStatus?.[key as keyof JobStatus] ?? diagnostics?.[key as keyof Diagnostics]);
+}
+
+function workerMetadataFromSources(
+  selectedProfile: string,
+  license: LicenseStatus | null | undefined,
+  result?: RunResult | null,
+  jobStatus?: JobStatus | null,
+  diagnostics?: Diagnostics
+) {
+  const fallback = workerProfileInfo(license, selectedProfile);
+  const workerProfile = normalizeWorkerProfile(
+    result?.worker_profile ?? jobStatus?.worker_profile ?? diagnostics?.worker_profile ?? fallback.value
+  );
+  const info = workerProfileInfo(license, workerProfile);
+  return {
+    worker_profile: workerProfile,
+    worker_profile_label:
+      result?.worker_profile_label ?? jobStatus?.worker_profile_label ?? diagnostics?.worker_profile_label ?? info.label,
+    worker_job_name: result?.worker_job_name ?? jobStatus?.worker_job_name ?? diagnostics?.worker_job_name,
+    configured_cpu:
+      memoryValueFromSources("configured_cpu", result, jobStatus, diagnostics) ?? info.cpu,
+    configured_memory_gib:
+      memoryValueFromSources("configured_memory_gib", result, jobStatus, diagnostics) ?? info.memory_gib,
+    memory_used_gib: memoryValueFromSources("memory_used_gib", result, jobStatus, diagnostics),
+    memory_limit_gib: memoryValueFromSources("memory_limit_gib", result, jobStatus, diagnostics),
+    memory_remaining_gib: memoryValueFromSources("memory_remaining_gib", result, jobStatus, diagnostics),
+    memory_used_pct: memoryValueFromSources("memory_used_pct", result, jobStatus, diagnostics),
+    peak_memory_used_gib: memoryValueFromSources("peak_memory_used_gib", result, jobStatus, diagnostics),
+    memory_history: memoryHistoryFromSources(result, jobStatus, diagnostics),
+  };
+}
+
+function formatMemoryGib(value: unknown) {
+  const number = getNumber(value);
+  if (number === undefined) return "n/a";
+  return `${number.toLocaleString("en-US", { maximumFractionDigits: 2 })} GiB`;
 }
 
 function getStringArray(value: unknown): string[] {
@@ -1294,6 +1516,86 @@ function ChartImage({ title, src }: { title: string; src: string }) {
   );
 }
 
+function MemoryDiagnosticsChart({
+  metadata,
+}: {
+  metadata: ReturnType<typeof workerMetadataFromSources>;
+}) {
+  const points = metadata.memory_history
+    .map((point, idx) => ({
+      idx,
+      elapsed: getNumber(point.elapsed_sec) ?? idx,
+      used: getNumber(point.memory_used_gib),
+    }))
+    .filter((point) => point.used !== undefined) as Array<{
+    idx: number;
+    elapsed: number;
+    used: number;
+  }>;
+
+  if (points.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs text-gray-400">
+        Memory diagnostics not available for this run.
+      </div>
+    );
+  }
+
+  const width = 640;
+  const height = 220;
+  const padLeft = 44;
+  const padRight = 18;
+  const padTop = 18;
+  const padBottom = 34;
+  const chartWidth = width - padLeft - padRight;
+  const chartHeight = height - padTop - padBottom;
+  const maxElapsed = Math.max(...points.map((point) => point.elapsed), 1);
+  const peak = metadata.peak_memory_used_gib ?? Math.max(...points.map((point) => point.used));
+  const limit = metadata.configured_memory_gib ?? metadata.memory_limit_gib ?? peak;
+  const maxY = Math.max(limit ?? 0, peak ?? 0, ...points.map((point) => point.used), 1);
+  const xFor = (elapsed: number) => padLeft + (elapsed / maxElapsed) * chartWidth;
+  const yFor = (used: number) => padTop + chartHeight - (used / maxY) * chartHeight;
+  const polyline = points.map((point) => `${xFor(point.elapsed)},${yFor(point.used)}`).join(" ");
+  const peakPoint = points.reduce((best, point) => (point.used > best.used ? point : best), points[0]);
+  const limitY = yFor(limit ?? maxY);
+
+  return (
+    <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3">
+      <div className="mb-2">
+        <h3 className="text-xs font-semibold text-cyan-100">Memory usage over time</h3>
+        <p className="text-xs text-gray-400">
+          Worker profile: {metadata.worker_profile_label},{" "}
+          {workerProfileResourceText({
+            cpu: metadata.configured_cpu,
+            memory_gib: metadata.configured_memory_gib,
+          })}
+        </p>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full rounded-lg border border-slate-800 bg-slate-950">
+        <line x1={padLeft} y1={padTop} x2={padLeft} y2={height - padBottom} stroke="#334155" />
+        <line x1={padLeft} y1={height - padBottom} x2={width - padRight} y2={height - padBottom} stroke="#334155" />
+        <line x1={padLeft} y1={limitY} x2={width - padRight} y2={limitY} stroke="#f59e0b" strokeDasharray="6 5" />
+        <polyline points={polyline} fill="none" stroke="#22d3ee" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={xFor(peakPoint.elapsed)} cy={yFor(peakPoint.used)} r="5" fill="#f59e0b" />
+        <text x={padLeft} y={14} fill="#94a3b8" fontSize="11">
+          {formatMemoryGib(maxY)}
+        </text>
+        <text x={padLeft} y={height - 10} fill="#94a3b8" fontSize="11">
+          elapsed runtime
+        </text>
+        <text x={width - padRight - 132} y={limitY - 6} fill="#fbbf24" fontSize="11">
+          limit {formatMemoryGib(limit)}
+        </text>
+      </svg>
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-x-6">
+        <InfoRow label="Peak usage" value={formatMemoryGib(peak)} />
+        <InfoRow label="Configured memory limit" value={formatMemoryGib(limit)} />
+        <InfoRow label="Samples" value={String(points.length)} />
+      </div>
+    </div>
+  );
+}
+
 function WorkbookWarnings({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return null;
 
@@ -1516,6 +1818,7 @@ function ProgressBar({
   iteration,
   maxIterations,
   elapsedSeconds,
+  workerMetadata,
   indeterminate,
 }: {
   visible: boolean;
@@ -1527,6 +1830,7 @@ function ProgressBar({
   iteration?: number | null;
   maxIterations?: number | null;
   elapsedSeconds?: number | null;
+  workerMetadata?: ReturnType<typeof workerMetadataFromSources>;
   indeterminate?: boolean;
 }) {
   if (!visible) return null;
@@ -1555,10 +1859,36 @@ function ProgressBar({
             {elapsedSeconds !== null && elapsedSeconds !== undefined && (
               <span>Elapsed: {formatSeconds(elapsedSeconds)}</span>
             )}
+            {workerMetadata && (
+              <span>
+                Worker profile: {workerMetadata.worker_profile_label} (
+                {workerProfileResourceText({
+                  cpu: workerMetadata.configured_cpu,
+                  memory_gib: workerMetadata.configured_memory_gib,
+                })}
+                )
+              </span>
+            )}
             {etaText ? (
               <span>Backend live ETA: {etaText}</span>
             ) : (
               <span>Backend live ETA unavailable</span>
+            )}
+            {workerMetadata?.memory_used_gib !== undefined && (
+              <span>
+                Memory usage: {formatMemoryGib(workerMetadata.memory_used_gib)} /{" "}
+                {formatMemoryGib(
+                  workerMetadata.memory_limit_gib ?? workerMetadata.configured_memory_gib
+                )}
+              </span>
+            )}
+            {workerMetadata?.memory_remaining_gib !== undefined && (
+              <span>
+                Remaining within job limit: {formatMemoryGib(workerMetadata.memory_remaining_gib)}
+              </span>
+            )}
+            {workerMetadata?.peak_memory_used_gib !== undefined && (
+              <span>Peak memory usage: {formatMemoryGib(workerMetadata.peak_memory_used_gib)}</span>
             )}
           </div>
         </div>
@@ -1859,6 +2189,8 @@ export default function QaoaRqpV9Page() {
 
   const [mode, setMode] = useState(DEFAULT_RUN_MODE);
   const [responseLevel, setResponseLevel] = useState("full");
+  const [workerProfile, setWorkerProfile] =
+    useState<WorkerProfileId>(DEFAULT_WORKER_PROFILE);
 
   const [layers, setLayers] = useState(1);
   const [iterations, setIterations] = useState(80);
@@ -1961,9 +2293,21 @@ export default function QaoaRqpV9Page() {
     () => isRunModeAllowed(license, mode),
     [license, mode]
   );
+  const selectedWorkerProfileAllowed = useMemo(
+    () => isWorkerProfileAllowed(license, workerProfile),
+    [license, workerProfile]
+  );
+  const selectedWorkerProfileInfo = useMemo(
+    () => workerProfileInfo(license, workerProfile),
+    [license, workerProfile]
+  );
   const qaoaModeLimits = useMemo(
     () => getQaoaModeLimits(license, mode),
     [license, mode]
+  );
+  const activeWorkerMetadata = useMemo(
+    () => workerMetadataFromSources(workerProfile, license, result, jobStatus, activeDiagnostics),
+    [workerProfile, license, result, jobStatus, activeDiagnostics]
   );
 
   const typeConstraints = useMemo(
@@ -2000,8 +2344,8 @@ export default function QaoaRqpV9Page() {
   ][];
 
   const canRun = useMemo(() => {
-    return !!file && !loading && !inspecting;
-  }, [file, loading, inspecting]);
+    return !!file && !loading && !inspecting && selectedModeAllowed && selectedWorkerProfileAllowed;
+  }, [file, loading, inspecting, selectedModeAllowed, selectedWorkerProfileAllowed]);
 
   const canSaveReview = useMemo(() => {
     return Boolean(result || inspectResult || jobStatus || backendJobLogs.length > 0);
@@ -2199,6 +2543,21 @@ export default function QaoaRqpV9Page() {
     }
   }, [license, mode, selectedModeAllowed]);
 
+  useEffect(() => {
+    if (selectedWorkerProfileAllowed) return;
+
+    const fallback = allowedWorkerProfileFallback(license);
+    if (fallback !== workerProfile) {
+      setWorkerProfile(fallback);
+      addLog(
+        `Selected worker profile is not available for this key. Switched to ${workerProfileInfo(
+          license,
+          fallback
+        ).label}.`
+      );
+    }
+  }, [license, workerProfile, selectedWorkerProfileAllowed]);
+
   function saveReviewFile() {
     setReviewFileError(null);
     setReviewFileMessage(null);
@@ -2223,6 +2582,7 @@ export default function QaoaRqpV9Page() {
         risk_lambda: riskLambda,
         risk_free_rate: riskFreeRate,
         qaoa_shots: qaoaShots,
+        worker_profile: workerProfile,
         restart_perturbation: restartPerturbation,
         random_seed: randomSeed,
       },
@@ -2320,6 +2680,7 @@ export default function QaoaRqpV9Page() {
       setWorkbookFilename(snapshot.original_filename ?? selectedFile.name);
       setMode(reviewMode);
       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
+      setWorkerProfile(normalizeWorkerProfile(snapshot.ui_state?.worker_profile));
       setLayers(snapshot.ui_state?.layers ?? 1);
       setIterations(snapshot.ui_state?.iterations ?? 80);
       setRestarts(snapshot.ui_state?.restarts ?? 1);
@@ -2524,6 +2885,7 @@ export default function QaoaRqpV9Page() {
       formData.append("file", file);
       formData.append("mode", mode);
       formData.append("response_level", responseLevel);
+      formData.append("worker_profile", workerProfile);
 
       if (settingsTouchedRef.current) {
         formData.append("layers", String(layers));
@@ -2645,6 +3007,7 @@ export default function QaoaRqpV9Page() {
     apiKey,
     mode,
     responseLevel,
+    workerProfile,
     layers,
     iterations,
     restarts,
@@ -2746,6 +3109,7 @@ export default function QaoaRqpV9Page() {
       formData.append("file", file);
       formData.append("mode", mode);
       formData.append("response_level", responseLevel);
+      formData.append("worker_profile", workerProfile);
       formData.append("layers", String(layers));
       formData.append("iterations", String(iterations));
       formData.append("restarts", String(restarts));
@@ -2810,6 +3174,15 @@ export default function QaoaRqpV9Page() {
       "Model version",
       result?.model_version ?? inspectResult?.model_version ?? "9.0.0",
     ],
+    ["Worker profile", activeWorkerMetadata.worker_profile_label],
+    [
+      "Configured worker resources",
+      workerProfileResourceText({
+        cpu: activeWorkerMetadata.configured_cpu,
+        memory_gib: activeWorkerMetadata.configured_memory_gib,
+      }),
+    ],
+    ["Peak memory usage", formatMemoryGib(activeWorkerMetadata.peak_memory_used_gib)],
     [
       "Decision variables / qubits",
       reportingSummary?.decision_variables ??
@@ -2986,6 +3359,7 @@ export default function QaoaRqpV9Page() {
           iteration={jobProgress?.iteration}
           maxIterations={jobProgress?.max_iterations}
           elapsedSeconds={jobProgress?.elapsed_seconds}
+          workerMetadata={activeWorkerMetadata}
           indeterminate={jobProgressPct === undefined}
         />
 
@@ -3232,6 +3606,51 @@ export default function QaoaRqpV9Page() {
                 <option value="standard">standard</option>
                 <option value="full">full</option>
               </select>
+
+              <label className="block text-xs text-gray-300 mb-1.5">
+                Worker profile
+              </label>
+              <select
+                value={workerProfile}
+                onChange={(e) => {
+                  markSettingsTouched();
+                  setWorkerProfile(normalizeWorkerProfile(e.target.value));
+                }}
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-2"
+              >
+                {WORKER_PROFILE_OPTIONS.map((option) => {
+                  const info = workerProfileInfo(license, option.value);
+                  const allowed = isWorkerProfileAllowed(license, option.value);
+
+                  return (
+                    <option key={option.value} value={option.value} disabled={!allowed}>
+                      {info.label} - {workerProfileResourceText(info)}
+                      {allowed ? "" : ` (${requiredWorkerProfileText(info)})`}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-cyan-100">
+                      {selectedWorkerProfileInfo.label}
+                    </div>
+                    <div className="text-gray-400">
+                      {selectedWorkerProfileInfo.description}
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-cyan-100">
+                    {workerProfileResourceText(selectedWorkerProfileInfo)}
+                  </div>
+                </div>
+                {!selectedWorkerProfileAllowed && (
+                  <div className="mt-2 rounded-lg border border-red-800 bg-red-950/30 p-2 text-red-100">
+                    This worker profile is not available for the current key.
+                  </div>
+                )}
+              </div>
 
               {settingsLoadedFromWorkbook && (
                 <div className="mb-3 rounded-xl border border-cyan-800 bg-cyan-950/20 p-2 text-xs text-cyan-100">
@@ -3729,6 +4148,49 @@ export default function QaoaRqpV9Page() {
 
               <ExportDiagnosticsSummary diagnostics={activeDiagnostics} />
 
+              <div className="mb-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6">
+                  <InfoRow
+                    label="Worker profile"
+                    value={formatText(activeWorkerMetadata.worker_profile_label)}
+                  />
+                  <InfoRow
+                    label="Configured resources"
+                    value={workerProfileResourceText({
+                      cpu: activeWorkerMetadata.configured_cpu,
+                      memory_gib: activeWorkerMetadata.configured_memory_gib,
+                    })}
+                  />
+                  <InfoRow
+                    label="Worker job"
+                    value={formatText(activeWorkerMetadata.worker_job_name)}
+                  />
+                  {activeWorkerMetadata.memory_used_gib !== undefined ? (
+                    <>
+                      <InfoRow
+                        label="Current memory usage"
+                        value={`${formatMemoryGib(
+                          activeWorkerMetadata.memory_used_gib
+                        )} / ${formatMemoryGib(
+                          activeWorkerMetadata.memory_limit_gib ??
+                            activeWorkerMetadata.configured_memory_gib
+                        )}`}
+                      />
+                      <InfoRow
+                        label="Remaining within job limit"
+                        value={formatMemoryGib(activeWorkerMetadata.memory_remaining_gib)}
+                      />
+                      <InfoRow
+                        label="Peak memory usage"
+                        value={formatMemoryGib(activeWorkerMetadata.peak_memory_used_gib)}
+                      />
+                    </>
+                  ) : (
+                    <InfoRow label="Memory usage" value="not available yet" />
+                  )}
+                </div>
+              </div>
+
               <div className="h-56 overflow-y-auto rounded-xl bg-black/40 border border-slate-800 p-3 font-mono text-xs text-gray-300">
                 {backendOptimizationLogs.length === 0 ? (
                   <div className="text-gray-500">
@@ -3760,6 +4222,12 @@ export default function QaoaRqpV9Page() {
                     <ChartImage key={title} title={title} src={src} />
                   ))}
                 </div>
+              </Panel>
+            )}
+
+            {result && !result.error && (
+              <Panel title="Memory Diagnostics">
+                <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
               </Panel>
             )}
 
@@ -4158,6 +4626,17 @@ export default function QaoaRqpV9Page() {
                       value={formatText(diagnostics.service)}
                     />
                     <InfoRow
+                      label="Worker profile"
+                      value={formatText(activeWorkerMetadata.worker_profile_label)}
+                    />
+                    <InfoRow
+                      label="Configured worker resources"
+                      value={workerProfileResourceText({
+                        cpu: activeWorkerMetadata.configured_cpu,
+                        memory_gib: activeWorkerMetadata.configured_memory_gib,
+                      })}
+                    />
+                    <InfoRow
                       label="Requested mode"
                       value={displayRunMode(runModeDiagnostics.requestedRunMode)}
                     />
@@ -4191,6 +4670,10 @@ export default function QaoaRqpV9Page() {
                     <InfoRow
                       label="Workbook warnings"
                       value={formatText(diagnostics.workbook_warning_count ?? 0)}
+                    />
+                    <InfoRow
+                      label="Peak memory usage"
+                      value={formatMemoryGib(activeWorkerMetadata.peak_memory_used_gib)}
                     />
                   </div>
                   <div>
