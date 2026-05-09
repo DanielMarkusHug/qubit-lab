@@ -11,6 +11,7 @@ from typing import Any
 
 from app.config import Config
 from app.schemas import ApiError, json_safe
+from app.worker_profiles import DEFAULT_WORKER_PROFILE, worker_profile_metadata
 
 
 LOG_TAIL_LIMIT = 50
@@ -26,7 +27,15 @@ class JobStore:
     def update_job(self, job_id: str, updates: dict[str, Any]) -> None:
         raise NotImplementedError
 
-    def append_log(self, job_id: str, message: str, *, progress: dict[str, Any] | None = None, phase: str | None = None) -> None:
+    def append_log(
+        self,
+        job_id: str,
+        message: str,
+        *,
+        progress: dict[str, Any] | None = None,
+        phase: str | None = None,
+        extra_updates: dict[str, Any] | None = None,
+    ) -> None:
         job = self.get_job(job_id) or {}
         logs_tail = list(job.get("logs_tail") or [])
         logs_tail.append(str(message))
@@ -40,6 +49,8 @@ class JobStore:
             updates["progress"] = {**dict(job.get("progress") or {}), **progress}
         if phase is not None:
             updates["phase"] = phase
+        if extra_updates:
+            updates.update(json_safe(extra_updates))
         self.update_job(job_id, updates)
 
     def status_payload(self, job_id: str) -> dict[str, Any]:
@@ -128,7 +139,9 @@ def initial_job_document(
     policy_result,
     lock_type: str,
     key_hash: str | None,
+    worker_profile: str = DEFAULT_WORKER_PROFILE,
 ) -> dict[str, Any]:
+    profile_metadata = worker_profile_metadata(worker_profile)
     return json_safe(
         {
             "job_id": job_id,
@@ -175,12 +188,14 @@ def initial_job_document(
             "cancel_requested": False,
             "mode": mode,
             "response_level": response_level,
+            **profile_metadata,
         }
     )
 
 
 def _status_payload(job: dict[str, Any]) -> dict[str, Any]:
     result = job.get("result") or {}
+    memory_history = job.get("memory_history")
     return json_safe(
         {
             "job_id": job.get("job_id"),
@@ -194,6 +209,18 @@ def _status_payload(job: dict[str, Any]) -> dict[str, Any]:
             "heartbeat_at": job.get("heartbeat_at"),
             "finished_at": job.get("finished_at"),
             "result_available": bool(result.get("available")),
+            "result": result,
+            "worker_profile": job.get("worker_profile"),
+            "worker_profile_label": job.get("worker_profile_label"),
+            "configured_cpu": job.get("configured_cpu"),
+            "configured_memory_gib": job.get("configured_memory_gib"),
+            "worker_job_name": job.get("worker_job_name"),
+            "memory_used_gib": job.get("memory_used_gib"),
+            "memory_limit_gib": job.get("memory_limit_gib"),
+            "memory_remaining_gib": job.get("memory_remaining_gib"),
+            "memory_used_pct": job.get("memory_used_pct"),
+            "peak_memory_used_gib": job.get("peak_memory_used_gib"),
+            "memory_history": memory_history if isinstance(memory_history, list) else [],
             "error": job.get("error"),
         }
     )

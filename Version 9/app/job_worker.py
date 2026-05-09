@@ -18,14 +18,23 @@ from app.excel_io import cleanup_temp_file, validate_required_input_sheets, work
 from app.job_storage import get_job_storage
 from app.job_store import get_job_store
 from app.key_store import get_key_store
-from app.qaoa_engine import QAOAExecutionError, run_qaoa_limited
+from app.memory_monitor import MemoryTracker
+from app.qaoa_engine import QAOAExecutionError, run_qaoa_sim
 from app.qubo_builder import build_qubo_from_workbook, load_legacy_optimizer_symbols
 from app.random_seed import random_seed_display
 from app.result_writer import build_classical_response
 from app.run_ledger import get_run_ledger
 from app.schemas import ApiError, json_safe
-from app.usage_policy import usage_context_from_key_record, validate_problem_policy
+from app.usage_policy import (
+    QAOA_MODES,
+    mode_limits_for,
+    resolve_run_mode,
+    simulation_backend_for_mode,
+    usage_context_from_key_record,
+    validate_problem_policy,
+)
 from app.workbook_diagnostics import append_workbook_warning_logs, candidate_export_log_lines, workbook_warning_log_lines
+from app.worker_profiles import DEFAULT_WORKER_PROFILE, normalize_worker_profile, worker_profile_metadata
 
 
 class WorkerTerminationRequested(Exception):
@@ -50,9 +59,15 @@ def run_job(job_id: str) -> dict[str, Any]:
     if job is None:
         raise ApiError(404, "job_not_found", "Job was not found.", {"job_id": job_id})
 
-    mode = str(job.get("mode") or (job.get("settings") or {}).get("mode") or "classical_only")
-    response_level = str(job.get("response_level") or (job.get("settings") or {}).get("response_level") or "full")
     settings = dict(job.get("settings") or {})
+    worker_profile = normalize_worker_profile(job.get("worker_profile") or settings.get("worker_profile") or DEFAULT_WORKER_PROFILE)
+    run_metadata = _worker_run_metadata(job, worker_profile)
+    memory_tracker = MemoryTracker()
+    mode_selection = resolve_run_mode(
+        settings.get("requested_run_mode") or job.get("mode") or settings.get("mode")
+    )
+    mode = mode_selection.run_mode
+    response_level = str(job.get("response_level") or settings.get("response_level") or "full")
     filename = ((job.get("input") or {}).get("original_filename")) or "input.xlsx"
     timestamp_start_utc = _utc_now()
     start_time = time.perf_counter()
@@ -77,6 +92,8 @@ def run_job(job_id: str) -> dict[str, Any]:
                 "started_at": timestamp_start_utc,
                 "heartbeat_at": timestamp_start_utc,
                 "progress": {"progress_pct": 1.0, "elapsed_seconds": 0.0},
+                **run_metadata,
+                **memory_tracker.snapshot(elapsed_sec=0.0, force=True),
             },
         )
         job_store.append_log(job_id, "Worker started.", progress={"progress_pct": 2.0}, phase="initializing")
@@ -88,8 +105,9 @@ def run_job(job_id: str) -> dict[str, Any]:
         validate_required_input_sheets(tmp_path)
         summary = workbook_structure(tmp_path)
         logs: list[str] = []
-        reporter = JobProgressReporter(job_store, job_id, start_time)
+        reporter = JobProgressReporter(job_store, job_id, start_time, memory_tracker=memory_tracker, run_metadata=run_metadata)
         optimizer = build_qubo_from_workbook(tmp_path, reporter.log_and_collect(logs), settings)
+        _apply_run_mode_metadata(optimizer, mode_selection)
         optimizer.progress_callback = reporter.optimizer_progress
         append_workbook_warning_logs(logs, optimizer)
         for line in workbook_warning_log_lines(optimizer):
@@ -116,26 +134,30 @@ def run_job(job_id: str) -> dict[str, Any]:
             optimizer=optimizer,
             policy_result=policy_result,
             timestamp_start_utc=timestamp_start_utc,
+            **run_metadata,
         )
 
         execution_started = True
         reporter.update("Running classical baseline.", progress_pct=18.0, phase="optimization")
         optimizer, logs = run_classical_optimizer(optimizer, logs)
         logs.append(f"Classical candidate count: {int(len(getattr(optimizer, 'classical_results', [])))}")
-        reporter.update(logs[-1], progress_pct=55.0 if mode == "qaoa_limited" else 90.0, phase="optimization")
+        reporter.update(logs[-1], progress_pct=55.0 if mode in QAOA_MODES else 90.0, phase="optimization")
 
         solver = "classical_heuristic"
-        if mode == "qaoa_limited":
-            qaoa_limited_limits = usage_context.usage_level.get("qaoa_limited_limits", {})
-            reporter.update("Running QAOA limited optimization.", progress_pct=56.0, phase="optimization")
-            optimizer, logs = run_qaoa_limited(
+        if mode in QAOA_MODES:
+            qaoa_limits = mode_limits_for(usage_context.usage_level, mode)
+            reporter.update(f"Running {mode} optimization.", progress_pct=56.0, phase="optimization")
+            optimizer, logs = run_qaoa_sim(
                 optimizer,
                 policy_result.runtime_inputs,
                 logs,
-                max_qubits=(qaoa_limited_limits or {}).get("max_qubits"),
+                max_qubits=(qaoa_limits or {}).get("max_qubits"),
+                run_mode=mode,
+                requested_run_mode=mode_selection.requested_run_mode,
+                simulation_backend=simulation_backend_for_mode(mode),
             )
             logs.append(f"QAOA sample count: {int(len(getattr(optimizer, 'samples_df', [])))}")
-            solver = "classical_heuristic+qaoa_limited"
+            solver = f"classical_heuristic+{mode}"
             reporter.update(logs[-1], progress_pct=90.0, phase="optimization")
         elif mode == "classical_only":
             logs.append("QAOA execution status: disabled for classical_only mode.")
@@ -158,6 +180,7 @@ def run_job(job_id: str) -> dict[str, Any]:
                 },
             )
 
+        final_run_metadata = {**run_metadata, **reporter.memory_payload(force=True)}
         ledger.record_run_completed(
             run_id=job_id,
             usage_context=usage_context,
@@ -170,6 +193,7 @@ def run_job(job_id: str) -> dict[str, Any]:
             actual_runtime_sec=actual_runtime_sec,
             solver=solver,
             consumed_run=consumed_run,
+            **final_run_metadata,
         )
         payload = build_classical_response(
             job_id,
@@ -183,6 +207,7 @@ def run_job(job_id: str) -> dict[str, Any]:
             policy_result=policy_result,
             license_info=ledger.license_status(usage_context),
             actual_runtime_sec=actual_runtime_sec,
+            run_metadata=final_run_metadata,
         )
         payload["filename"] = filename
         result_path = storage.write_result_json(job_id, payload)
@@ -206,6 +231,7 @@ def run_job(job_id: str) -> dict[str, Any]:
                     "storage_path": result_path,
                     "summary": result_summary,
                 },
+                **final_run_metadata,
             },
         )
         job_store.append_log(job_id, "Job completed.", progress={"progress_pct": 100.0}, phase="completed")
@@ -213,6 +239,10 @@ def run_job(job_id: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - worker must persist controlled failure state
         actual_runtime_sec = _elapsed(start_time)
         error_code = _error_code(exc)
+        failure_run_metadata = {
+            **run_metadata,
+            **memory_tracker.snapshot(elapsed_sec=actual_runtime_sec, force=True),
+        }
         if usage_context is not None:
             if execution_started:
                 ledger.record_run_failed(
@@ -227,6 +257,7 @@ def run_job(job_id: str) -> dict[str, Any]:
                     actual_runtime_sec=actual_runtime_sec,
                     error_code=error_code,
                     consumed_run=False,
+                    **failure_run_metadata,
                 )
             else:
                 ledger.record_run_rejected(
@@ -241,6 +272,7 @@ def run_job(job_id: str) -> dict[str, Any]:
                     actual_runtime_sec=actual_runtime_sec,
                     rejection_code=error_code,
                     consumed_run=False,
+                    **failure_run_metadata,
                 )
         job_store.update_job(
             job_id,
@@ -256,6 +288,7 @@ def run_job(job_id: str) -> dict[str, Any]:
                     "traceback_tail": "\n".join(traceback.format_exc().splitlines()[-20:]),
                 },
                 "result": {"available": False, "storage_path": None, "summary": None},
+                **failure_run_metadata,
             },
         )
         job_store.append_log(job_id, f"Job failed: {_safe_error_message(exc)}", phase="failed")
@@ -295,12 +328,23 @@ def _restore_signal_handlers(previous_handlers: dict[int, Any]) -> None:
 
 
 class JobProgressReporter:
-    def __init__(self, job_store, job_id: str, start_time: float, max_iterations: int | None = None):
+    def __init__(
+        self,
+        job_store,
+        job_id: str,
+        start_time: float,
+        max_iterations: int | None = None,
+        *,
+        memory_tracker: MemoryTracker | None = None,
+        run_metadata: dict[str, Any] | None = None,
+    ):
         self.job_store = job_store
         self.job_id = job_id
         self.start_time = start_time
         self.max_iterations = max_iterations
         self.last_update = 0.0
+        self.memory_tracker = memory_tracker or MemoryTracker()
+        self.run_metadata = dict(run_metadata or {})
 
     def log_and_collect(self, logs: list[str]):
         def emit(message: str) -> None:
@@ -347,7 +391,11 @@ class JobProgressReporter:
             progress["iteration"] = int(iteration)
         if self.max_iterations is not None:
             progress["max_iterations"] = int(self.max_iterations)
-        self.job_store.append_log(self.job_id, message, progress=progress, phase=phase)
+        extra_updates = {**self.run_metadata, **self.memory_tracker.snapshot(elapsed_sec=elapsed)}
+        self.job_store.append_log(self.job_id, message, progress=progress, phase=phase, extra_updates=extra_updates)
+
+    def memory_payload(self, *, force: bool = False) -> dict[str, Any]:
+        return self.memory_tracker.snapshot(elapsed_sec=_elapsed(self.start_time), force=force)
 
 
 def _usage_context_from_job(job: dict[str, Any]):
@@ -405,6 +453,17 @@ def _result_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "status": payload.get("status"),
             "mode": payload.get("mode"),
             "solver": payload.get("solver"),
+            "worker_profile": payload.get("worker_profile"),
+            "worker_profile_label": payload.get("worker_profile_label"),
+            "worker_job_name": payload.get("worker_job_name"),
+            "configured_cpu": payload.get("configured_cpu"),
+            "configured_memory_gib": payload.get("configured_memory_gib"),
+            "memory_used_gib": payload.get("memory_used_gib"),
+            "memory_limit_gib": payload.get("memory_limit_gib"),
+            "memory_remaining_gib": payload.get("memory_remaining_gib"),
+            "memory_used_pct": payload.get("memory_used_pct"),
+            "peak_memory_used_gib": payload.get("peak_memory_used_gib"),
+            "memory_history": payload.get("memory_history"),
             "binary_variables": payload.get("binary_variables"),
             "objective": payload.get("objective"),
             "qubo_value": payload.get("qubo_value"),
@@ -412,6 +471,20 @@ def _result_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "budget_gap": payload.get("budget_gap"),
         }
     )
+
+
+def _worker_run_metadata(job: dict[str, Any], worker_profile: str) -> dict[str, Any]:
+    metadata = worker_profile_metadata(worker_profile)
+    for key in (
+        "worker_profile",
+        "worker_profile_label",
+        "worker_job_name",
+        "configured_cpu",
+        "configured_memory_gib",
+    ):
+        if job.get(key) is not None:
+            metadata[key] = job.get(key)
+    return json_safe(metadata)
 
 
 def _eta_low(elapsed: float, progress_pct: float) -> float | None:
@@ -436,10 +509,18 @@ def _append_mode_logs(logs: list[str], mode: str, inspection: bool = False) -> N
         logs.append("Workbook inspection path: QUBO built, optimization not executed.")
     if mode == "classical_only":
         logs.append("QAOA execution status: disabled for classical_only mode.")
-    elif mode == "qaoa_limited":
-        logs.append("QAOA execution status: enabled for qaoa_limited mode.")
-    elif mode == "qaoa_full":
-        logs.append("QAOA execution status: qaoa_full disabled for asynchronous execution.")
+    elif mode in QAOA_MODES:
+        backend = simulation_backend_for_mode(mode)
+        logs.append(f"QAOA execution status: enabled for {mode} mode.")
+        logs.append(f"QAOA simulation backend: {backend}")
+
+
+def _apply_run_mode_metadata(optimizer, mode_selection) -> None:
+    optimizer.requested_run_mode = mode_selection.requested_run_mode
+    optimizer.run_mode = mode_selection.run_mode
+    optimizer.simulation_backend = mode_selection.simulation_backend
+    optimizer.legacy_run_mode_alias = mode_selection.legacy_run_mode_alias
+    optimizer.hardware_replay = mode_selection.hardware_replay
 
 
 def _legacy_optimization_error_type():
@@ -454,7 +535,7 @@ def _safe_error_message(exc: Exception) -> str:
     if isinstance(exc, ApiError):
         return exc.message
     if isinstance(exc, QAOAExecutionError):
-        return "QAOA limited execution failed."
+        return "QAOA simulation execution failed."
     return str(exc) or "Worker execution failed."
 
 

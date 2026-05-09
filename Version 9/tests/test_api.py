@@ -26,7 +26,9 @@ EXTENDED_WORKBOOK = REPO_ROOT / "Version 3" / "parametric_assets_only_input_exte
 sys.path.insert(0, str(VERSION_DIR))
 
 import app.main as main_module  # noqa: E402
+import app.cloud_run_jobs as cloud_run_jobs_module  # noqa: E402
 import app.job_worker as job_worker_module  # noqa: E402
+import app.memory_monitor as memory_monitor_module  # noqa: E402
 import app.qaoa_engine as qaoa_engine_module  # noqa: E402
 from app.main import app, create_app  # noqa: E402
 from app.qubo_builder import build_qubo_from_workbook  # noqa: E402
@@ -596,7 +598,7 @@ def _patch_fast_run(monkeypatch, ledger: _RouteLockLedger, *, fail_execution: bo
         lambda run_id, *_args, **_kwargs: {
             "status": "completed",
             "run_id": run_id,
-            "model_version": "9.0.0",
+            "model_version": "9.1.0",
             "mode": "classical_only",
         },
     )
@@ -615,7 +617,7 @@ def test_root_reports_current_version():
 
     assert response.status_code == 200
     assert payload["service"] == "qaoa-rqp-api-v9"
-    assert payload["version"] == "9.0.0"
+    assert payload["version"] == "9.1.0"
 
 
 def test_capabilities():
@@ -624,24 +626,29 @@ def test_capabilities():
 
     assert response.status_code == 200
     assert payload["service"] == "qaoa-rqp-api-v9"
-    assert payload["version"] == "9.0.0"
-    assert payload["supported_modes"] == ["classical_only", "qaoa_limited", "qaoa_full"]
-    assert payload["disabled_modes"] == ["qaoa_full"]
-    assert "qaoa_limited" not in payload["disabled_modes"]
-    assert payload["mode_aliases"]["qaoa"] == "qaoa_full"
+    assert payload["version"] == "9.1.0"
+    assert payload["supported_modes"] == ["classical_only", "qaoa_lightning_sim", "qaoa_tensor_sim"]
+    assert payload["disabled_modes"] == []
+    assert payload["mode_aliases"]["qaoa_limited"] == "qaoa_lightning_sim"
     assert payload["default_response_level"] == "full"
-    assert "qaoa_limited" in payload["usage_levels"]["public_demo"]["allowed_modes"]
+    assert "qaoa_lightning_sim" in payload["usage_levels"]["public_demo"]["allowed_modes"]
+    assert "qaoa_full" not in payload["usage_levels"]["tester"]["allowed_modes"]
+    assert "qaoa_tensor_sim" in payload["usage_levels"]["tester"]["allowed_modes"]
     assert payload["usage_levels"]["public_demo"]["allowed_response_levels"] == ["compact", "standard", "full"]
     assert payload["usage_levels"]["public_demo"]["max_parallel_runs"] == 5
     assert payload["usage_levels"]["qualified_demo"]["allowed_response_levels"] == ["compact", "standard", "full"]
-    assert payload["qaoa_limited_effective_limits"]["public_demo"]["max_qubits"] == 8
-    assert payload["qaoa_limited_effective_limits"]["public_demo"]["max_layers"] == 1
-    assert payload["usage_levels"]["internal_power"]["qaoa_limited_limits"]["max_qubits"] == 24
-    assert payload["qaoa_limited_effective_limits"]["tester"]["max_qubits"] == 16
-    assert payload["qaoa_limited_effective_limits"]["tester"]["max_layers"] == 6
-    assert payload["qaoa_limited_effective_limits"]["tester"]["max_iterations"] == 200
-    assert payload["qaoa_limited_effective_limits"]["tester"]["max_restarts"] == 3
-    assert payload["qaoa_limited_effective_limits"]["internal_power"]["max_layers"] == 8
+    assert payload["qaoa_effective_limits"]["public_demo"]["qaoa_lightning_sim"]["max_qubits"] == 8
+    assert payload["qaoa_effective_limits"]["public_demo"]["qaoa_lightning_sim"]["max_layers"] == 1
+    assert payload["usage_levels"]["internal_power"]["qaoa_lightning_sim_limits"]["max_qubits"] == 24
+    assert payload["qaoa_effective_limits"]["tester"]["qaoa_lightning_sim"]["max_qubits"] == 16
+    assert payload["qaoa_effective_limits"]["tester"]["qaoa_tensor_sim"]["max_qubits"] == 16
+    assert payload["qaoa_effective_limits"]["tester"]["qaoa_lightning_sim"]["max_layers"] == 6
+    assert payload["qaoa_effective_limits"]["tester"]["qaoa_lightning_sim"]["max_iterations"] == 200
+    assert payload["qaoa_effective_limits"]["tester"]["qaoa_lightning_sim"]["max_restarts"] == 3
+    assert payload["qaoa_effective_limits"]["internal_power"]["qaoa_lightning_sim"]["max_layers"] == 8
+    assert payload["default_worker_profile"] == "small"
+    assert payload["worker_profiles"]["large"]["cpu"] == 4
+    assert payload["worker_profiles"]["large"]["memory_gib"] == 8
     assert "demo_keys" not in payload
     assert "KEY_HASH_SECRET" not in str(payload)
     assert "key_hash" not in str(payload)
@@ -736,6 +743,104 @@ def test_async_status_and_result_before_completion(monkeypatch, tmp_path):
     assert result_payload["error"]["details"]["job_id"] == job_id
 
 
+def test_async_worker_profile_defaults_to_small(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", lambda job_id: {"triggered": False, "mode": "test"})
+
+    response = _post_async(headers={"X-API-Key": "DEMO-123"}, mode="classical_only")
+    payload = response.get_json()
+    job = get_job_store().get_job(payload["job_id"])
+    status = app.test_client().get(f"/jobs/{payload['job_id']}/status").get_json()
+
+    assert response.status_code == 202
+    assert payload["worker_profile"] == "small"
+    assert payload["configured_cpu"] == 2
+    assert payload["configured_memory_gib"] == 2
+    assert job["worker_profile"] == "small"
+    assert job["settings"]["worker_profile"] == "small"
+    assert status["worker_profile"] == "small"
+    assert status["configured_cpu"] == 2
+    assert status["configured_memory_gib"] == 2
+
+
+def test_async_invalid_worker_profile_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(
+        main_module,
+        "trigger_cloud_run_job",
+        lambda _job_id: pytest.fail("invalid worker profile should not trigger a job"),
+    )
+
+    response = _post_async(headers={"X-API-Key": "DEMO-123"}, mode="classical_only", worker_profile="huge")
+    payload = response.get_json()
+
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "invalid_worker_profile"
+    assert ledger.acquired is False
+    assert ledger.public_acquired is False
+
+
+@pytest.mark.parametrize(
+    ("api_key", "profile", "expected_status"),
+    [
+        ("DEMO-123", "small", 202),
+        ("DEMO-123", "medium", 403),
+        ("DEMO-123", "large", 403),
+        ("TESTER-123", "small", 202),
+        ("TESTER-123", "medium", 202),
+        ("TESTER-123", "large", 403),
+        (INTERNAL_POWER_KEY, "small", 202),
+        (INTERNAL_POWER_KEY, "medium", 202),
+        (INTERNAL_POWER_KEY, "large", 202),
+    ],
+)
+def test_async_worker_profile_permissions(monkeypatch, tmp_path, api_key, profile, expected_status):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / f"jobs-{api_key}-{profile}")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", lambda job_id: {"triggered": False, "mode": "test"})
+
+    response = _post_async(headers={"X-API-Key": api_key}, mode="classical_only", worker_profile=profile)
+    payload = response.get_json()
+
+    assert response.status_code == expected_status
+    if expected_status == 202:
+        assert payload["worker_profile"] == profile
+        assert get_job_store().get_job(payload["job_id"])["worker_profile"] == profile
+    else:
+        assert payload["error"]["code"] == "worker_profile_not_allowed"
+        assert profile in payload["error"]["message"]
+
+
+def test_sync_result_includes_worker_profile_metadata():
+    response = _post_run(headers={"X-API-Key": "DEMO-123"}, mode="classical_only", worker_profile="small")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["worker_profile"] == "small"
+    assert payload["worker_profile_label"] == "Small"
+    assert payload["configured_cpu"] == 2
+    assert payload["configured_memory_gib"] == 2
+    assert payload["memory_used_gib"] is None
+    assert payload["memory_history"] == []
+    assert payload["diagnostics"]["worker_profile"] == "small"
+    assert payload["reporting"]["summary"]["configured_memory_gib"] == 2
+
+
+def test_cloud_run_trigger_uses_profile_job_name(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    assert cloud_run_jobs_module.trigger_cloud_run_job("job_profile_test", "large") == {
+        "triggered": False,
+        "mode": "local_manual",
+        "worker_profile": "large",
+        "worker_job_name": "qaoa-rqp-worker-large",
+    }
+
+
 def test_job_result_reads_completed_gcs_result(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
     job_id = "job_result_gcs"
@@ -778,8 +883,8 @@ def test_async_qaoa_full_disabled_before_lock(monkeypatch, tmp_path):
     response = _post_async(headers={"X-API-Key": INTERNAL_POWER_KEY}, mode="qaoa_full")
     payload = response.get_json()
 
-    assert response.status_code == 501
-    assert payload["error"]["code"] == "qaoa_full_disabled"
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "unsupported_mode"
     assert ledger.acquired is False
     assert ledger.public_acquired is False
     assert ledger.consumed is False
@@ -852,7 +957,14 @@ def test_async_authenticated_active_lock_rejection(monkeypatch, tmp_path):
     assert ledger.released is False
 
 
-def _create_local_worker_job(tmp_path, monkeypatch, *, job_id: str = "job_test_worker_001", settings: dict | None = None):
+def _create_local_worker_job(
+    tmp_path,
+    monkeypatch,
+    *,
+    job_id: str = "job_test_worker_001",
+    settings: dict | None = None,
+    worker_profile: str = "small",
+):
     monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
     usage_level = load_usage_config()["usage_levels"]["public_demo"]
     usage_context = UsageContext(
@@ -874,6 +986,7 @@ def _create_local_worker_job(tmp_path, monkeypatch, *, job_id: str = "job_test_w
             policy_result=_policy_result(),
             lock_type="public",
             key_hash=None,
+            worker_profile=worker_profile,
         )
     )
     return job_id
@@ -904,7 +1017,7 @@ def test_worker_marks_completed_and_releases_public_lock(monkeypatch, tmp_path):
         lambda run_id, *_args, **_kwargs: {
             "status": "completed",
             "run_id": run_id,
-            "model_version": "9.0.0",
+            "model_version": "9.1.0",
             "mode": "classical_only",
             "binary_variables": 3,
             "objective": 1.23,
@@ -922,6 +1035,168 @@ def test_worker_marks_completed_and_releases_public_lock(monkeypatch, tmp_path):
     result_response = app.test_client().get(f"/jobs/{job_id}/result")
     assert result_response.status_code == 200
     assert result_response.get_json()["run_id"] == job_id
+
+
+def test_worker_final_result_includes_worker_profile_and_memory(monkeypatch, tmp_path):
+    settings = {"mode": "classical_only", "response_level": "full", "worker_profile": "medium"}
+    job_id = _create_local_worker_job(
+        tmp_path,
+        monkeypatch,
+        job_id="job_test_worker_memory",
+        settings=settings,
+        worker_profile="medium",
+    )
+    ledger = _RouteLockLedger()
+    optimizer = SimpleNamespace(
+        n=3,
+        qaoa_p=1,
+        qaoa_maxiter=10,
+        qaoa_multistart_restarts=1,
+        qaoa_layerwise_warm_start=False,
+        qaoa_shots=None,
+        classical_results=[{"bitstring": "101"}],
+        progress_callback=lambda _message, _progress=None: None,
+    )
+
+    class FakeMemoryTracker:
+        def snapshot(self, *, elapsed_sec=None, force=False):
+            return {
+                "memory_used_gib": 2.5,
+                "memory_limit_gib": 4.0,
+                "memory_remaining_gib": 1.5,
+                "memory_used_pct": 62.5,
+                "peak_memory_used_gib": 3.0,
+                "memory_history": [
+                    {
+                        "timestamp": "2026-05-09T08:24:11Z",
+                        "elapsed_sec": 1.0 if elapsed_sec is None else elapsed_sec,
+                        "memory_used_gib": 2.5,
+                        "memory_limit_gib": 4.0,
+                        "memory_remaining_gib": 1.5,
+                        "memory_used_pct": 62.5,
+                    }
+                ],
+            }
+
+    def _response(run_id, *_args, **kwargs):
+        metadata = kwargs["run_metadata"]
+        return {
+            "status": "completed",
+            "run_id": run_id,
+            "model_version": "9.1.0",
+            "mode": "classical_only",
+            **metadata,
+            "diagnostics": dict(metadata),
+        }
+
+    monkeypatch.setattr(job_worker_module, "MemoryTracker", FakeMemoryTracker)
+    monkeypatch.setattr(job_worker_module, "get_run_ledger", lambda: ledger)
+    monkeypatch.setattr(job_worker_module, "validate_required_input_sheets", lambda _path: None)
+    monkeypatch.setattr(job_worker_module, "workbook_structure", lambda _path: {})
+    monkeypatch.setattr(job_worker_module, "build_qubo_from_workbook", lambda _path, _log, _settings=None: optimizer)
+    monkeypatch.setattr(job_worker_module, "validate_problem_policy", lambda *_args, **_kwargs: _policy_result())
+    monkeypatch.setattr(job_worker_module, "run_classical_optimizer", lambda current, logs: (current, logs))
+    monkeypatch.setattr(job_worker_module, "build_classical_response", _response)
+
+    job_worker_module.run_job(job_id)
+    job = get_job_store().get_job(job_id)
+    result = app.test_client().get(f"/jobs/{job_id}/result").get_json()
+
+    assert job["worker_profile"] == "medium"
+    assert job["configured_cpu"] == 4
+    assert job["configured_memory_gib"] == 4
+    assert job["memory_used_gib"] == 2.5
+    assert job["peak_memory_used_gib"] == 3.0
+    assert result["worker_profile"] == "medium"
+    assert result["worker_profile_label"] == "Medium"
+    assert result["configured_memory_gib"] == 4
+    assert result["memory_history"][0]["memory_used_gib"] == 2.5
+
+
+def test_job_status_returns_memory_history(monkeypatch, tmp_path):
+    job_id = _create_local_worker_job(tmp_path, monkeypatch, job_id="job_test_status_memory")
+    get_job_store().update_job(
+        job_id,
+        {
+            "memory_used_gib": 1.25,
+            "memory_limit_gib": 4.0,
+            "memory_remaining_gib": 2.75,
+            "memory_used_pct": 31.25,
+            "peak_memory_used_gib": 1.5,
+            "memory_history": [
+                {
+                    "timestamp": "2026-05-09T08:24:11Z",
+                    "elapsed_sec": 12.4,
+                    "memory_used_gib": 1.25,
+                    "memory_limit_gib": 4.0,
+                    "memory_remaining_gib": 2.75,
+                    "memory_used_pct": 31.25,
+                }
+            ],
+        },
+    )
+
+    payload = app.test_client().get(f"/jobs/{job_id}/status").get_json()
+
+    assert payload["memory_used_gib"] == 1.25
+    assert payload["memory_limit_gib"] == 4.0
+    assert payload["memory_remaining_gib"] == 2.75
+    assert payload["memory_used_pct"] == 31.25
+    assert payload["peak_memory_used_gib"] == 1.5
+    assert payload["memory_history"][0]["elapsed_sec"] == 12.4
+
+
+def test_memory_snapshot_handles_missing_cgroup_files(tmp_path):
+    snapshot = memory_monitor_module.get_memory_snapshot(cgroup_root=tmp_path)
+
+    assert snapshot["memory_used_gib"] is None
+    assert snapshot["memory_limit_gib"] is None
+    assert snapshot["memory_remaining_gib"] is None
+    assert snapshot["memory_used_pct"] is None
+    assert snapshot["peak_memory_used_gib"] is None
+
+
+def test_memory_snapshot_reads_cgroup_v2_values(tmp_path):
+    (tmp_path / "memory.current").write_text(str(2 * 1024**3), encoding="utf-8")
+    (tmp_path / "memory.max").write_text(str(8 * 1024**3), encoding="utf-8")
+
+    snapshot = memory_monitor_module.get_memory_snapshot(cgroup_root=tmp_path)
+
+    assert snapshot["memory_used_gib"] == pytest.approx(2.0)
+    assert snapshot["memory_limit_gib"] == pytest.approx(8.0)
+    assert snapshot["memory_remaining_gib"] == pytest.approx(6.0)
+    assert snapshot["memory_used_pct"] == pytest.approx(25.0)
+    assert snapshot["peak_memory_used_gib"] == pytest.approx(2.0)
+
+
+def test_memory_snapshot_handles_unbounded_cgroup_v2_limit(tmp_path):
+    (tmp_path / "memory.current").write_text(str(1024**3), encoding="utf-8")
+    (tmp_path / "memory.max").write_text("max", encoding="utf-8")
+
+    snapshot = memory_monitor_module.get_memory_snapshot(cgroup_root=tmp_path)
+
+    assert snapshot["memory_used_gib"] == pytest.approx(1.0)
+    assert snapshot["memory_limit_gib"] is None
+    assert snapshot["memory_remaining_gib"] is None
+    assert snapshot["memory_used_pct"] is None
+
+
+def test_memory_tracker_persists_history_and_tracks_peak(tmp_path):
+    (tmp_path / "memory.current").write_text(str(1024**3), encoding="utf-8")
+    (tmp_path / "memory.max").write_text(str(4 * 1024**3), encoding="utf-8")
+    tracker = memory_monitor_module.MemoryTracker(cgroup_root=tmp_path, sample_interval_sec=0.0)
+
+    first = tracker.snapshot(elapsed_sec=1.0, force=True)
+    (tmp_path / "memory.current").write_text(str(3 * 1024**3), encoding="utf-8")
+    second = tracker.snapshot(elapsed_sec=2.0, force=True)
+    (tmp_path / "memory.current").write_text(str(2 * 1024**3), encoding="utf-8")
+    third = tracker.snapshot(elapsed_sec=3.0, force=True)
+
+    assert first["memory_used_gib"] == pytest.approx(1.0)
+    assert second["memory_used_gib"] == pytest.approx(3.0)
+    assert third["memory_used_gib"] == pytest.approx(2.0)
+    assert third["peak_memory_used_gib"] == pytest.approx(3.0)
+    assert [point["memory_used_gib"] for point in third["memory_history"]] == [1.0, 3.0, 2.0]
 
 
 def test_worker_preserves_random_seed_in_final_result(monkeypatch, tmp_path):
@@ -951,7 +1226,7 @@ def test_worker_preserves_random_seed_in_final_result(monkeypatch, tmp_path):
         return {
             "status": "completed",
             "run_id": run_id,
-            "model_version": "9.0.0",
+            "model_version": "9.1.0",
             "mode": "classical_only",
             "diagnostics": {
                 "random_seed": policy.runtime_inputs.random_seed,
@@ -1057,6 +1332,8 @@ def test_license_status_no_key_returns_public_demo():
     assert payload["key_id"] == "anonymous"
     assert payload["usage_level"] == "public_demo"
     assert payload["limits"]["max_qubits"] == 8
+    assert payload["allowed_worker_profiles"] == ["small"]
+    assert payload["worker_profiles"]["medium"]["enabled"] is False
 
 
 def test_license_status_demo_key_returns_remaining_runs():
@@ -1070,9 +1347,10 @@ def test_license_status_demo_key_returns_remaining_runs():
     assert payload["max_runs"] == 1000
     assert payload["used_runs"] == 0
     assert payload["remaining_runs"] == 1000
+    assert payload["allowed_worker_profiles"] == ["small"]
 
 
-def test_license_status_internal_power_shows_qaoa_limited_effective_limits():
+def test_license_status_internal_power_shows_qaoa_sim_effective_limits():
     response = app.test_client().get("/license-status", headers={"X-API-Key": INTERNAL_POWER_KEY})
     payload = response.get_json()
 
@@ -1083,12 +1361,15 @@ def test_license_status_internal_power_shows_qaoa_limited_effective_limits():
     assert payload["display_name"] == "Internal Power"
     assert payload["general_limits"]["max_qubits"] == 24
     assert payload["general_limits"]["max_estimated_runtime_sec"] == 7200
-    assert payload["qaoa_limited_limits"]["max_qubits"] == 24
-    assert payload["qaoa_limited_limits"]["max_layers"] == 8
-    assert payload["qaoa_limited_limits"]["max_iterations"] == 300
-    assert payload["qaoa_limited_limits"]["max_restarts"] == 5
-    assert payload["qaoa_limited_limits"]["max_estimated_runtime_sec"] == 7200
-    assert payload["limits"]["qaoa_limited"]["max_qubits"] == 24
+    assert payload["qaoa_lightning_sim_limits"]["max_qubits"] == 24
+    assert payload["qaoa_lightning_sim_limits"]["max_layers"] == 8
+    assert payload["qaoa_lightning_sim_limits"]["max_iterations"] == 300
+    assert payload["qaoa_lightning_sim_limits"]["max_restarts"] == 5
+    assert payload["qaoa_lightning_sim_limits"]["max_estimated_runtime_sec"] == 7200
+    assert payload["limits"]["qaoa_lightning_sim"]["max_qubits"] == 24
+    assert payload["limits"]["qaoa_tensor_sim"]["max_qubits"] == 24
+    assert payload["allowed_worker_profiles"] == ["small", "medium", "large"]
+    assert payload["worker_profiles"]["large"]["enabled"] is True
 
 
 def test_license_status_invalid_key_rejected():
@@ -1168,7 +1449,7 @@ def test_firestore_ledger_consumes_success_atomically_and_records_run():
     assert run_record["n_qubits"] == 3
     assert run_record["candidate_count"] == 8
     assert run_record["runtime_ratio"] == 0.5
-    assert run_record["service_version"] == "9.0.0"
+    assert run_record["service_version"] == "9.1.0"
     assert "timestamp" in run_record
 
 
@@ -2593,7 +2874,7 @@ def test_public_demo_qaoa_limited_rejects_above_small_limits():
     assert payload["error"]["code"] == "qubit_limit_exceeded"
     assert payload["error"]["message"]
     assert payload["error"]["details"]["usage_level"] == "public_demo"
-    assert payload["error"]["details"]["mode"] == "qaoa_limited"
+    assert payload["error"]["details"]["mode"] == "qaoa_lightning_sim"
     assert payload["error"]["details"]["binary_variables"] == 14
     assert payload["error"]["details"]["max_qubits"] == 8
 
@@ -2615,7 +2896,7 @@ def test_inspect_workbook_qaoa_limited_returns_estimate_without_execution(tmp_pa
 
     assert response.status_code == 200
     assert payload["workbook_summary"]["n_qubits"] == 7
-    assert payload["runtime_estimate"]["mode"] == "qaoa_limited"
+    assert payload["runtime_estimate"]["mode"] == "qaoa_lightning_sim"
     assert payload["runtime_estimate"]["basis"]["n_qubits"] == 7
     assert payload["runtime_estimate"]["basis"]["layers"] == 2
     assert payload["runtime_estimate"]["basis"]["iterations"] == 10
@@ -2627,11 +2908,68 @@ def test_inspect_workbook_qaoa_limited_returns_estimate_without_execution(tmp_pa
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] is None
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots_display"] == "exact"
     assert payload["diagnostics"]["effective_settings"]["shots_mode"] == "exact"
+    assert payload["diagnostics"]["requested_run_mode"] == "qaoa_limited"
+    assert payload["diagnostics"]["run_mode"] == "qaoa_lightning_sim"
+    assert payload["diagnostics"]["simulation_backend"] == "lightning.qubit"
+    assert payload["diagnostics"]["legacy_run_mode_alias"] is True
+    assert payload["diagnostics"]["hardware_replay"] is False
     assert any("optimization execution skipped" in line for line in payload["diagnostics"]["logs"])
     assert any("not executed during workbook inspection" in line for line in payload["diagnostics"]["logs"])
 
 
-def test_policy_reports_sampling_shots_display_for_qaoa_full_estimate():
+def test_inspect_workbook_qaoa_lightning_sim_is_accepted_with_diagnostics(tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=4)
+    response = _post_inspect(
+        workbook_path,
+        headers={"X-API-Key": "TESTER-123"},
+        mode="qaoa_lightning_sim",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    diagnostics = payload["diagnostics"]
+    assert diagnostics["requested_run_mode"] == "qaoa_lightning_sim"
+    assert diagnostics["run_mode"] == "qaoa_lightning_sim"
+    assert diagnostics["simulation_backend"] == "lightning.qubit"
+    assert diagnostics["legacy_run_mode_alias"] is False
+    assert diagnostics["hardware_replay"] is False
+    assert diagnostics["effective_settings"]["response_level"] == "full"
+
+
+def test_inspect_workbook_qaoa_tensor_sim_selects_tensor_backend(tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=4)
+    response = _post_inspect(
+        workbook_path,
+        headers={"X-API-Key": "TESTER-123"},
+        mode="qaoa_tensor_sim",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    diagnostics = payload["diagnostics"]
+    assert diagnostics["requested_run_mode"] == "qaoa_tensor_sim"
+    assert diagnostics["run_mode"] == "qaoa_tensor_sim"
+    assert diagnostics["simulation_backend"] == "default.tensor"
+    assert diagnostics["legacy_run_mode_alias"] is False
+    assert diagnostics["hardware_replay"] is False
+    assert diagnostics["effective_settings"]["response_level"] == "full"
+
+
+def test_inspect_workbook_missing_mode_defaults_to_qaoa_lightning_sim(tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=4)
+    response = _post_inspect(workbook_path, headers={"X-API-Key": "TESTER-123"})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["runtime_estimate"]["mode"] == "qaoa_lightning_sim"
+    assert payload["diagnostics"]["requested_run_mode"] == "qaoa_lightning_sim"
+    assert payload["diagnostics"]["run_mode"] == "qaoa_lightning_sim"
+    assert payload["diagnostics"]["simulation_backend"] == "lightning.qubit"
+    assert payload["diagnostics"]["legacy_run_mode_alias"] is False
+    assert payload["diagnostics"]["effective_settings"]["response_level"] == "full"
+
+
+def test_policy_rejects_qaoa_full_estimate():
     usage_levels = load_usage_config()["usage_levels"]
     context = UsageContext(
         usage_level_name="tester",
@@ -2654,11 +2992,11 @@ def test_policy_reports_sampling_shots_display_for_qaoa_full_estimate():
         classical_results=None,
     )
 
-    policy_result = validate_problem_policy(context, optimizer, "qaoa_full", {})
+    with pytest.raises(ApiError) as exc_info:
+        validate_problem_policy(context, optimizer, "qaoa_full", {})
 
-    assert policy_result.effective_settings["shots_mode"] == "sampling"
-    assert policy_result.effective_settings["qaoa_shots"] == 256
-    assert policy_result.effective_settings["qaoa_shots_display"] == "256"
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.code == "unsupported_mode"
 
 
 def test_qaoa_limited_runtime_estimate_is_calibrated_for_24_qubit_exact_mode():
@@ -2739,6 +3077,124 @@ def test_qaoa_limited_export_safety_cap_is_explicit(monkeypatch):
     assert diagnostics["qaoa_exact_state_space"] == 1 << 24
 
 
+def test_qaoa_sim_switches_to_sampling_above_exact_probability_cap():
+    optimizer = SimpleNamespace(n=26, qaoa_max_export_rows=5000, qaoa_shots=4096)
+    runtime_inputs = RuntimeInputs(layers=1, iterations=10, restarts=1, warm_start=False, qaoa_shots=2048)
+
+    qaoa_engine_module._configure_limited_qaoa(optimizer, runtime_inputs, max_qubits=30)
+
+    assert optimizer.qaoa_exact_probability_max_qubits == 24
+    assert optimizer.qaoa_limited_exact_probabilities is False
+    assert optimizer.qaoa_sim_exact_probabilities is False
+    assert optimizer.qaoa_shots == 2048
+
+
+def test_qaoa_sampling_normalization_preserves_sampled_scope():
+    optimizer = SimpleNamespace(
+        n=26,
+        enable_qaoa=True,
+        qaoa_max_export_rows=5000,
+        qaoa_total_states_considered=2048,
+        qaoa_limited_exact_probabilities=False,
+        qaoa_sim_exact_probabilities=False,
+        samples_df=pd.DataFrame(
+            {
+                "bitstring": ["0" * 26],
+                "qubo_value": [1.23],
+                "probability": [0.5],
+                "selection_scope": ["unique sampled states from 2,048 shots"],
+            }
+        ),
+    )
+    optimizer.sort_candidates = lambda frame: frame.sort_values("qubo_value")
+
+    qaoa_engine_module._normalize_limited_qaoa_outputs(optimizer, run_mode="qaoa_lightning_sim")
+    diagnostics = candidate_export_diagnostics(optimizer)
+
+    assert optimizer.samples_df.iloc[0]["source"] == "qaoa_lightning_sim"
+    assert optimizer.samples_df.iloc[0]["selection_scope"] == "unique sampled states from 2,048 shots"
+    assert optimizer.qaoa_exact_states_exported == 0
+    assert optimizer.qaoa_sampled_states_exported == 1
+    assert diagnostics["qaoa_exact_states_evaluated"] is None
+    assert diagnostics["qaoa_exact_states_exported"] == 0
+    assert diagnostics["qaoa_sampled_states_evaluated"] == 2048
+    assert diagnostics["qaoa_sampled_states_exported"] == 1
+
+
+def test_policy_reports_sampling_shots_display_above_exact_probability_cap():
+    usage_levels = load_usage_config()["usage_levels"]
+    context = UsageContext(
+        usage_level_name="internal_qaoa_30",
+        usage_level=usage_levels["internal_qaoa_30"],
+        key_record={"key_id": "internal-qaoa-30"},
+        authenticated=True,
+    )
+    optimizer = SimpleNamespace(
+        n=26,
+        qaoa_p=1,
+        qaoa_maxiter=10,
+        qaoa_multistart_restarts=1,
+        qaoa_layerwise_warm_start=False,
+        qaoa_shots=2048,
+        qaoa_restart_perturbation=None,
+        lambda_budget=50.0,
+        lambda_variance=6.0,
+        risk_free=0.04,
+        settings={},
+        classical_results=None,
+    )
+    runtime_inputs = RuntimeInputs(layers=1, iterations=10, restarts=1, warm_start=False, qaoa_shots=2048)
+
+    policy_result = estimate_policy_result(
+        context,
+        optimizer,
+        "qaoa_lightning_sim",
+        runtime_inputs=runtime_inputs,
+        candidate_count=2048,
+    )
+
+    assert policy_result.effective_settings["shots_mode"] == "sampling"
+    assert policy_result.effective_settings["qaoa_shots"] == 2048
+    assert policy_result.effective_settings["qaoa_shots_display"] == "2048"
+
+
+def test_policy_reports_sampling_shots_display_for_tensor_sim_under_exact_cap():
+    usage_levels = load_usage_config()["usage_levels"]
+    context = UsageContext(
+        usage_level_name="tester",
+        usage_level=usage_levels["tester"],
+        key_record={"key_id": "tester"},
+        authenticated=True,
+    )
+    optimizer = SimpleNamespace(
+        n=7,
+        qaoa_p=1,
+        qaoa_maxiter=10,
+        qaoa_multistart_restarts=1,
+        qaoa_layerwise_warm_start=False,
+        qaoa_shots=1024,
+        qaoa_restart_perturbation=None,
+        lambda_budget=50.0,
+        lambda_variance=6.0,
+        risk_free=0.04,
+        settings={},
+        classical_results=None,
+    )
+    runtime_inputs = RuntimeInputs(layers=1, iterations=10, restarts=1, warm_start=False, qaoa_shots=1024)
+
+    policy_result = estimate_policy_result(
+        context,
+        optimizer,
+        "qaoa_tensor_sim",
+        runtime_inputs=runtime_inputs,
+        candidate_count=128,
+    )
+
+    assert policy_result.effective_settings["shots_mode"] == "sampling"
+    assert policy_result.effective_settings["qaoa_shots"] == 1024
+    assert policy_result.effective_settings["qaoa_shots_display"] == "1024"
+
+
 def test_classical_export_diagnostics_explain_fewer_unique_candidates():
     optimizer = SimpleNamespace(
         n=24,
@@ -2767,7 +3223,7 @@ def test_demo_key_gets_qualified_demo_full_response_by_default():
 
     assert response.status_code == 200
     assert payload["status"] == "completed"
-    assert payload["model_version"] == "9.0.0"
+    assert payload["model_version"] == "9.1.0"
     assert payload["mode"] == "classical_only"
     assert payload["license"]["usage_level"] == "qualified_demo"
     assert payload["license"]["max_runs"] == 1000
@@ -2911,32 +3367,30 @@ def test_public_oversized_rejection_does_not_consume_run(monkeypatch, tmp_path):
     assert summary["consumed_runs"] == 0
 
 
-def test_qaoa_mode_still_returns_501_after_policy_validation_and_does_not_consume(monkeypatch, tmp_path):
+def test_qaoa_mode_returns_unsupported_and_does_not_consume(monkeypatch, tmp_path):
     _enable_temp_ledger(monkeypatch, tmp_path)
     response = _post_run(headers={"X-API-Key": "TESTER-123"}, mode="qaoa")
     payload = response.get_json()
     status = app.test_client().get("/license-status", headers={"X-API-Key": "TESTER-123"}).get_json()
     summary = app.test_client().get("/ledger-summary").get_json()
 
-    assert response.status_code == 501
-    assert payload["error"]["code"] == "qaoa_full_disabled"
-    assert payload["error"]["details"]["received_mode"] == "qaoa_full"
-    assert payload["error"]["details"]["submitted_mode"] == "qaoa"
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "unsupported_mode"
+    assert payload["error"]["details"]["received_mode"] == "qaoa"
     assert status["used_runs"] == 0
     assert status["remaining_runs"] == 1000
     assert summary["rejected_runs"] == 1
     assert summary["consumed_runs"] == 0
 
 
-def test_qaoa_full_mode_returns_disabled_error():
+def test_qaoa_full_mode_returns_unsupported_error():
     response = _post_run(headers={"X-API-Key": "TESTER-123"}, mode="qaoa_full")
     payload = response.get_json()
 
-    assert response.status_code == 501
-    assert payload["error"]["code"] == "qaoa_full_disabled"
-    assert payload["error"]["message"] == "Full QAOA mode is disabled. Use qaoa_limited for synchronous cloud runs."
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "unsupported_mode"
+    assert payload["error"]["message"] == "Unsupported mode."
     assert payload["error"]["details"]["received_mode"] == "qaoa_full"
-    assert payload["error"]["details"]["submitted_mode"] == "qaoa_full"
 
 
 def test_public_demo_qaoa_limited_runs_within_small_limits(tmp_path):
@@ -2955,7 +3409,7 @@ def test_public_demo_qaoa_limited_runs_within_small_limits(tmp_path):
     assert response.status_code == 200
     assert payload["status"] == "completed"
     assert payload["license"]["usage_level"] == "public_demo"
-    assert payload["mode"] == "qaoa_limited"
+    assert payload["mode"] == "qaoa_lightning_sim"
     assert payload["binary_variables"] == 3
     assert payload["diagnostics"]["qaoa_enabled"] is True
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] is None
@@ -2975,13 +3429,13 @@ def test_qaoa_limited_rejects_over_16_qubit_safety_cap():
     payload = response.get_json()
 
     assert response.status_code == 403
-    assert payload["error"]["code"] == "qaoa_limited_limit_exceeded"
+    assert payload["error"]["code"] == "qaoa_runtime_limit_exceeded"
     assert payload["error"]["details"]["field"] == "max_qubits"
     assert payload["error"]["details"]["requested"] > 16
     assert payload["error"]["details"]["allowed"] == 16
     assert payload["error"]["details"]["binary_variables"] > 16
     assert payload["error"]["details"]["license_max_qubits"] == 24
-    assert payload["error"]["details"]["qaoa_limited_max_qubits"] == 16
+    assert payload["error"]["details"]["qaoa_max_qubits"] == 16
     assert payload["license"]["usage_level"] == "tester"
 
 
@@ -3002,13 +3456,18 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
 
     assert response.status_code == 200
     assert payload["status"] == "completed"
-    assert payload["mode"] == "qaoa_limited"
-    assert payload["solver"] == "classical_heuristic+qaoa_limited"
+    assert payload["mode"] == "qaoa_lightning_sim"
+    assert payload["solver"] == "classical_heuristic+qaoa_lightning_sim"
     assert payload["binary_variables"] == 7
     assert payload["diagnostics"]["qaoa_enabled"] is True
     assert payload["diagnostics"]["qaoa_available"] is True
     assert payload["diagnostics"]["qaoa_status"] == "available"
-    assert payload["diagnostics"]["qaoa_mode"] == "qaoa_limited"
+    assert payload["diagnostics"]["qaoa_mode"] == "qaoa_lightning_sim"
+    assert payload["diagnostics"]["requested_run_mode"] == "qaoa_limited"
+    assert payload["diagnostics"]["run_mode"] == "qaoa_lightning_sim"
+    assert payload["diagnostics"]["simulation_backend"] == "lightning.qubit"
+    assert payload["diagnostics"]["legacy_run_mode_alias"] is True
+    assert payload["diagnostics"]["hardware_replay"] is False
     assert payload["diagnostics"]["qaoa_candidate_count"] > 0
     assert payload["diagnostics"]["qaoa_p"] == 1
     assert payload["diagnostics"]["qaoa_iterations"] == 4
@@ -3033,13 +3492,13 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert reporting["summary"]["quantum_result_summary"]["probability"] is not None
     assert reporting["summary"]["qaoa_enabled"] is True
     assert reporting["summary"]["qaoa_available"] is True
-    assert reporting["summary"]["qaoa_mode"] == "qaoa_limited"
+    assert reporting["summary"]["qaoa_mode"] == "qaoa_lightning_sim"
     assert reporting["summary"]["qaoa_candidate_count"] > 0
     assert reporting["quantum_samples"]
-    assert reporting["quantum_samples"][0]["source"] == "qaoa_limited"
+    assert reporting["quantum_samples"][0]["source"] == "qaoa_lightning_sim"
     assert reporting["quantum_samples"][0]["selection_scope"] == "qaoa exact probability sample"
     assert reporting["qaoa_best_qubo"]
-    assert reporting["qaoa_best_qubo"][0]["source"] == "qaoa_limited"
+    assert reporting["qaoa_best_qubo"][0]["source"] == "qaoa_lightning_sim"
     assert reporting["qaoa_best_qubo"][0]["selection_scope"] == "qaoa exact probability sample"
     assert reporting["qaoa_best_qubo"][0]["qubo_value"] == min(row["qubo_value"] for row in reporting["qaoa_best_qubo"])
     assert reporting["solver_comparison"]
@@ -3053,6 +3512,43 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert reporting["charts"]["optimization_history"].startswith("data:image/png;base64,")
     assert reporting["charts"]["circuit_overview"].startswith("data:image/png;base64,")
     assert reporting["charts"]["qubo_breakdown_classical"].startswith("data:image/png;base64,")
+
+
+def test_tester_qaoa_tensor_sim_uses_sampling_shots(tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=3)
+
+    response = _post_run_file(
+        workbook_path,
+        headers={"X-API-Key": "TESTER-123"},
+        mode="qaoa_tensor_sim",
+        response_level="full",
+        qaoa_p="1",
+        qaoa_maxiter="2",
+        qaoa_multistart_restarts="1",
+        qaoa_shots="8",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "completed"
+    assert payload["mode"] == "qaoa_tensor_sim"
+    assert payload["solver"] == "classical_heuristic+qaoa_tensor_sim"
+    assert payload["diagnostics"]["requested_run_mode"] == "qaoa_tensor_sim"
+    assert payload["diagnostics"]["run_mode"] == "qaoa_tensor_sim"
+    assert payload["diagnostics"]["simulation_backend"] == "default.tensor"
+    assert payload["diagnostics"]["qaoa_enabled"] is True
+    assert payload["diagnostics"]["qaoa_available"] is True
+    assert payload["diagnostics"]["qaoa_mode"] == "qaoa_tensor_sim"
+    assert payload["diagnostics"]["qaoa_exact_probabilities"] is False
+    assert payload["diagnostics"]["qaoa_candidate_count"] > 0
+    assert payload["diagnostics"]["circuit"]["shots_mode"] == "sampling"
+    assert payload["diagnostics"]["circuit"]["qaoa_shots"] == 8
+    assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] == 8
+    assert payload["diagnostics"]["effective_settings"]["qaoa_shots_display"] == "8"
+    assert payload["reporting"]["summary"]["quantum_result_summary"]["available"] is True
+    assert payload["reporting"]["quantum_samples"]
+    assert payload["reporting"]["quantum_samples"][0]["source"] == "qaoa_tensor_sim"
+    assert "shots" in payload["reporting"]["quantum_samples"][0]["selection_scope"]
 
 
 def test_qaoa_limited_same_random_seed_repeats_best_bitstring(tmp_path):
@@ -3092,11 +3588,11 @@ def test_tester_qaoa_limited_runs_14_qubit_small_workbook():
 
     assert response.status_code == 200
     assert payload["status"] == "completed"
-    assert payload["mode"] == "qaoa_limited"
+    assert payload["mode"] == "qaoa_lightning_sim"
     assert payload["binary_variables"] == 14
     assert payload["diagnostics"]["qaoa_enabled"] is True
     assert payload["diagnostics"]["qaoa_available"] is True
-    assert payload["diagnostics"]["qaoa_mode"] == "qaoa_limited"
+    assert payload["diagnostics"]["qaoa_mode"] == "qaoa_lightning_sim"
     assert payload["diagnostics"]["qaoa_exact_probabilities"] is True
     assert payload["diagnostics"]["qaoa_p"] == 1
     assert payload["diagnostics"]["qaoa_iterations"] == 10
@@ -3118,7 +3614,7 @@ def test_qaoa_limited_rejects_runtime_limits(tmp_path):
     payload = response.get_json()
 
     assert response.status_code == 403
-    assert payload["error"]["code"] == "qaoa_limited_limit_exceeded"
+    assert payload["error"]["code"] == "qaoa_runtime_limit_exceeded"
     assert payload["error"]["details"]["usage_level"] == "tester"
     assert payload["error"]["details"]["field"] == "layers"
     assert payload["error"]["details"]["requested"] == 7
@@ -3133,7 +3629,7 @@ def test_qaoa_limited_rejects_runtime_limits(tmp_path):
 def test_internal_power_qaoa_limited_accepts_14_qubits_above_tester_layer_cap(monkeypatch):
     import app.main as main_module
 
-    def _mock_qaoa_limited(optimizer, runtime_inputs, logs=None, max_qubits=None):
+    def _mock_qaoa_lightning(optimizer, runtime_inputs, logs=None, max_qubits=None, **_kwargs):
         logs = logs if logs is not None else []
         optimizer.qaoa_limited_runtime_inputs = {
             "layers": int(runtime_inputs.layers),
@@ -3145,7 +3641,7 @@ def test_internal_power_qaoa_limited_accepts_14_qubits_above_tester_layer_cap(mo
         logs.append("Mocked qaoa_limited execution for policy boundary test.")
         return optimizer, logs
 
-    monkeypatch.setattr(main_module, "run_qaoa_limited", _mock_qaoa_limited)
+    monkeypatch.setattr(main_module, "run_qaoa_sim", _mock_qaoa_lightning)
     response = _post_run(
         headers={"X-API-Key": INTERNAL_POWER_KEY},
         mode="qaoa_limited",
@@ -3159,7 +3655,7 @@ def test_internal_power_qaoa_limited_accepts_14_qubits_above_tester_layer_cap(mo
     assert response.status_code == 200
     assert payload["status"] == "completed"
     assert payload["license"]["usage_level"] == "internal_power"
-    assert payload["mode"] == "qaoa_limited"
+    assert payload["mode"] == "qaoa_lightning_sim"
     assert payload["binary_variables"] == 14
 
 
@@ -3197,7 +3693,7 @@ def test_qaoa_limited_execution_error_is_controlled_and_not_consumed(monkeypatch
     def _raise_qaoa_error(*_args, **_kwargs):
         raise main_module.QAOAExecutionError("unit-test qaoa failure")
 
-    monkeypatch.setattr(main_module, "run_qaoa_limited", _raise_qaoa_error)
+    monkeypatch.setattr(main_module, "run_qaoa_sim", _raise_qaoa_error)
     response = _post_run_file(
         workbook_path,
         headers={"X-API-Key": "TESTER-123"},

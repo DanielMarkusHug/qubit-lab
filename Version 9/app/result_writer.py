@@ -22,7 +22,7 @@ from app.type_constraints import (
     type_candidate_columns,
     type_size_columns,
 )
-from app.usage_policy import runtime_estimate_payload
+from app.usage_policy import mode_diagnostics, runtime_estimate_payload
 from app.workbook_diagnostics import candidate_export_diagnostics, workbook_warnings
 
 
@@ -119,6 +119,7 @@ def build_classical_response(
     policy_result=None,
     license_info: dict[str, Any] | None = None,
     actual_runtime_sec: float | None = None,
+    run_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     full_payload = _build_full_classical_response(
         run_id,
@@ -130,6 +131,7 @@ def build_classical_response(
         include_reporting_charts=response_level == "full",
     )
     _attach_policy_metadata(full_payload, usage_context, policy_result, license_info, actual_runtime_sec)
+    _attach_run_metadata(full_payload, run_metadata)
     return shape_classical_response(full_payload, response_level)
 
 
@@ -153,6 +155,17 @@ def shape_classical_response(full_payload: dict[str, Any], response_level: str) 
         "portfolio_metrics": full_payload.get("portfolio_metrics"),
         "selected_blocks": full_payload.get("selected_blocks"),
         "license": full_payload.get("license"),
+        "worker_profile": full_payload.get("worker_profile"),
+        "worker_profile_label": full_payload.get("worker_profile_label"),
+        "worker_job_name": full_payload.get("worker_job_name"),
+        "configured_cpu": full_payload.get("configured_cpu"),
+        "configured_memory_gib": full_payload.get("configured_memory_gib"),
+        "memory_used_gib": full_payload.get("memory_used_gib"),
+        "memory_limit_gib": full_payload.get("memory_limit_gib"),
+        "memory_remaining_gib": full_payload.get("memory_remaining_gib"),
+        "memory_used_pct": full_payload.get("memory_used_pct"),
+        "peak_memory_used_gib": full_payload.get("peak_memory_used_gib"),
+        "memory_history": full_payload.get("memory_history"),
         "diagnostics": _compact_diagnostics(full_payload.get("diagnostics", {}), log_limit=20),
         "reporting": _shape_reporting(full_payload.get("reporting", {}), "compact"),
     }
@@ -191,6 +204,7 @@ def _build_full_classical_response(
     warnings = workbook_warnings(optimizer)
     diagnostics = {
         "service": Config.SERVICE_NAME,
+        **mode_diagnostics(getattr(optimizer, "requested_run_mode", mode), mode),
         "legacy_optimizer": "QAOAOptimizerV61",
         "input_sheet_names": (workbook_summary or {}).get("input_sheet_names", []),
         "ignored_output_sheets": (workbook_summary or {}).get("ignored_output_sheets", []),
@@ -217,22 +231,25 @@ def _build_full_classical_response(
         "qaoa_p": _safe_attr(optimizer, "qaoa_p"),
         "qaoa_iterations": _safe_attr(optimizer, "qaoa_maxiter"),
         "qaoa_restarts": _safe_attr(optimizer, "qaoa_multistart_restarts"),
-        "qaoa_exact_probabilities": bool(getattr(optimizer, "qaoa_limited_exact_probabilities", False)),
+        "qaoa_exact_probabilities": bool(
+            getattr(optimizer, "qaoa_sim_exact_probabilities", False)
+            or getattr(optimizer, "qaoa_limited_exact_probabilities", False)
+        ),
         "qaoa_runtime_sec": _safe_attr(optimizer, "qaoa_runtime_sec"),
         "circuit": _circuit_report(optimizer),
         "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
         "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
         "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
         "cost_column_conflicting_row_count": int(getattr(optimizer, "cost_column_conflicting_row_count", 0) or 0),
-            "workbook_warnings": warnings,
-            "workbook_warning_count": len(warnings),
-            "additional_type_constraints_count": int(
-                getattr(optimizer, "additional_type_constraints_count", 0) or 0
-            ),
-            "additional_type_constraints": constraints_for_json(optimizer),
-            "additional_type_budget_achievements": achievements_for_bitvec(optimizer, bitvec),
-            "logs": list(logs or []),
-        }
+        "workbook_warnings": warnings,
+        "workbook_warning_count": len(warnings),
+        "additional_type_constraints_count": int(
+            getattr(optimizer, "additional_type_constraints_count", 0) or 0
+        ),
+        "additional_type_constraints": constraints_for_json(optimizer),
+        "additional_type_budget_achievements": achievements_for_bitvec(optimizer, bitvec),
+        "logs": list(logs or []),
+    }
     diagnostics.update(candidate_export_diagnostics(optimizer))
 
     return json_safe(
@@ -338,9 +355,39 @@ def _attach_policy_metadata(
         payload.setdefault("diagnostics", {})["actual_runtime_sec"] = float(actual_runtime_sec)
 
 
+def _attach_run_metadata(payload: dict[str, Any], run_metadata: dict[str, Any] | None) -> None:
+    if not run_metadata:
+        return
+    fields = (
+        "worker_profile",
+        "worker_profile_label",
+        "worker_job_name",
+        "configured_cpu",
+        "configured_memory_gib",
+        "memory_used_gib",
+        "memory_limit_gib",
+        "memory_remaining_gib",
+        "memory_used_pct",
+        "peak_memory_used_gib",
+        "memory_history",
+    )
+    diagnostics = payload.setdefault("diagnostics", {})
+    summary = payload.setdefault("reporting", {}).setdefault("summary", {})
+    for field in fields:
+        if field in run_metadata:
+            payload[field] = run_metadata.get(field)
+            diagnostics[field] = run_metadata.get(field)
+            summary[field] = run_metadata.get(field)
+
+
 def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> dict[str, Any]:
     keys = (
         "budget_usd",
+        "requested_run_mode",
+        "run_mode",
+        "simulation_backend",
+        "legacy_run_mode_alias",
+        "hardware_replay",
         "lambda_budget",
         "lambda_variance",
         "variable_options",
@@ -368,6 +415,18 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
         "qaoa_exact_state_space",
         "qaoa_exact_states_evaluated",
         "qaoa_exact_states_exported",
+        "qaoa_sampled_states_evaluated",
+        "qaoa_sampled_states_exported",
+        "worker_profile",
+        "worker_profile_label",
+        "worker_job_name",
+        "configured_cpu",
+        "configured_memory_gib",
+        "memory_used_gib",
+        "memory_limit_gib",
+        "memory_remaining_gib",
+        "memory_used_pct",
+        "peak_memory_used_gib",
         "estimated_runtime_sec",
         "raw_estimated_runtime_sec",
         "max_estimated_runtime_sec",
@@ -432,48 +491,50 @@ def build_inspection_response(
     license_info: dict[str, Any],
     policy_result,
     logs: list[str],
+    run_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     warnings = workbook_warnings(optimizer)
-    return json_safe(
-        {
-            "status": "completed",
-            "model_version": Config.MODEL_VERSION,
-            "filename": filename,
-            "license": license_info,
-            "workbook_summary": build_workbook_summary(optimizer),
-            "runtime_estimate": runtime_estimate_payload(mode, policy_result),
-            "diagnostics": {
-                "service": Config.SERVICE_NAME,
-                "usage_level": getattr(usage_context, "usage_level_name", None),
-                "workbook_warnings": warnings,
-                "workbook_warning_count": len(warnings),
-                "runtime_inputs": {
-                    "layers": policy_result.runtime_inputs.layers,
-                    "iterations": policy_result.runtime_inputs.iterations,
-                    "restarts": policy_result.runtime_inputs.restarts,
-                    "warm_start": policy_result.runtime_inputs.warm_start,
-                    "qaoa_shots": getattr(policy_result.runtime_inputs, "qaoa_shots", None),
-                    "qaoa_shots_display": getattr(policy_result, "effective_settings", {}).get("qaoa_shots_display"),
-                    "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
-                    "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
-                    "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
-                },
-                "effective_settings": getattr(policy_result, "effective_settings", {}),
-                "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
-                "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
-                "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
-                "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
-                "cost_column_conflicting_row_count": int(
-                    getattr(optimizer, "cost_column_conflicting_row_count", 0) or 0
-                ),
-                "additional_type_constraints_count": int(
-                    getattr(optimizer, "additional_type_constraints_count", 0) or 0
-                ),
-                "additional_type_constraints": constraints_for_json(optimizer),
-                "logs": cap_logs(logs, 50),
-            },
-        }
-    )
+    diagnostics = {
+        "service": Config.SERVICE_NAME,
+        **mode_diagnostics(getattr(optimizer, "requested_run_mode", mode), mode),
+        "usage_level": getattr(usage_context, "usage_level_name", None),
+        "workbook_warnings": warnings,
+        "workbook_warning_count": len(warnings),
+        "runtime_inputs": {
+            "layers": policy_result.runtime_inputs.layers,
+            "iterations": policy_result.runtime_inputs.iterations,
+            "restarts": policy_result.runtime_inputs.restarts,
+            "warm_start": policy_result.runtime_inputs.warm_start,
+            "qaoa_shots": getattr(policy_result.runtime_inputs, "qaoa_shots", None),
+            "qaoa_shots_display": getattr(policy_result, "effective_settings", {}).get("qaoa_shots_display"),
+            "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
+            "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
+            "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
+        },
+        "effective_settings": getattr(policy_result, "effective_settings", {}),
+        "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
+        "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
+        "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
+        "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
+        "cost_column_conflicting_row_count": int(getattr(optimizer, "cost_column_conflicting_row_count", 0) or 0),
+        "additional_type_constraints_count": int(getattr(optimizer, "additional_type_constraints_count", 0) or 0),
+        "additional_type_constraints": constraints_for_json(optimizer),
+        "logs": cap_logs(logs, 50),
+    }
+    if run_metadata:
+        diagnostics.update(run_metadata)
+    payload = {
+        "status": "completed",
+        "model_version": Config.MODEL_VERSION,
+        "filename": filename,
+        "license": license_info,
+        "workbook_summary": build_workbook_summary(optimizer),
+        "runtime_estimate": runtime_estimate_payload(mode, policy_result),
+        "diagnostics": diagnostics,
+    }
+    if run_metadata:
+        payload.update(run_metadata)
+    return json_safe(payload)
 
 
 def build_workbook_summary(optimizer) -> dict[str, Any]:
@@ -1037,7 +1098,10 @@ def _circuit_report(optimizer) -> dict[str, Any]:
         estimated_circuit_depth = initial_hadamards + layers_int * (
             max(1, one_qubit_cost_terms) + max(1, two_qubit_cost_terms * 3) + 1
         )
-        exact_probabilities = bool(getattr(optimizer, "qaoa_limited_exact_probabilities", False))
+        exact_probabilities = bool(
+            getattr(optimizer, "qaoa_sim_exact_probabilities", False)
+            or getattr(optimizer, "qaoa_limited_exact_probabilities", False)
+        )
         qaoa_mode = str(getattr(optimizer, "qaoa_mode", "") or "")
         shots_mode = "exact" if exact_probabilities or qaoa_mode == "exact_probs" else "sampling"
         qaoa_shots = _safe_int(getattr(optimizer, "qaoa_shots", None))

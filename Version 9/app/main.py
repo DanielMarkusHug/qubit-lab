@@ -28,7 +28,7 @@ from app.job_storage import get_job_storage
 from app.job_store import get_job_store, initial_job_document
 from app.key_store import get_key_store
 from app.license_service import require_api_key
-from app.qaoa_engine import QAOAExecutionError, raise_qaoa_full_disabled, run_qaoa_limited
+from app.qaoa_engine import QAOAExecutionError, run_qaoa_sim
 from app.qubo_builder import build_qubo_from_workbook, load_legacy_optimizer_symbols
 from app.random_seed import random_seed_display
 from app.result_writer import build_classical_response, build_inspection_response
@@ -37,12 +37,16 @@ from app.schemas import ApiError, json_safe, make_job_id, make_run_id
 from app.type_constraints import constraints_for_json
 from app.usage_policy import (
     DEFAULT_RESPONSE_LEVEL,
+    QAOA_MODES,
     build_effective_settings,
     capabilities_payload,
     extract_runtime_inputs,
     generate_key_hash,
-    normalize_mode,
+    mode_diagnostics,
+    mode_limits_for,
+    resolve_run_mode,
     resolve_usage_context,
+    simulation_backend_for_mode,
     usage_context_from_key_record,
     validate_secret_configuration,
     validate_pre_upload_policy,
@@ -53,6 +57,12 @@ from app.workbook_diagnostics import (
     candidate_export_log_lines,
     workbook_warnings,
     workbook_warning_log_lines,
+)
+from app.worker_profiles import (
+    DEFAULT_WORKER_PROFILE,
+    normalize_worker_profile,
+    validate_worker_profile_allowed,
+    worker_profile_metadata,
 )
 
 
@@ -180,17 +190,25 @@ def register_routes(flask_app: Flask) -> None:
 
     @flask_app.post("/inspect-workbook")
     def inspect_workbook():
-        submitted_mode = (request.form.get("mode") or "classical_only").strip().lower()
-        mode = normalize_mode(submitted_mode)
+        mode_selection = resolve_run_mode(request.form.get("mode"))
+        submitted_mode = mode_selection.requested_run_mode
+        mode = mode_selection.run_mode
         tmp_path = None
         filename = None
         usage_context = None
         optimizer = None
         policy_result = None
+        worker_profile = DEFAULT_WORKER_PROFILE
+        run_metadata = worker_profile_metadata(worker_profile)
         ledger = get_run_ledger()
 
         try:
             usage_context = resolve_usage_context(request.headers.get(Config.API_KEY_HEADER))
+            worker_profile = validate_worker_profile_allowed(
+                usage_context,
+                normalize_worker_profile(request.form.get("worker_profile")),
+            )
+            run_metadata = worker_profile_metadata(worker_profile)
             response_level = (request.form.get("response_level") or DEFAULT_RESPONSE_LEVEL).strip().lower()
             validate_pre_upload_policy(usage_context, mode, response_level, request.content_length)
 
@@ -199,6 +217,7 @@ def register_routes(flask_app: Flask) -> None:
             workbook_structure(tmp_path)
             logs: list[str] = []
             optimizer = build_qubo_from_workbook(tmp_path, logs.append, request.form)
+            _apply_run_mode_metadata(optimizer, mode_selection)
             append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
@@ -213,6 +232,7 @@ def register_routes(flask_app: Flask) -> None:
                 license_info=ledger.license_status(usage_context),
                 policy_result=policy_result,
                 logs=logs,
+                run_metadata=run_metadata,
             )
             return jsonify(payload)
         except ApiError as exc:
@@ -239,14 +259,17 @@ def register_routes(flask_app: Flask) -> None:
         run_id = make_run_id()
         timestamp_start_utc = _utc_now()
         start_time = time.perf_counter()
-        submitted_mode = (request.form.get("mode") or "classical_only").strip().lower()
-        mode = normalize_mode(submitted_mode)
+        mode_selection = resolve_run_mode(request.form.get("mode"))
+        submitted_mode = mode_selection.requested_run_mode
+        mode = mode_selection.run_mode
         response_level = (request.form.get("response_level") or DEFAULT_RESPONSE_LEVEL).strip().lower()
         tmp_path = None
         filename = None
         usage_context = None
         optimizer = None
         policy_result = None
+        worker_profile = DEFAULT_WORKER_PROFILE
+        run_metadata = worker_profile_metadata(worker_profile)
         execution_started = False
         lock_acquired = False
         public_slot_acquired = False
@@ -254,6 +277,11 @@ def register_routes(flask_app: Flask) -> None:
 
         try:
             usage_context = resolve_usage_context(request.headers.get(Config.API_KEY_HEADER))
+            worker_profile = validate_worker_profile_allowed(
+                usage_context,
+                normalize_worker_profile(request.form.get("worker_profile")),
+            )
+            run_metadata = worker_profile_metadata(worker_profile)
             if not ledger.can_consume_run(usage_context.key_record):
                 raise ApiError(
                     403,
@@ -272,20 +300,11 @@ def register_routes(flask_app: Flask) -> None:
             summary = workbook_structure(tmp_path)
             logs: list[str] = []
             optimizer = build_qubo_from_workbook(tmp_path, logs.append, request.form)
+            _apply_run_mode_metadata(optimizer, mode_selection)
             append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=False)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
             _append_random_seed_log(logs, policy_result)
-
-            if mode == "qaoa_full":
-                raise_qaoa_full_disabled(submitted_mode=submitted_mode)
-            if mode not in {"classical_only", "qaoa_limited", "qaoa_full"}:
-                raise ApiError(
-                    400,
-                    "unsupported_mode",
-                    f"Unsupported mode. Version {Config.VERSION} supports mode=classical_only, mode=qaoa_limited, and disabled mode=qaoa_full.",
-                    {"received_mode": mode, "supported_modes": ["classical_only", "qaoa_limited", "qaoa_full"]},
-                )
 
             if usage_context.authenticated:
                 lock_info = ledger.acquire_run_lock(
@@ -325,22 +344,26 @@ def register_routes(flask_app: Flask) -> None:
                 optimizer=optimizer,
                 policy_result=policy_result,
                 timestamp_start_utc=timestamp_start_utc,
+                **run_metadata,
             )
 
             execution_started = True
             optimizer, logs = run_classical_optimizer(optimizer, logs)
             logs.append(f"Classical candidate count: {int(len(getattr(optimizer, 'classical_results', [])))}")
             solver = "classical_heuristic"
-            if mode == "qaoa_limited":
-                qaoa_limited_limits = usage_context.usage_level.get("qaoa_limited_limits", {})
-                optimizer, logs = run_qaoa_limited(
+            if mode in QAOA_MODES:
+                qaoa_limits = mode_limits_for(usage_context.usage_level, mode)
+                optimizer, logs = run_qaoa_sim(
                     optimizer,
                     policy_result.runtime_inputs,
                     logs,
-                    max_qubits=(qaoa_limited_limits or {}).get("max_qubits"),
+                    max_qubits=(qaoa_limits or {}).get("max_qubits"),
+                    run_mode=mode,
+                    requested_run_mode=submitted_mode,
+                    simulation_backend=simulation_backend_for_mode(mode),
                 )
                 logs.append(f"QAOA sample count: {int(len(getattr(optimizer, 'samples_df', [])))}")
-                solver = "classical_heuristic+qaoa_limited"
+                solver = f"classical_heuristic+{mode}"
             elif mode == "classical_only":
                 logs.append("QAOA execution status: disabled for classical_only mode.")
             logs.extend(candidate_export_log_lines(optimizer))
@@ -369,6 +392,7 @@ def register_routes(flask_app: Flask) -> None:
                 actual_runtime_sec=actual_runtime_sec,
                 solver=solver,
                 consumed_run=consumed_run,
+                **run_metadata,
             )
             if lock_acquired:
                 try:
@@ -394,6 +418,7 @@ def register_routes(flask_app: Flask) -> None:
                 policy_result=policy_result,
                 license_info=ledger.license_status(usage_context),
                 actual_runtime_sec=actual_runtime_sec,
+                run_metadata=run_metadata,
             )
             payload["filename"] = filename
             return jsonify(payload)
@@ -413,6 +438,7 @@ def register_routes(flask_app: Flask) -> None:
                     actual_runtime_sec=actual_runtime_sec,
                     rejection_code=exc.code,
                     consumed_run=False,
+                    **run_metadata,
                 )
             raise
         except QAOAExecutionError as exc:
@@ -438,6 +464,7 @@ def register_routes(flask_app: Flask) -> None:
                     actual_runtime_sec=actual_runtime_sec,
                     error_code="qaoa_execution_error",
                     consumed_run=False,
+                    **run_metadata,
                 )
             raise api_error from exc
         except _legacy_optimization_error_type() as exc:
@@ -464,6 +491,7 @@ def register_routes(flask_app: Flask) -> None:
                         actual_runtime_sec=actual_runtime_sec,
                         error_code="optimization_error",
                         consumed_run=False,
+                        **run_metadata,
                     )
                 else:
                     ledger.record_run_rejected(
@@ -478,6 +506,7 @@ def register_routes(flask_app: Flask) -> None:
                         actual_runtime_sec=actual_runtime_sec,
                         rejection_code="optimization_error",
                         consumed_run=False,
+                        **run_metadata,
                     )
             raise api_error from exc
         except Exception:
@@ -495,6 +524,7 @@ def register_routes(flask_app: Flask) -> None:
                     actual_runtime_sec=actual_runtime_sec,
                     error_code="internal_server_error",
                     consumed_run=False,
+                    **run_metadata,
                 )
                 logger.exception("Unhandled run execution error")
                 raise ApiError(
@@ -521,14 +551,17 @@ def register_routes(flask_app: Flask) -> None:
     @flask_app.post("/run-qaoa-async")
     def run_qaoa_async():
         job_id = make_job_id()
-        submitted_mode = (request.form.get("mode") or "classical_only").strip().lower()
-        mode = normalize_mode(submitted_mode)
+        mode_selection = resolve_run_mode(request.form.get("mode"))
+        submitted_mode = mode_selection.requested_run_mode
+        mode = mode_selection.run_mode
         response_level = (request.form.get("response_level") or DEFAULT_RESPONSE_LEVEL).strip().lower()
         tmp_path = None
         filename = None
         usage_context = None
         optimizer = None
         policy_result = None
+        worker_profile = DEFAULT_WORKER_PROFILE
+        run_metadata = worker_profile_metadata(worker_profile)
         lock_acquired = False
         public_slot_acquired = False
         job_created = False
@@ -540,6 +573,11 @@ def register_routes(flask_app: Flask) -> None:
         try:
             raw_api_key = request.headers.get(Config.API_KEY_HEADER)
             usage_context = resolve_usage_context(raw_api_key)
+            worker_profile = validate_worker_profile_allowed(
+                usage_context,
+                normalize_worker_profile(request.form.get("worker_profile")),
+            )
+            run_metadata = worker_profile_metadata(worker_profile)
             if not ledger.can_consume_run(usage_context.key_record):
                 raise ApiError(
                     403,
@@ -558,14 +596,12 @@ def register_routes(flask_app: Flask) -> None:
             workbook_structure(tmp_path)
             logs: list[str] = []
             optimizer = build_qubo_from_workbook(tmp_path, logs.append, request.form)
+            _apply_run_mode_metadata(optimizer, mode_selection)
             warning_lines = workbook_warning_log_lines(optimizer)
             logs.extend(warning_lines)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
             _append_random_seed_log(logs, policy_result)
-
-            if mode == "qaoa_full":
-                raise_qaoa_full_disabled(submitted_mode=submitted_mode)
 
             if usage_context.authenticated:
                 lock_info = ledger.acquire_run_lock(
@@ -593,6 +629,7 @@ def register_routes(flask_app: Flask) -> None:
 
             input_info = storage.save_input_from_path(job_id, tmp_path, filename)
             settings = _job_settings_from_request(mode, response_level, request.form, policy_result)
+            settings["worker_profile"] = worker_profile
             job_store.create_job(
                 initial_job_document(
                     job_id=job_id,
@@ -604,6 +641,7 @@ def register_routes(flask_app: Flask) -> None:
                     policy_result=policy_result,
                     lock_type=lock_type,
                     key_hash=generate_key_hash(raw_api_key) if raw_api_key else None,
+                    worker_profile=worker_profile,
                 )
             )
             job_created = True
@@ -633,6 +671,7 @@ def register_routes(flask_app: Flask) -> None:
                     "status": "queued",
                     "status_url": f"/jobs/{job_id}/status",
                     "result_url": f"/jobs/{job_id}/result",
+                    **run_metadata,
                 }
             ), 202
         except ApiError as exc:
@@ -650,6 +689,7 @@ def register_routes(flask_app: Flask) -> None:
                     actual_runtime_sec=0.0,
                     rejection_code=exc.code,
                     consumed_run=False,
+                    **run_metadata,
                 )
             if job_created:
                 try:
@@ -794,10 +834,18 @@ def _append_mode_logs(logs: list[str], mode: str, inspection: bool = False) -> N
         logs.append("Workbook inspection path: QUBO built, optimization not executed.")
     if mode == "classical_only":
         logs.append("QAOA execution status: disabled for classical_only mode.")
-    elif mode == "qaoa_limited":
-        logs.append("QAOA execution status: enabled for qaoa_limited mode.")
-    elif mode == "qaoa_full":
-        logs.append("QAOA execution status: qaoa_full disabled for synchronous execution.")
+    elif mode in QAOA_MODES:
+        backend = simulation_backend_for_mode(mode)
+        logs.append(f"QAOA execution status: enabled for {mode} mode.")
+        logs.append(f"QAOA simulation backend: {backend}")
+
+
+def _apply_run_mode_metadata(optimizer, mode_selection) -> None:
+    optimizer.requested_run_mode = mode_selection.requested_run_mode
+    optimizer.run_mode = mode_selection.run_mode
+    optimizer.simulation_backend = mode_selection.simulation_backend
+    optimizer.legacy_run_mode_alias = mode_selection.legacy_run_mode_alias
+    optimizer.hardware_replay = mode_selection.hardware_replay
 
 
 def _append_random_seed_log(logs: list[str], policy_result) -> None:
@@ -817,6 +865,7 @@ def _inspection_error_diagnostics(usage_context, optimizer, mode: str, form_data
         "additional_type_constraints": constraints_for_json(optimizer),
         "logs": list(logs or [])[-50:],
     }
+    diagnostics.update(mode_diagnostics(getattr(optimizer, "requested_run_mode", mode), mode))
     try:
         runtime_inputs = extract_runtime_inputs(
             optimizer,
@@ -860,6 +909,15 @@ def _job_settings_from_request(mode: str, response_level: str, form_data, policy
         settings["rng_seed"] = str(effective_seed)
     settings["mode"] = mode
     settings["response_level"] = response_level
+    for key in (
+        "requested_run_mode",
+        "run_mode",
+        "simulation_backend",
+        "legacy_run_mode_alias",
+        "hardware_replay",
+    ):
+        if key in policy_result.effective_settings:
+            settings[key] = policy_result.effective_settings[key]
     settings["effective_settings"] = json_safe(policy_result.effective_settings)
     settings["runtime_inputs"] = json_safe(
         {

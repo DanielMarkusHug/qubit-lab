@@ -18,6 +18,7 @@ from typing import Any
 
 from app.config import Config
 from app.schemas import ApiError, json_safe
+from app.worker_profiles import allowed_worker_profiles, worker_profiles_payload
 
 
 _LOCK = threading.Lock()
@@ -936,7 +937,8 @@ def _license_status(ledger: RunLedger, usage_context) -> dict[str, Any]:
         "max_upload_mb": usage_level.get("max_upload_mb"),
         "max_parallel_runs": usage_level.get("max_parallel_runs"),
     }
-    qaoa_limited_limits = usage_level.get("qaoa_limited_limits")
+    qaoa_lightning_sim_limits = usage_level.get("qaoa_lightning_sim_limits") or usage_level.get("qaoa_limited_limits")
+    qaoa_tensor_sim_limits = usage_level.get("qaoa_tensor_sim_limits") or qaoa_lightning_sim_limits
     payload = {
         "authenticated": bool(usage_context.authenticated),
         "usage_level": usage_context.usage_level_name,
@@ -944,12 +946,16 @@ def _license_status(ledger: RunLedger, usage_context) -> dict[str, Any]:
         "display_name": usage_level.get("display_name"),
         "allowed_modes": usage_level.get("allowed_modes", []),
         "allowed_response_levels": usage_level.get("allowed_response_levels", []),
+        "allowed_worker_profiles": allowed_worker_profiles(usage_context),
+        "worker_profiles": worker_profiles_payload(usage_context),
         "general_limits": general_limits,
-        "qaoa_limited_limits": qaoa_limited_limits,
+        "qaoa_lightning_sim_limits": qaoa_lightning_sim_limits,
+        "qaoa_tensor_sim_limits": qaoa_tensor_sim_limits,
         "max_estimated_runtime_sec": usage_level.get("max_estimated_runtime_sec"),
         "limits": {
             **general_limits,
-            "qaoa_limited": qaoa_limited_limits,
+            "qaoa_lightning_sim": qaoa_lightning_sim_limits,
+            "qaoa_tensor_sim": qaoa_tensor_sim_limits,
         },
     }
     if not usage_context.authenticated:
@@ -1043,6 +1049,17 @@ def _base_run_fields(**kwargs) -> dict[str, Any]:
         "candidate_count": _candidate_count(optimizer, policy_result, kwargs.get("candidate_count")),
         "estimated_runtime_sec": _estimated_runtime(policy_result, kwargs.get("estimated_runtime_sec")),
         "solver": kwargs.get("solver"),
+        "worker_profile": kwargs.get("worker_profile"),
+        "worker_profile_label": kwargs.get("worker_profile_label"),
+        "worker_job_name": kwargs.get("worker_job_name"),
+        "configured_cpu": kwargs.get("configured_cpu"),
+        "configured_memory_gib": kwargs.get("configured_memory_gib"),
+        "memory_used_gib": kwargs.get("memory_used_gib"),
+        "memory_limit_gib": kwargs.get("memory_limit_gib"),
+        "memory_remaining_gib": kwargs.get("memory_remaining_gib"),
+        "memory_used_pct": kwargs.get("memory_used_pct"),
+        "peak_memory_used_gib": kwargs.get("peak_memory_used_gib"),
+        "memory_history": kwargs.get("memory_history"),
     }
 
 

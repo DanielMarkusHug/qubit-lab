@@ -102,6 +102,8 @@ def _safe_key_record(raw: dict[str, Any], store: str) -> dict[str, Any]:
         "notes",
         "created_by",
         "general_limits",
+        "qaoa_lightning_sim_limits",
+        "qaoa_tensor_sim_limits",
         "qaoa_limited_limits",
         "active_run_id",
         "active_run_ids",

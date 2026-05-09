@@ -1,4 +1,4 @@
-# Version 9.0.0 Deployment Notes
+# Version 9.1.0 Deployment Notes
 
 Version 9 uses the same container image for two Cloud Run targets:
 
@@ -16,8 +16,10 @@ PROJECT_ID="$(gcloud config get-value project)"
 REGION="europe-west6"
 AR_REPO="qaoa-rqp"
 API_SERVICE_NAME="qaoa-rqp-api-v9"
-WORKER_JOB_NAME="qaoa-rqp-worker-v9"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/qaoa-rqp-api:9.0.0"
+WORKER_JOB_SMALL_NAME="qaoa-rqp-worker-small"
+WORKER_JOB_MEDIUM_NAME="qaoa-rqp-worker-medium"
+WORKER_JOB_LARGE_NAME="qaoa-rqp-worker-large"
+IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/qaoa-rqp-api:9.1.0"
 QAOA_JOB_BUCKET="qaoa-rqp-jobs-v9-$PROJECT_ID"
 
 API_SERVICE_ACCOUNT="qaoa-rqp-api-v9@$PROJECT_ID.iam.gserviceaccount.com"
@@ -49,11 +51,16 @@ QAOA_FIRESTORE_PUBLIC_RUN_STATE_COLLECTION: "qaoa_public_run_state_v9"
 QAOA_FIRESTORE_PUBLIC_RUN_LOCK_COLLECTION: "qaoa_public_run_locks_v9"
 CLOUD_RUN_PROJECT: "$PROJECT_ID"
 CLOUD_RUN_REGION: "$REGION"
-QAOA_WORKER_JOB_NAME: "$WORKER_JOB_NAME"
+QAOA_WORKER_JOB_SMALL_NAME: "$WORKER_JOB_SMALL_NAME"
+QAOA_WORKER_JOB_MEDIUM_NAME: "$WORKER_JOB_MEDIUM_NAME"
+QAOA_WORKER_JOB_LARGE_NAME: "$WORKER_JOB_LARGE_NAME"
 EOF
 ```
 
-`CLOUD_RUN_PROJECT`, `CLOUD_RUN_REGION`, and `QAOA_WORKER_JOB_NAME` are required by the API trigger helper.
+`CLOUD_RUN_PROJECT`, `CLOUD_RUN_REGION`, and the `QAOA_WORKER_JOB_*_NAME`
+profile variables are used by the API trigger helper. If the profile variables
+are omitted, the backend defaults to `qaoa-rqp-worker-small`,
+`qaoa-rqp-worker-medium`, and `qaoa-rqp-worker-large`.
 
 ## Required Worker Environment
 
@@ -75,7 +82,9 @@ QAOA_FIRESTORE_PUBLIC_RUN_STATE_COLLECTION: "qaoa_public_run_state_v9"
 QAOA_FIRESTORE_PUBLIC_RUN_LOCK_COLLECTION: "qaoa_public_run_locks_v9"
 CLOUD_RUN_PROJECT: "$PROJECT_ID"
 CLOUD_RUN_REGION: "$REGION"
-QAOA_WORKER_JOB_NAME: "$WORKER_JOB_NAME"
+QAOA_WORKER_JOB_SMALL_NAME: "$WORKER_JOB_SMALL_NAME"
+QAOA_WORKER_JOB_MEDIUM_NAME: "$WORKER_JOB_MEDIUM_NAME"
+QAOA_WORKER_JOB_LARGE_NAME: "$WORKER_JOB_LARGE_NAME"
 EOF
 ```
 
@@ -243,10 +252,34 @@ echo "$SERVICE_URL"
 
 ## Create Or Update Worker Job
 
-Create the worker job:
+Version 9 uses selectable worker profiles. Each profile maps to a predefined
+Cloud Run Job because CPU and memory are configured on the job definition, not
+per execution override.
+
+Profiles:
+
+- Small: `qaoa-rqp-worker-small`, 2 vCPU, 2 GiB RAM, demo/trial/power.
+- Medium: `qaoa-rqp-worker-medium`, 4 vCPU, 4 GiB RAM, trial/power.
+- Large: `qaoa-rqp-worker-large`, 4 vCPU, 8 GiB RAM, power.
+
+Create the worker jobs:
 
 ```bash
-gcloud run jobs create "$WORKER_JOB_NAME" \
+gcloud run jobs create "$WORKER_JOB_SMALL_NAME" \
+  --project "$PROJECT_ID" \
+  --image "$IMAGE" \
+  --region "$REGION" \
+  --service-account "$WORKER_SERVICE_ACCOUNT" \
+  --command=python \
+  --args=-m,app.job_worker \
+  --tasks 1 \
+  --max-retries 0 \
+  --task-timeout 72h \
+  --memory 2Gi \
+  --cpu 2 \
+  --env-vars-file /tmp/qaoa-v9-worker-env.yaml
+
+gcloud run jobs create "$WORKER_JOB_MEDIUM_NAME" \
   --project "$PROJECT_ID" \
   --image "$IMAGE" \
   --region "$REGION" \
@@ -257,14 +290,42 @@ gcloud run jobs create "$WORKER_JOB_NAME" \
   --max-retries 0 \
   --task-timeout 72h \
   --memory 4Gi \
-  --cpu 2 \
+  --cpu 4 \
+  --env-vars-file /tmp/qaoa-v9-worker-env.yaml
+
+gcloud run jobs create "$WORKER_JOB_LARGE_NAME" \
+  --project "$PROJECT_ID" \
+  --image "$IMAGE" \
+  --region "$REGION" \
+  --service-account "$WORKER_SERVICE_ACCOUNT" \
+  --command=python \
+  --args=-m,app.job_worker \
+  --tasks 1 \
+  --max-retries 0 \
+  --task-timeout 72h \
+  --memory 8Gi \
+  --cpu 4 \
   --env-vars-file /tmp/qaoa-v9-worker-env.yaml
 ```
 
-Update an existing worker job:
+Update existing worker jobs:
 
 ```bash
-gcloud run jobs update "$WORKER_JOB_NAME" \
+gcloud run jobs update "$WORKER_JOB_SMALL_NAME" \
+  --project "$PROJECT_ID" \
+  --image "$IMAGE" \
+  --region "$REGION" \
+  --service-account "$WORKER_SERVICE_ACCOUNT" \
+  --command=python \
+  --args=-m,app.job_worker \
+  --tasks 1 \
+  --max-retries 0 \
+  --task-timeout 72h \
+  --memory 2Gi \
+  --cpu 2 \
+  --env-vars-file /tmp/qaoa-v9-worker-env.yaml
+
+gcloud run jobs update "$WORKER_JOB_MEDIUM_NAME" \
   --project "$PROJECT_ID" \
   --image "$IMAGE" \
   --region "$REGION" \
@@ -275,27 +336,34 @@ gcloud run jobs update "$WORKER_JOB_NAME" \
   --max-retries 0 \
   --task-timeout 72h \
   --memory 4Gi \
-  --cpu 2 \
+  --cpu 4 \
   --env-vars-file /tmp/qaoa-v9-worker-env.yaml
-```
 
-Set or confirm the worker timeout separately:
-
-```bash
-gcloud run jobs update "$WORKER_JOB_NAME" \
+gcloud run jobs update "$WORKER_JOB_LARGE_NAME" \
   --project "$PROJECT_ID" \
+  --image "$IMAGE" \
   --region "$REGION" \
-  --task-timeout 72h
+  --service-account "$WORKER_SERVICE_ACCOUNT" \
+  --command=python \
+  --args=-m,app.job_worker \
+  --tasks 1 \
+  --max-retries 0 \
+  --task-timeout 72h \
+  --memory 8Gi \
+  --cpu 4 \
+  --env-vars-file /tmp/qaoa-v9-worker-env.yaml
 ```
 
 Grant the API service account permission to execute the worker job after the job exists. The `roles/run.developer` role includes the Cloud Run job execution permissions needed for execution overrides such as `JOB_ID`.
 
 ```bash
-gcloud run jobs add-iam-policy-binding "$WORKER_JOB_NAME" \
-  --region "$REGION" \
-  --project "$PROJECT_ID" \
-  --member "serviceAccount:$API_SERVICE_ACCOUNT" \
-  --role "roles/run.developer"
+for JOB_NAME in "$WORKER_JOB_SMALL_NAME" "$WORKER_JOB_MEDIUM_NAME" "$WORKER_JOB_LARGE_NAME"; do
+  gcloud run jobs add-iam-policy-binding "$JOB_NAME" \
+    --region "$REGION" \
+    --project "$PROJECT_ID" \
+    --member "serviceAccount:$API_SERVICE_ACCOUNT" \
+    --role "roles/run.developer"
+done
 ```
 
 ## Manual Worker Smoke Test
@@ -304,6 +372,7 @@ If a queued `job_id` already exists in `qaoa_jobs_v9`, manually execute the work
 
 ```bash
 JOB_ID="job_replace_me"
+WORKER_JOB_NAME="$WORKER_JOB_SMALL_NAME"  # or medium/large for that job's worker_profile
 
 gcloud run jobs execute "$WORKER_JOB_NAME" \
   --project "$PROJECT_ID" \
@@ -334,6 +403,7 @@ Inspect workbook:
 curl -X POST "$SERVICE_URL/inspect-workbook" \
   -H "X-API-Key: $QAOA_RQP_TEST_API_KEY" \
   -F "mode=classical_only" \
+  -F "worker_profile=small" \
   -F "random_seed=12345" \
   -F "file=@$WORKBOOK" \
   | python3 -m json.tool
@@ -347,6 +417,7 @@ JOB_ID="$(
     -H "X-API-Key: $QAOA_RQP_TEST_API_KEY" \
     -F "mode=classical_only" \
     -F "response_level=full" \
+    -F "worker_profile=small" \
     -F "random_seed=12345" \
     -F "file=@$WORKBOOK" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_id"])'
@@ -400,6 +471,17 @@ The worker stores status in `qaoa_jobs_v9/{job_id}`:
 - `latest_log`
 - `logs_tail`, capped to 50 entries
 - `heartbeat_at`
+- `worker_profile`
+- `worker_profile_label`
+- `configured_cpu`
+- `configured_memory_gib`
+- `worker_job_name`
+- `memory_used_gib`
+- `memory_limit_gib`
+- `memory_remaining_gib`
+- `memory_used_pct`
+- `peak_memory_used_gib`
+- `memory_history`
 - `result.available`
 - `result.storage_path`
 - `error`

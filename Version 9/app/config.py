@@ -12,8 +12,8 @@ os.environ.setdefault("MPLCONFIGDIR", str(_matplotlib_cache))
 
 class Config:
     SERVICE_NAME = "qaoa-rqp-api-v9"
-    VERSION = "9.0.0"
-    MODEL_VERSION = "9.0.0"
+    VERSION = "9.1.0"
+    MODEL_VERSION = "9.1.0"
 
     API_KEY_HEADER = "X-API-Key"
     VERSION_DIR = Path(__file__).resolve().parents[1]

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from app.config import Config
 from app.schemas import ApiError
+from app.worker_profiles import DEFAULT_WORKER_PROFILE, normalize_worker_profile, worker_profile_job_name
 
 
-def trigger_cloud_run_job(job_id: str) -> dict[str, object]:
+def trigger_cloud_run_job(job_id: str, worker_profile: str | None = None) -> dict[str, object]:
     """Trigger the configured worker job.
 
     In local development, `RUN_JOBS_INLINE_FOR_LOCAL=1` executes the worker in
@@ -15,21 +16,29 @@ def trigger_cloud_run_job(job_id: str) -> dict[str, object]:
     manually.
     """
 
+    profile = normalize_worker_profile(worker_profile or _worker_profile_from_job(job_id))
+    selected_job_name = worker_profile_job_name(profile)
+
     if Config.RUN_JOBS_INLINE_FOR_LOCAL:
         from app.job_worker import run_job
 
         run_job(job_id)
-        return {"triggered": True, "mode": "inline"}
+        return {"triggered": True, "mode": "inline", "worker_profile": profile, "worker_job_name": selected_job_name}
 
     if _is_local_dev():
-        return {"triggered": False, "mode": "local_manual"}
+        return {
+            "triggered": False,
+            "mode": "local_manual",
+            "worker_profile": profile,
+            "worker_job_name": selected_job_name,
+        }
 
     missing = [
         name
         for name, value in {
             "CLOUD_RUN_PROJECT": Config.CLOUD_RUN_PROJECT,
             "CLOUD_RUN_REGION": Config.CLOUD_RUN_REGION,
-            "QAOA_WORKER_JOB_NAME": Config.QAOA_WORKER_JOB_NAME,
+            "worker_job_name": selected_job_name,
         }.items()
         if not value
     ]
@@ -47,7 +56,7 @@ def trigger_cloud_run_job(job_id: str) -> dict[str, object]:
         raise ApiError(500, "cloud_run_dependency_missing", "Cloud Run trigger requires google-cloud-run.") from exc
 
     client = run_v2.JobsClient()
-    name = client.job_path(Config.CLOUD_RUN_PROJECT, Config.CLOUD_RUN_REGION, Config.QAOA_WORKER_JOB_NAME)
+    name = client.job_path(Config.CLOUD_RUN_PROJECT, Config.CLOUD_RUN_REGION, selected_job_name)
     overrides = run_v2.RunJobRequest.Overrides(
         container_overrides=[
             run_v2.RunJobRequest.Overrides.ContainerOverride(
@@ -57,7 +66,23 @@ def trigger_cloud_run_job(job_id: str) -> dict[str, object]:
     )
     operation = client.run_job(request=run_v2.RunJobRequest(name=name, overrides=overrides))
     operation_name = getattr(getattr(operation, "operation", None), "name", None) or getattr(operation, "name", None)
-    return {"triggered": True, "mode": "cloud_run_job", "operation": str(operation_name) if operation_name else None}
+    return {
+        "triggered": True,
+        "mode": "cloud_run_job",
+        "operation": str(operation_name) if operation_name else None,
+        "worker_profile": profile,
+        "worker_job_name": selected_job_name,
+    }
+
+
+def _worker_profile_from_job(job_id: str) -> str:
+    try:
+        from app.job_store import get_job_store
+
+        job = get_job_store().get_job(job_id) or {}
+        return normalize_worker_profile(str(job.get("worker_profile") or DEFAULT_WORKER_PROFILE))
+    except Exception:
+        return DEFAULT_WORKER_PROFILE
 
 
 def _is_local_dev() -> bool:

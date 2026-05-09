@@ -72,7 +72,13 @@ def candidate_export_diagnostics(optimizer) -> dict[str, Any]:
         qaoa_cap_applied = qaoa_cap_applied or (qaoa_requested is not None and qaoa_effective is not None and qaoa_effective < qaoa_requested)
 
     state_space = _state_space(n_qubits)
-    exact_states_evaluated = _int_or_none(getattr(optimizer, "qaoa_total_states_considered", None))
+    qaoa_exact_probabilities = bool(
+        getattr(optimizer, "qaoa_sim_exact_probabilities", False)
+        or getattr(optimizer, "qaoa_limited_exact_probabilities", False)
+    )
+    qaoa_states_considered = _int_or_none(getattr(optimizer, "qaoa_total_states_considered", None))
+    exact_states_evaluated = qaoa_states_considered if qaoa_exact_probabilities else None
+    sampled_states_evaluated = None if qaoa_exact_probabilities else qaoa_states_considered
 
     return json_safe(
         {
@@ -99,7 +105,9 @@ def candidate_export_diagnostics(optimizer) -> dict[str, Any]:
             "qaoa_exact_probability_max_qubits": _int_or_none(getattr(optimizer, "qaoa_exact_probability_max_qubits", None)),
             "qaoa_exact_state_space": state_space,
             "qaoa_exact_states_evaluated": exact_states_evaluated,
-            "qaoa_exact_states_exported": qaoa_actual,
+            "qaoa_exact_states_exported": qaoa_actual if qaoa_exact_probabilities else 0,
+            "qaoa_sampled_states_evaluated": sampled_states_evaluated,
+            "qaoa_sampled_states_exported": 0 if qaoa_exact_probabilities else qaoa_actual,
         }
     )
 

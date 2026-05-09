@@ -18,14 +18,44 @@ from app.config import Config
 from app.key_store import clear_key_store_cache, get_key_store
 from app.random_seed import effective_random_seed, random_seed_source
 from app.schemas import ApiError, json_safe
+from app.worker_profiles import worker_profiles_payload
 
 
-CANONICAL_MODES = ("classical_only", "qaoa_limited", "qaoa_full")
-QAOA_MODE_ALIASES = {"qaoa": "qaoa_full"}
-QAOA_MODES = {"qaoa_limited", "qaoa_full"}
-QAOA_DISABLED_MODES = {"qaoa_full"}
+CLASSICAL_MODE = "classical_only"
+DEFAULT_RUN_MODE = "qaoa_lightning_sim"
+QAOA_LIGHTNING_MODE = "qaoa_lightning_sim"
+QAOA_TENSOR_MODE = "qaoa_tensor_sim"
+LEGACY_QAOA_LIMITED_MODE = "qaoa_limited"
+CANONICAL_MODES = (CLASSICAL_MODE, QAOA_LIGHTNING_MODE, QAOA_TENSOR_MODE)
+SUPPORTED_QAOA_RUN_MODES = (QAOA_LIGHTNING_MODE, QAOA_TENSOR_MODE)
+QAOA_MODE_ALIASES = {LEGACY_QAOA_LIMITED_MODE: QAOA_LIGHTNING_MODE}
+QAOA_MODES = set(SUPPORTED_QAOA_RUN_MODES)
+QAOA_DISABLED_MODES: set[str] = set()
+QAOA_SIMULATION_BACKENDS = {
+    QAOA_LIGHTNING_MODE: "lightning.qubit",
+    QAOA_TENSOR_MODE: "default.tensor",
+}
 LOCAL_DEV_FALLBACK_SECRET = "qaoa-rqp-local-dev-secret-v1"
 DEFAULT_RESPONSE_LEVEL = "full"
+DEFAULT_QAOA_EXACT_PROBABILITY_MAX_QUBITS = 24
+
+
+@dataclass(frozen=True)
+class RunModeSelection:
+    requested_run_mode: str
+    run_mode: str
+    simulation_backend: str | None
+    legacy_run_mode_alias: bool
+    hardware_replay: bool = False
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "requested_run_mode": self.requested_run_mode,
+            "run_mode": self.run_mode,
+            "simulation_backend": self.simulation_backend,
+            "legacy_run_mode_alias": self.legacy_run_mode_alias,
+            "hardware_replay": self.hardware_replay,
+        }
 
 
 @dataclass(frozen=True)
@@ -137,9 +167,41 @@ def usage_context_from_key_record(key_record: dict[str, Any] | None) -> UsageCon
     )
 
 
+def resolve_run_mode(mode: str | None) -> RunModeSelection:
+    requested = (mode or DEFAULT_RUN_MODE).strip().lower()
+    effective = QAOA_MODE_ALIASES.get(requested, requested)
+    return RunModeSelection(
+        requested_run_mode=requested,
+        run_mode=effective,
+        simulation_backend=simulation_backend_for_mode(effective),
+        legacy_run_mode_alias=effective != requested,
+        hardware_replay=False,
+    )
+
+
 def normalize_mode(mode: str | None) -> str:
-    raw_mode = (mode or "classical_only").strip().lower()
-    return QAOA_MODE_ALIASES.get(raw_mode, raw_mode)
+    return resolve_run_mode(mode).run_mode
+
+
+def mode_diagnostics(mode: str | None, effective_mode: str | None = None) -> dict[str, Any]:
+    selection = resolve_run_mode(mode)
+    if effective_mode is not None and effective_mode != selection.run_mode:
+        selection = RunModeSelection(
+            requested_run_mode=selection.requested_run_mode,
+            run_mode=effective_mode,
+            simulation_backend=simulation_backend_for_mode(effective_mode),
+            legacy_run_mode_alias=effective_mode != selection.requested_run_mode,
+            hardware_replay=False,
+        )
+    return selection.diagnostics()
+
+
+def simulation_backend_for_mode(mode: str | None) -> str | None:
+    return QAOA_SIMULATION_BACKENDS.get(str(mode or "").strip().lower())
+
+
+def mode_limits_for(usage_level: dict[str, Any], mode: str) -> dict[str, Any]:
+    return _mode_limits(usage_level, normalize_mode(mode))
 
 
 def validate_pre_upload_policy(
@@ -148,6 +210,7 @@ def validate_pre_upload_policy(
     response_level: str,
     content_length: int | None,
 ) -> None:
+    mode = normalize_mode(mode)
     usage_level = usage_context.usage_level
     if mode not in CANONICAL_MODES:
         raise ApiError(
@@ -198,7 +261,26 @@ def validate_pre_upload_policy(
 
 
 def validate_problem_policy(usage_context: UsageContext, optimizer, mode: str, form_data) -> PolicyResult:
+    mode_selection = resolve_run_mode(mode)
+    mode = mode_selection.run_mode
+    if optimizer is not None and not getattr(optimizer, "requested_run_mode", None):
+        optimizer.requested_run_mode = mode_selection.requested_run_mode
+        optimizer.run_mode = mode_selection.run_mode
+        optimizer.simulation_backend = mode_selection.simulation_backend
+        optimizer.legacy_run_mode_alias = mode_selection.legacy_run_mode_alias
+        optimizer.hardware_replay = mode_selection.hardware_replay
     usage_level = usage_context.usage_level
+    if mode not in CANONICAL_MODES:
+        raise ApiError(
+            400,
+            "unsupported_mode",
+            "Unsupported mode.",
+            {
+                "received_mode": mode,
+                "supported_modes": list(CANONICAL_MODES),
+                "mode_aliases": QAOA_MODE_ALIASES,
+            },
+        )
     n_qubits = int(getattr(optimizer, "n", 0))
     mode_limits = _mode_limits(usage_level, mode)
     license_max_qubits = int(usage_level.get("max_qubits", 0))
@@ -216,13 +298,13 @@ def validate_problem_policy(usage_context: UsageContext, optimizer, mode: str, f
             },
         )
 
-    if mode == "qaoa_limited":
+    if mode in QAOA_MODES:
         safety_cap = int(mode_limits.get("max_qubits", license_max_qubits))
         if n_qubits > safety_cap:
             raise ApiError(
                 403,
-                "qaoa_limited_limit_exceeded",
-                "Requested QAOA limited run exceeds the effective limit for this key.",
+                "qaoa_runtime_limit_exceeded",
+                "Requested QAOA run exceeds the effective limit for this key.",
                 {
                     "usage_level": usage_context.usage_level_name,
                     "mode": mode,
@@ -231,7 +313,7 @@ def validate_problem_policy(usage_context: UsageContext, optimizer, mode: str, f
                     "allowed": safety_cap,
                     "binary_variables": n_qubits,
                     "license_max_qubits": license_max_qubits,
-                    "qaoa_limited_max_qubits": safety_cap,
+                    "qaoa_max_qubits": safety_cap,
                     "max_qubits": safety_cap,
                 },
             )
@@ -276,6 +358,14 @@ def estimate_policy_result(
     candidate_count: int | None = None,
     form_data=None,
 ) -> PolicyResult:
+    mode_selection = resolve_run_mode(mode)
+    mode = mode_selection.run_mode
+    if optimizer is not None and not getattr(optimizer, "requested_run_mode", None):
+        optimizer.requested_run_mode = mode_selection.requested_run_mode
+        optimizer.run_mode = mode_selection.run_mode
+        optimizer.simulation_backend = mode_selection.simulation_backend
+        optimizer.legacy_run_mode_alias = mode_selection.legacy_run_mode_alias
+        optimizer.hardware_replay = mode_selection.hardware_replay
     usage_level = usage_context.usage_level
     n_qubits = int(getattr(optimizer, "n", 0))
     runtime_inputs = runtime_inputs or extract_runtime_inputs(optimizer, {}, usage_level=usage_level, mode=mode)
@@ -303,9 +393,9 @@ def runtime_limit_for(usage_level: dict[str, Any], mode: str) -> tuple[float, st
     mode_limits = _mode_limits(usage_level, mode)
     max_runtime = float(usage_level.get("max_estimated_runtime_sec", 0.0))
     runtime_limit_source = "usage_level"
-    if mode == "qaoa_limited" and "max_estimated_runtime_sec" in mode_limits:
+    if mode in QAOA_MODES and "max_estimated_runtime_sec" in mode_limits:
         max_runtime = float(mode_limits.get("max_estimated_runtime_sec", max_runtime))
-        runtime_limit_source = "qaoa_limited"
+        runtime_limit_source = mode
     return max_runtime, runtime_limit_source
 
 
@@ -344,7 +434,7 @@ def runtime_estimate_payload(mode: str, policy_result: PolicyResult) -> dict[str
 
 def extract_runtime_inputs(optimizer, form_data, usage_level: dict[str, Any] | None = None, mode: str | None = None) -> RuntimeInputs:
     mode_limits = _mode_limits(usage_level or {}, mode or "")
-    clamp_default = mode == "qaoa_limited"
+    clamp_default = mode in QAOA_MODES
     return RuntimeInputs(
         layers=_runtime_int(
             form_data,
@@ -388,7 +478,8 @@ def extract_runtime_inputs(optimizer, form_data, usage_level: dict[str, Any] | N
 
 def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs, form_data=None) -> dict[str, Any]:
     settings = getattr(optimizer, "settings", {}) or {}
-    shots_mode = _shots_mode_for(mode)
+    n_qubits = int(getattr(optimizer, "n", 0) or 0)
+    shots_mode = _shots_mode_for(mode, n_qubits=n_qubits)
     raw_qaoa_shots = runtime_inputs.qaoa_shots
     if shots_mode == "exact":
         qaoa_shots = None
@@ -400,8 +491,11 @@ def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs
         qaoa_shots = None
         qaoa_shots_display = "not_applicable"
 
+    requested_mode = getattr(optimizer, "requested_run_mode", mode)
     payload = {
         "mode": mode,
+        **mode_diagnostics(requested_mode, mode),
+        "response_level": _response_level_for_effective_settings(form_data),
         "layers": runtime_inputs.layers,
         "qaoa_p": runtime_inputs.layers,
         "iterations": runtime_inputs.iterations,
@@ -526,7 +620,7 @@ def estimate_raw_runtime_sec(
 
 
 def apply_runtime_estimate_multiplier(raw_estimated_runtime_sec: float, mode: str) -> float:
-    if mode != "qaoa_limited":
+    if mode not in QAOA_MODES:
         return float(raw_estimated_runtime_sec)
     estimator = load_usage_config()["runtime_estimator"]
     raw_multiplier = os.getenv(
@@ -548,7 +642,7 @@ def capabilities_payload() -> dict[str, Any]:
         {level for usage_level in usage_levels.values() for level in usage_level.get("allowed_response_levels", [])}
     )
     public_levels = {}
-    qaoa_limited_effective_limits = {}
+    qaoa_effective_limits = {}
     for name, level in usage_levels.items():
         public_levels[name] = {
             key: value
@@ -567,12 +661,14 @@ def capabilities_payload() -> dict[str, Any]:
                 "max_parallel_runs",
                 "allowed_modes",
                 "allowed_response_levels",
-                "qaoa_limited_limits",
+                "qaoa_lightning_sim_limits",
+                "qaoa_tensor_sim_limits",
             }
         }
-        qaoa_limited_effective_limits[name] = (
-            level.get("qaoa_limited_limits") if "qaoa_limited" in level.get("allowed_modes", []) else None
-        )
+        qaoa_effective_limits[name] = {
+            run_mode: _mode_limits(level, run_mode) if run_mode in level.get("allowed_modes", []) else None
+            for run_mode in SUPPORTED_QAOA_RUN_MODES
+        }
 
     return json_safe(
         {
@@ -582,12 +678,14 @@ def capabilities_payload() -> dict[str, Any]:
             "disabled_modes": sorted(QAOA_DISABLED_MODES),
             "mode_aliases": QAOA_MODE_ALIASES,
             "backward_compatibility": {
-                "qaoa": "Accepted as an alias for qaoa_full. qaoa_full is currently disabled."
+                LEGACY_QAOA_LIMITED_MODE: f"Accepted as a legacy alias for {QAOA_LIGHTNING_MODE}."
             },
             "response_levels": response_levels,
             "default_response_level": DEFAULT_RESPONSE_LEVEL,
             "usage_levels": public_levels,
-            "qaoa_limited_effective_limits": qaoa_limited_effective_limits,
+            "qaoa_effective_limits": qaoa_effective_limits,
+            "worker_profiles": worker_profiles_payload(),
+            "default_worker_profile": "small",
         }
     )
 
@@ -712,14 +810,24 @@ def _apply_key_limit_overrides(usage_level: dict[str, Any], key_record: dict[str
             }:
                 usage_level[key] = value
 
-    qaoa_limited_limits = key_record.get("qaoa_limited_limits")
-    if isinstance(qaoa_limited_limits, dict):
-        merged = dict(usage_level.get("qaoa_limited_limits") or {})
-        merged.update(qaoa_limited_limits)
-        usage_level["qaoa_limited_limits"] = merged
+    _merge_mode_limit_override(usage_level, key_record, "qaoa_lightning_sim_limits")
+    _merge_mode_limit_override(usage_level, key_record, "qaoa_tensor_sim_limits")
+    legacy_limited_limits = key_record.get("qaoa_limited_limits")
+    if isinstance(legacy_limited_limits, dict):
+        merged = dict(usage_level.get("qaoa_lightning_sim_limits") or usage_level.get("qaoa_limited_limits") or {})
+        merged.update(legacy_limited_limits)
+        usage_level["qaoa_lightning_sim_limits"] = merged
 
     if key_record.get("display_name"):
         usage_level["display_name"] = key_record.get("display_name")
+
+
+def _merge_mode_limit_override(usage_level: dict[str, Any], key_record: dict[str, Any], field: str) -> None:
+    overrides = key_record.get(field)
+    if isinstance(overrides, dict):
+        merged = dict(usage_level.get(field) or {})
+        merged.update(overrides)
+        usage_level[field] = merged
 
 
 def _validate_qaoa_runtime_limits(
@@ -746,12 +854,8 @@ def _validate_qaoa_runtime_limits(
     ]
     if exceeded:
         first = exceeded[0]
-        if mode == "qaoa_limited":
-            code = "qaoa_limited_limit_exceeded"
-            message = "Requested QAOA limited run exceeds the effective limit for this key."
-        else:
-            code = "qaoa_runtime_limit_exceeded"
-            message = "Requested QAOA runtime settings exceed the usage-level limits."
+        code = "qaoa_runtime_limit_exceeded"
+        message = "Requested QAOA runtime settings exceed the usage-level limits."
         raise ApiError(
             403,
             code,
@@ -833,11 +937,23 @@ def _runtime_optional_float(form_data, keys: tuple[str, ...], default: float | N
     return default
 
 
-def _shots_mode_for(mode: str) -> str:
-    if mode == "qaoa_limited":
-        return "exact"
-    if mode == "qaoa_full":
+def qaoa_exact_probability_max_qubits() -> int:
+    configured = os.getenv("QAOA_EXACT_PROBABILITY_MAX_QUBITS")
+    if configured is None:
+        configured = os.getenv("QAOA_SIM_EXACT_PROBABILITY_MAX_QUBITS")
+    try:
+        return max(0, int(float(configured))) if configured is not None else DEFAULT_QAOA_EXACT_PROBABILITY_MAX_QUBITS
+    except (TypeError, ValueError):
+        return DEFAULT_QAOA_EXACT_PROBABILITY_MAX_QUBITS
+
+
+def _shots_mode_for(mode: str, *, n_qubits: int | None = None) -> str:
+    if mode == QAOA_TENSOR_MODE:
         return "sampling"
+    if mode in QAOA_MODES:
+        if n_qubits is not None and int(n_qubits) > qaoa_exact_probability_max_qubits():
+            return "sampling"
+        return "exact"
     return "disabled"
 
 
@@ -847,6 +963,14 @@ def _setting_source(form_data, settings: dict[str, Any], form_keys: tuple[str, .
     if any(key in settings and settings.get(key) is not None for key in workbook_keys):
         return "workbook"
     return "backend_default"
+
+
+def _response_level_for_effective_settings(form_data) -> str:
+    if form_data is not None:
+        raw_value = form_data.get("response_level")
+        if raw_value is not None and str(raw_value).strip() != "":
+            return str(raw_value).strip().lower()
+    return DEFAULT_RESPONSE_LEVEL
 
 
 def _form_has_value(form_data, keys: tuple[str, ...]) -> bool:
@@ -878,10 +1002,15 @@ def _float_or_none(value) -> float | None:
 
 
 def _mode_limits(usage_level: dict[str, Any], mode: str) -> dict[str, Any]:
-    if mode == "qaoa_limited":
-        limits = usage_level.get("qaoa_limited_limits", {})
-        if isinstance(limits, dict):
-            return limits
+    if mode in QAOA_MODES:
+        for key in (
+            f"{mode}_limits",
+            "qaoa_lightning_sim_limits",
+            "qaoa_limited_limits",
+        ):
+            limits = usage_level.get(key, {})
+            if isinstance(limits, dict) and limits:
+                return limits
     return usage_level
 
 
