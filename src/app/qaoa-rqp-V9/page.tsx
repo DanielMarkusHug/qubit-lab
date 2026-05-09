@@ -543,22 +543,22 @@ const WORKER_PROFILE_OPTIONS: Array<{
     value: "small",
     label: "Small",
     cpu: 2,
-    memory_gib: 4,
+    memory_gib: 2,
     description: "For small examples and quick tests",
   },
   {
     value: "medium",
     label: "Medium",
     cpu: 4,
-    memory_gib: 16,
+    memory_gib: 4,
     description: "For larger simulations",
     required_level: "trial",
   },
   {
     value: "large",
     label: "Large",
-    cpu: 8,
-    memory_gib: 32,
+    cpu: 4,
+    memory_gib: 8,
     description: "For heavy QAOA runs",
     required_level: "power",
   },
@@ -1627,7 +1627,7 @@ function TypeConstraintsPanel({
   if (constraints.length === 0 && achievements.length === 0) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs text-gray-400">
-        No additional type-budget constraints detected. V9 supports up to five
+        No additional type-budget constraints detected. V9.1 supports up to five
         optional exact type budgets: Type A through Type E.
       </div>
     );
@@ -2280,10 +2280,16 @@ export default function QaoaRqpV9Page() {
       : getStringArray(diagnostics.logs).length > 0
         ? getStringArray(diagnostics.logs)
         : getStringArray(inspectDiagnostics.logs);
+  const backendOptimizationLogsLatestFirst = useMemo(
+    () => [...backendOptimizationLogs].reverse(),
+    [backendOptimizationLogs]
+  );
 
   const shotsMode = getShotsMode(diagnostics, inspectDiagnostics);
   const qaoaShotsDisplay = getQaoaShotsDisplay(diagnostics, inspectDiagnostics);
-  const isExactShotsMode = shotsMode === "exact" || qaoaShotsDisplay === "exact";
+  const isTensorSimMode = normalizeRunMode(mode) === QAOA_TENSOR_SIM_MODE;
+  const isExactShotsMode =
+    !isTensorSimMode && (shotsMode === "exact" || qaoaShotsDisplay === "exact");
   const effectiveRandomSeed = getEffectiveRandomSeed(diagnostics, inspectDiagnostics);
   const runModeDiagnostics = useMemo(
     () => getRunModeDiagnostics(mode, diagnostics, inspectDiagnostics),
@@ -3025,7 +3031,7 @@ export default function QaoaRqpV9Page() {
       const storedJobId = window.localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
       if (storedJobId) {
         setActiveJobId(storedJobId);
-        addLog(`Found previous V9 job ${storedJobId}. You can reconnect if it is still active.`);
+        addLog(`Found previous V9.1 job ${storedJobId}. You can reconnect if it is still active.`);
       }
     } catch {
       // Ignore localStorage failures.
@@ -3103,7 +3109,7 @@ export default function QaoaRqpV9Page() {
     setProgressMessage("Uploading Excel file and submitting backend job...");
 
     try {
-      addLog("Submitting optimization job to V9 backend...");
+      addLog("Submitting optimization job to V9.1 backend...");
 
       const formData = new FormData();
       formData.append("file", file);
@@ -3262,11 +3268,11 @@ export default function QaoaRqpV9Page() {
 
       <section className="max-w-[2200px] mx-auto px-3 sm:px-4 xl:px-6 2xl:px-8 pt-20 pb-10">
         <p className="mb-1 text-xs font-semibold uppercase tracking-[0.22em] text-amber-400">
-          Rapid Quantum Prototyping (RQP) Lab
+          Rapid Quantum Prototyping (RQP)
         </p>
 
         <h1 className="text-3xl font-bold text-cyan-300 mb-2">
-          QAOA RQP Pro V9
+          QAOA RQP Pro V9.1
         </h1>
 
         <p className="text-cyan-100 text-base font-semibold mb-3">
@@ -3275,13 +3281,13 @@ export default function QaoaRqpV9Page() {
 
         <div className="max-w-7xl mb-5 space-y-3">
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            This hidden V9 test page uses the separate V9 backend. It supports the
+            This hidden V9.1 test page uses the separate V9 backend. It supports the
             existing QAOA RQP workflow plus up to five optional exact type budgets,
             for example Bond, Equity, Alternatives, Region, or Rating buckets.
           </p>
 
           <div className="rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">
-            V9 test route. Not yet linked from the public site navigation. The current
+            V9.1 test route. Not yet linked from the public site navigation. The current
             public QAOA RQP page remains on V8.
           </div>
 
@@ -3336,7 +3342,7 @@ export default function QaoaRqpV9Page() {
 
         {activeJobId && !loading && !result && (
           <div className="mb-4 rounded-2xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-100">
-            <div className="font-semibold text-amber-200">Previous V9 job found</div>
+            <div className="font-semibold text-amber-200">Previous V9.1 job found</div>
             <div className="mt-1">
               Job ID: <span className="font-mono">{activeJobId}</span>
             </div>
@@ -3444,6 +3450,32 @@ export default function QaoaRqpV9Page() {
 
                   <div className="mt-2 rounded-xl border border-slate-700 bg-slate-950/60 p-2">
                     <div className="text-xs font-semibold text-cyan-100 mb-1">
+                      Worker profiles
+                    </div>
+                    <div className="space-y-1 text-xs leading-relaxed text-gray-300">
+                      {WORKER_PROFILE_OPTIONS.map((option) => {
+                        const info = workerProfileInfo(license, option.value);
+                        const allowed = isWorkerProfileAllowed(license, option.value);
+
+                        return (
+                          <div
+                            key={option.value}
+                            className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+                          >
+                            <span>
+                              {info.label}: {workerProfileResourceText(info)}
+                            </span>
+                            <span className={allowed ? "text-emerald-300" : "text-gray-500"}>
+                              {allowed ? "Available" : requiredWorkerProfileText(info)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-2 rounded-xl border border-slate-700 bg-slate-950/60 p-2">
+                    <div className="text-xs font-semibold text-cyan-100 mb-1">
                       Response levels
                     </div>
                     <div className="text-xs leading-relaxed text-gray-300 break-words">
@@ -3531,7 +3563,7 @@ export default function QaoaRqpV9Page() {
 
             <Panel title="Additional Type Budgets" tone="amber">
               <p className="mb-3 text-xs leading-relaxed text-amber-100/80">
-                V9 supports up to five exact type budgets. In Excel, use
+                V9.1 supports up to five exact type budgets. In Excel, use
                 Additional Type Constraints plus Type A-E Size, Name, Budget,
                 and Budget Penalty fields.
               </p>
@@ -3798,7 +3830,7 @@ export default function QaoaRqpV9Page() {
                   ) : (
                     <input
                       type="number"
-                      min={0}
+                      min={1}
                       value={qaoaShots}
                       onChange={(e) => {
                         markSettingsTouched();
@@ -3912,8 +3944,9 @@ export default function QaoaRqpV9Page() {
                 progress, logs, ETA and result availability.
               </p>
               <p className="mb-4 text-xs leading-relaxed text-gray-500">
-                QAOA shots are used only when sampling mode is active. In exact
-                mode the setting is shown as exact and is not editable.
+                QAOA shots are used when sampling mode is active. Tensor Sim always
+                uses sampling; Lightning Sim shows exact for small exact-probability
+                runs.
               </p>
 
               <button
@@ -3921,7 +3954,7 @@ export default function QaoaRqpV9Page() {
                 disabled={!canRun}
                 className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2.5 text-sm"
               >
-                {loading ? "Running..." : "Run Optimization on V9"}
+                {loading ? "Running..." : "Run Optimization on V9.1"}
               </button>
 
               {activeJobId && loading && (
@@ -3936,7 +3969,7 @@ export default function QaoaRqpV9Page() {
 
             <Panel title="Review File">
               <p className="mb-3 text-xs leading-relaxed text-gray-400">
-                Save the current V9 result, charts, logs, settings, and workbook filename
+                Save the current V9.1 result, charts, logs, settings, and workbook filename
                 as a local JSON review file. Loading a review file restores the view
                 without rerunning the backend.
               </p>
@@ -4143,7 +4176,7 @@ export default function QaoaRqpV9Page() {
               <p className="mb-2 text-xs text-gray-500">
                 Backend logs are streamed through job-status polling. Any ETA inside
                 these log lines is the optimizer-internal ETA, while the status bar
-                shows the backend live ETA.
+                shows the backend live ETA. Newest entries are shown first.
               </p>
 
               <ExportDiagnosticsSummary diagnostics={activeDiagnostics} />
@@ -4198,7 +4231,7 @@ export default function QaoaRqpV9Page() {
                     or while a backend job is running.
                   </div>
                 ) : (
-                  backendOptimizationLogs.map((line, idx) => (
+                  backendOptimizationLogsLatestFirst.map((line, idx) => (
                     <div key={idx}>
                       <span className="text-gray-500">{idx + 1}.</span> {line}
                     </div>
@@ -4207,7 +4240,7 @@ export default function QaoaRqpV9Page() {
               </div>
             </Panel>
 
-            <Panel title="V9 Type-Budget Diagnostics" tone="amber">
+            <Panel title="V9.1 Type-Budget Diagnostics" tone="amber">
               <TypeConstraintsPanel
                 constraints={typeConstraints}
                 achievements={typeAchievements}
