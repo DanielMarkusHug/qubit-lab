@@ -1613,7 +1613,18 @@ function MemoryDiagnosticsChart({
   );
 }
 
-function IbmCircuitDiagnostics({ metadata }: { metadata: Record<string, unknown> }) {
+function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown> }) {
+  if (!metadata) {
+    return (
+      <QuantumPlaceholder title="IBM metadata not in this result">
+        The frontend is ready for IBM/Qiskit diagnostics, but this result does not
+        contain a <span className="font-mono">circuit.ibm</span> block yet.
+        Deploying the V9.2 backend dry-run build and running a fresh QAOA job will
+        populate this panel.
+      </QuantumPlaceholder>
+    );
+  }
+
   const openqasm = getRecordValue(metadata, "openqasm3");
   const qasmPreview =
     openqasm && typeof openqasm === "object" && !Array.isArray(openqasm)
@@ -1819,7 +1830,7 @@ function TypeConstraintsPanel({
   if (constraints.length === 0 && achievements.length === 0) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs text-gray-400">
-        No additional type-budget constraints detected. V9.1 supports up to five
+        No additional type-budget constraints detected. V9.2 supports up to five
         optional exact type budgets: Type A through Type E.
       </div>
     );
@@ -3224,7 +3235,7 @@ export default function QaoaRqpV9Page() {
       const storedJobId = window.localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
       if (storedJobId) {
         setActiveJobId(storedJobId);
-        addLog(`Found previous V9.1 job ${storedJobId}. You can reconnect if it is still active.`);
+        addLog(`Found previous V9.2 job ${storedJobId}. You can reconnect if it is still active.`);
       }
     } catch {
       // Ignore localStorage failures.
@@ -3302,7 +3313,7 @@ export default function QaoaRqpV9Page() {
     setProgressMessage("Uploading Excel file and submitting backend job...");
 
     try {
-      addLog("Submitting optimization job to V9.1 backend...");
+      addLog("Submitting optimization job to V9.2 backend...");
 
       const formData = new FormData();
       formData.append("file", file);
@@ -3465,7 +3476,7 @@ export default function QaoaRqpV9Page() {
         </p>
 
         <h1 className="text-3xl font-bold text-cyan-300 mb-2">
-          QAOA RQP Pro V9.1
+          QAOA RQP Pro V9.2
         </h1>
 
         <p className="text-cyan-100 text-base font-semibold mb-3">
@@ -3474,13 +3485,13 @@ export default function QaoaRqpV9Page() {
 
         <div className="max-w-7xl mb-5 space-y-3">
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            This hidden V9.1 test page uses the separate V9 backend. It supports the
+            This hidden V9.2 test page uses the separate V9 backend. It supports the
             existing QAOA RQP workflow plus up to five optional exact type budgets,
             for example Bond, Equity, Alternatives, Region, or Rating buckets.
           </p>
 
           <div className="rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">
-            V9.1 test route. Not yet linked from the public site navigation. The current
+            V9.2 test route. Not yet linked from the public site navigation. The current
             public QAOA RQP page remains on V8.
           </div>
 
@@ -3535,7 +3546,7 @@ export default function QaoaRqpV9Page() {
 
         {activeJobId && !loading && !result && (
           <div className="mb-4 rounded-2xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-100">
-            <div className="font-semibold text-amber-200">Previous V9.1 job found</div>
+            <div className="font-semibold text-amber-200">Previous V9.2 job found</div>
             <div className="mt-1">
               Job ID: <span className="font-mono">{activeJobId}</span>
             </div>
@@ -3756,7 +3767,7 @@ export default function QaoaRqpV9Page() {
 
             <Panel title="Additional Type Budgets" tone="amber">
               <p className="mb-3 text-xs leading-relaxed text-amber-100/80">
-                V9.1 supports up to five exact type budgets. In Excel, use
+                V9.2 supports up to five exact type budgets. In Excel, use
                 Additional Type Constraints plus Type A-E Size, Name, Budget,
                 and Budget Penalty fields.
               </p>
@@ -4147,7 +4158,7 @@ export default function QaoaRqpV9Page() {
                 disabled={!canRun}
                 className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2.5 text-sm"
               >
-                {loading ? "Running..." : "Run Optimization on V9.1"}
+                {loading ? "Running..." : "Run Optimization on V9.2"}
               </button>
 
               {activeJobId && loading && (
@@ -4162,7 +4173,7 @@ export default function QaoaRqpV9Page() {
 
             <Panel title="Review File">
               <p className="mb-3 text-xs leading-relaxed text-gray-400">
-                Save the current V9.1 result, charts, logs, settings, and workbook filename
+                Save the current V9.2 result, charts, logs, settings, and workbook filename
                 as a local JSON review file. Loading a review file restores the view
                 without rerunning the backend.
               </p>
@@ -4433,7 +4444,7 @@ export default function QaoaRqpV9Page() {
               </div>
             </Panel>
 
-            <Panel title="V9.1 Type-Budget Diagnostics" tone="amber">
+            <Panel title="V9.2 Type-Budget Diagnostics" tone="amber">
               <TypeConstraintsPanel
                 constraints={typeConstraints}
                 achievements={typeAchievements}
@@ -4546,7 +4557,7 @@ export default function QaoaRqpV9Page() {
               </Panel>
             )}
 
-            {result && !result.error && ibmCircuit && (
+            {result && !result.error && (
               <Panel title="IBM / Qiskit Dry Run" tone="amber">
                 <IbmCircuitDiagnostics metadata={ibmCircuit} />
               </Panel>
