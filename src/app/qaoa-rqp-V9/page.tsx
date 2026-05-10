@@ -20,6 +20,10 @@ type EffectiveSettings = {
   simulation_backend?: string | null;
   legacy_run_mode_alias?: boolean | null;
   hardware_replay?: boolean | null;
+  export_mode?: string | null;
+  export_mode_label?: string | null;
+  qiskit_export_requested?: boolean | null;
+  ibm_external_run_requested?: boolean | null;
   layers?: number | null;
   p?: number | null;
   iterations?: number | null;
@@ -39,6 +43,17 @@ type EffectiveSettings = {
 };
 
 type WorkerProfileId = "small" | "medium" | "large";
+type ExportMode = "internal_only" | "qiskit_export" | "ibm_external_run";
+type CodeExportTargetValue =
+  | "qiskit_notebook"
+  | "qiskit_py"
+  | "pennylane_notebook"
+  | "cirq_notebook"
+  | "quantinuum_notebook";
+type CodeExportPackage = Record<string, unknown> & {
+  schema?: string;
+  schema_version?: number;
+};
 
 type WorkerProfileMetadata = {
   label?: string;
@@ -163,6 +178,7 @@ type LicenseStatus = {
   organization?: string;
   display_name?: string;
   usage_level?: string;
+  usage_level_id?: number;
   status?: string;
   expires_at?: string;
   max_runs?: number;
@@ -293,6 +309,7 @@ type RunResult = {
   memory_used_pct?: number | null;
   peak_memory_used_gib?: number | null;
   memory_history?: MemoryHistoryPoint[];
+  code_export_package?: CodeExportPackage | null;
   components?: Record<string, unknown>;
   best_candidate?: Record<string, unknown>;
   top_candidates?: CandidateRow[];
@@ -450,6 +467,7 @@ type SavedQaoaSnapshot = {
   original_filename?: string | null;
   ui_state: {
     mode: string;
+    export_mode?: ExportMode;
     response_level: string;
     layers: number;
     iterations: number;
@@ -484,6 +502,7 @@ type RawJsonDataDownload = {
   inspect_result?: InspectResult | null;
   result?: RunResult | null;
   job_status?: JobStatus | null;
+  code_export_package?: CodeExportPackage | null;
 };
 
 const API_URL =
@@ -508,6 +527,10 @@ const QAOA_TENSOR_SIM_MODE = "qaoa_tensor_sim";
 const LEGACY_QAOA_LIMITED_MODE = "qaoa_limited";
 const DEFAULT_RUN_MODE = QAOA_LIGHTNING_SIM_MODE;
 const DEFAULT_WORKER_PROFILE: WorkerProfileId = "small";
+const EXPORT_MODE_INTERNAL_ONLY: ExportMode = "internal_only";
+const EXPORT_MODE_QISKIT_EXPORT: ExportMode = "qiskit_export";
+const EXPORT_MODE_IBM_EXTERNAL_RUN: ExportMode = "ibm_external_run";
+const DEFAULT_EXPORT_MODE: ExportMode = EXPORT_MODE_INTERNAL_ONLY;
 
 const RUN_MODE_OPTIONS = [
   {
@@ -530,6 +553,79 @@ const RUN_MODE_LABELS: Record<string, string> = {
   [QAOA_TENSOR_SIM_MODE]: "QAOA Tensor Sim",
   [LEGACY_QAOA_LIMITED_MODE]: "QAOA Lightning Sim (legacy alias)",
 };
+
+const EXPORT_MODE_OPTIONS: Array<{
+  value: ExportMode;
+  label: string;
+  description: string;
+  requiredLevel?: string;
+  enabled: boolean;
+}> = [
+  {
+    value: EXPORT_MODE_INTERNAL_ONLY,
+    label: "Internal only",
+    description: "No Qiskit export payload.",
+    enabled: true,
+  },
+  {
+    value: EXPORT_MODE_QISKIT_EXPORT,
+    label: "Qiskit export",
+    description: "Adds dry-run QuantumCircuit diagnostics.",
+    requiredLevel: "tester",
+    enabled: true,
+  },
+  {
+    value: EXPORT_MODE_IBM_EXTERNAL_RUN,
+    label: "IBM external run",
+    description: "Reserved for future IBM hardware submission.",
+    requiredLevel: "internal ultra",
+    enabled: false,
+  },
+];
+
+const CODE_EXPORT_TARGET_OPTIONS: Array<{
+  value: CodeExportTargetValue;
+  label: string;
+  filename: string;
+  minLevelId: number;
+  enabled: boolean;
+}> = [
+  {
+    value: "qiskit_notebook",
+    label: "Qiskit Notebook",
+    filename: "qaoa_rqp_qiskit.ipynb",
+    minLevelId: 2,
+    enabled: true,
+  },
+  {
+    value: "qiskit_py",
+    label: "Qiskit .py",
+    filename: "qaoa_rqp_qiskit.py",
+    minLevelId: 2,
+    enabled: true,
+  },
+  {
+    value: "pennylane_notebook",
+    label: "PennyLane Notebook",
+    filename: "qaoa_rqp_pennylane.ipynb",
+    minLevelId: 2,
+    enabled: true,
+  },
+  {
+    value: "cirq_notebook",
+    label: "Google Cirq Notebook",
+    filename: "qaoa_rqp_cirq.ipynb",
+    minLevelId: 3,
+    enabled: true,
+  },
+  {
+    value: "quantinuum_notebook",
+    label: "Quantinuum Notebook",
+    filename: "qaoa_rqp_quantinuum.ipynb",
+    minLevelId: 5,
+    enabled: false,
+  },
+];
 
 const WORKER_PROFILE_OPTIONS: Array<{
   value: WorkerProfileId;
@@ -764,6 +860,37 @@ function rawJsonFilename(workbookName: string | null) {
   return `qaoa-rqp-v9-raw-json_${safeFileStem(workbookName)}_${timestampForFilename()}.json`;
 }
 
+function codeExportFilename(target: CodeExportTargetValue, workbookName?: string | null) {
+  const option = CODE_EXPORT_TARGET_OPTIONS.find((item) => item.value === target);
+  const extension = option?.filename.endsWith(".py") ? "py" : "ipynb";
+  return `qaoa-rqp-v9-${target}_${safeFileStem(workbookName)}_${timestampForFilename()}.${extension}`;
+}
+
+function getFilenameFromContentDisposition(value: string | null) {
+  if (!value) return null;
+  const match = value.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+  const raw = match?.[1] ?? match?.[2];
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function getCodeExportPackage(result?: RunResult | null): CodeExportPackage | null {
+  const direct = result?.code_export_package;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+  return null;
+}
+
+function isCodeExportTargetAllowed(
+  license: LicenseStatus | null | undefined,
+  target: { minLevelId: number; enabled: boolean }
+) {
+  return target.enabled && usageLevelId(license) >= target.minLevelId;
+}
+
 function getGeneralLimits(license?: LicenseStatus | null): LimitBlock | undefined {
   return license?.general_limits ?? license?.limits;
 }
@@ -798,6 +925,48 @@ function isRunModeAllowed(license: LicenseStatus | null | undefined, selectedMod
 
   const effectiveMode = normalizeRunMode(selectedMode);
   return allowedModes.some((allowedMode) => normalizeRunMode(allowedMode) === effectiveMode);
+}
+
+function normalizeExportMode(value?: string | null): ExportMode {
+  if (value === EXPORT_MODE_QISKIT_EXPORT || value === EXPORT_MODE_IBM_EXTERNAL_RUN) {
+    return value;
+  }
+  return DEFAULT_EXPORT_MODE;
+}
+
+function usageLevelId(license: LicenseStatus | null | undefined) {
+  const direct = getNumber(license?.usage_level_id);
+  if (direct !== undefined) return direct;
+
+  const level = String(license?.usage_level ?? "").toLowerCase();
+  const fallback: Record<string, number> = {
+    public_demo: 0,
+    qualified_demo: 1,
+    tester: 2,
+    internal_power: 3,
+    internal_qaoa_30: 4,
+    internal_ultra: 5,
+  };
+  return fallback[level] ?? 0;
+}
+
+function isExportModeAllowed(
+  license: LicenseStatus | null | undefined,
+  selectedExportMode: ExportMode
+) {
+  if (selectedExportMode === EXPORT_MODE_INTERNAL_ONLY) return true;
+  if (selectedExportMode === EXPORT_MODE_IBM_EXTERNAL_RUN) return false;
+  return usageLevelId(license) >= 2;
+}
+
+function requiredExportModeText(option: { requiredLevel?: string; enabled: boolean }) {
+  if (!option.enabled) return "later";
+  return option.requiredLevel ? `${option.requiredLevel}+` : "";
+}
+
+function displayExportMode(value?: string | null) {
+  const mode = normalizeExportMode(value);
+  return EXPORT_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode;
 }
 
 function normalizeWorkerProfile(value?: string | null): WorkerProfileId {
@@ -1616,11 +1785,9 @@ function MemoryDiagnosticsChart({
 function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown> }) {
   if (!metadata) {
     return (
-      <QuantumPlaceholder title="IBM metadata not in this result">
-        The frontend is ready for IBM/Qiskit diagnostics, but this result does not
-        contain a <span className="font-mono">circuit.ibm</span> block yet.
-        Deploying the V9.2 backend dry-run build and running a fresh QAOA job will
-        populate this panel.
+      <QuantumPlaceholder title="Export metadata not in this result">
+        Select Qiskit export before running a QAOA job to add dry-run
+        <span className="font-mono"> circuit.ibm </span> diagnostics.
       </QuantumPlaceholder>
     );
   }
@@ -1642,6 +1809,13 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
           <InfoRow
             label="Available"
             value={formatText(getRecordValue(metadata, "available"))}
+          />
+          <InfoRow
+            label="Export mode"
+            value={formatText(
+              getRecordValue(metadata, "export_mode_label") ??
+                getRecordValue(metadata, "export_mode")
+            )}
           />
           <InfoRow
             label="Provider"
@@ -2391,6 +2565,7 @@ export default function QaoaRqpV9Page() {
   const [workbookFilename, setWorkbookFilename] = useState<string | null>(null);
 
   const [mode, setMode] = useState(DEFAULT_RUN_MODE);
+  const [exportMode, setExportMode] = useState<ExportMode>(DEFAULT_EXPORT_MODE);
   const [responseLevel, setResponseLevel] = useState("full");
   const [workerProfile, setWorkerProfile] =
     useState<WorkerProfileId>(DEFAULT_WORKER_PROFILE);
@@ -2422,6 +2597,8 @@ export default function QaoaRqpV9Page() {
   const [jobError, setJobError] = useState<AsyncSubmitResponse["error"] | null>(null);
   const [reviewFileMessage, setReviewFileMessage] = useState<string | null>(null);
   const [reviewFileError, setReviewFileError] = useState<string | null>(null);
+  const [codeExportLoading, setCodeExportLoading] =
+    useState<CodeExportTargetValue | null>(null);
 
   const diagnostics = useMemo<Diagnostics>(() => result?.diagnostics ?? {}, [result]);
   const inspectDiagnostics = useMemo<Diagnostics>(
@@ -2477,6 +2654,7 @@ export default function QaoaRqpV9Page() {
   const solverComparison = reporting?.solver_comparison ?? [];
   const quantumSamples = reporting?.quantum_samples ?? [];
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
+  const codeExportPackage = useMemo(() => getCodeExportPackage(result), [result]);
 
   const backendOptimizationLogs =
     backendJobLogs.length > 0
@@ -2506,6 +2684,14 @@ export default function QaoaRqpV9Page() {
   const selectedWorkerProfileAllowed = useMemo(
     () => isWorkerProfileAllowed(license, workerProfile),
     [license, workerProfile]
+  );
+  const selectedExportModeAllowed = useMemo(
+    () => isExportModeAllowed(license, exportMode),
+    [license, exportMode]
+  );
+  const selectedExportModeInfo = useMemo(
+    () => EXPORT_MODE_OPTIONS.find((option) => option.value === exportMode),
+    [exportMode]
   );
   const selectedWorkerProfileInfo = useMemo(
     () => workerProfileInfo(license, workerProfile),
@@ -2554,8 +2740,22 @@ export default function QaoaRqpV9Page() {
   ][];
 
   const canRun = useMemo(() => {
-    return !!file && !loading && !inspecting && selectedModeAllowed && selectedWorkerProfileAllowed;
-  }, [file, loading, inspecting, selectedModeAllowed, selectedWorkerProfileAllowed]);
+    return (
+      !!file &&
+      !loading &&
+      !inspecting &&
+      selectedModeAllowed &&
+      selectedWorkerProfileAllowed &&
+      selectedExportModeAllowed
+    );
+  }, [
+    file,
+    loading,
+    inspecting,
+    selectedModeAllowed,
+    selectedWorkerProfileAllowed,
+    selectedExportModeAllowed,
+  ]);
 
   const canSaveReview = useMemo(() => {
     return Boolean(result || inspectResult || jobStatus || backendJobLogs.length > 0);
@@ -2564,6 +2764,16 @@ export default function QaoaRqpV9Page() {
   const canDownloadRawJson = useMemo(() => {
     return Boolean(result || inspectResult || jobStatus);
   }, [result, inspectResult, jobStatus]);
+
+  const canRequestCodeExport = useMemo(() => {
+    return Boolean(
+      codeExportPackage &&
+        result?.status === "completed" &&
+        apiKey.trim().length > 0 &&
+        !loading &&
+        !inspecting
+    );
+  }, [apiKey, codeExportPackage, result, loading, inspecting]);
 
   const knownQubits = useMemo(() => {
     return getNumber(
@@ -2675,6 +2885,7 @@ export default function QaoaRqpV9Page() {
     const nextQaoaShots = getNumber(effectiveSettings.qaoa_shots);
     const nextRestartPerturbation = getNumber(effectiveSettings.restart_perturbation);
     const nextRandomSeed = getNumber(effectiveSettings.random_seed);
+    const nextExportMode = formatText(effectiveSettings.export_mode, "");
 
     let changed = false;
 
@@ -2716,6 +2927,10 @@ export default function QaoaRqpV9Page() {
     }
     if (nextRandomSeed !== undefined) {
       setRandomSeed(nextRandomSeed);
+      changed = true;
+    }
+    if (nextExportMode !== "") {
+      setExportMode(normalizeExportMode(nextExportMode));
       changed = true;
     }
 
@@ -2768,6 +2983,16 @@ export default function QaoaRqpV9Page() {
     }
   }, [license, workerProfile, selectedWorkerProfileAllowed]);
 
+  useEffect(() => {
+    if (selectedExportModeAllowed) return;
+    setExportMode(DEFAULT_EXPORT_MODE);
+    addLog(
+      `Selected export mode is not available for this key. Switched to ${displayExportMode(
+        DEFAULT_EXPORT_MODE
+      )}.`
+    );
+  }, [selectedExportModeAllowed]);
+
   function saveReviewFile() {
     setReviewFileError(null);
     setReviewFileMessage(null);
@@ -2783,6 +3008,7 @@ export default function QaoaRqpV9Page() {
       original_filename: workbookFilename ?? file?.name ?? inspectResult?.filename ?? null,
       ui_state: {
         mode,
+        export_mode: exportMode,
         response_level: responseLevel,
         layers,
         iterations,
@@ -2840,6 +3066,7 @@ export default function QaoaRqpV9Page() {
       inspect_result: inspectResult,
       result,
       job_status: jobStatus,
+      code_export_package: codeExportPackage,
     };
 
     const filename = rawJsonFilename(payload.original_filename ?? null);
@@ -2861,6 +3088,71 @@ export default function QaoaRqpV9Page() {
     addLog(`Raw JSON data downloaded: ${filename}`);
   }
 
+  async function downloadCodeExport(target: CodeExportTargetValue) {
+    if (!codeExportPackage) {
+      setReviewFileError("No code export package is available yet. Run QAOA or load a completed review file.");
+      return;
+    }
+
+    const targetInfo = CODE_EXPORT_TARGET_OPTIONS.find((option) => option.value === target);
+    if (!targetInfo || !isCodeExportTargetAllowed(license, targetInfo)) {
+      setReviewFileError("This code export is not available for the current key level.");
+      return;
+    }
+
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+    setCodeExportLoading(target);
+
+    try {
+      const res = await fetch(`${API_URL}/exports/code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { "X-API-Key": apiKey } : {}),
+        },
+        body: JSON.stringify({
+          target,
+          package: codeExportPackage,
+        }),
+      });
+
+      if (!res.ok) {
+        let message = res.statusText;
+        try {
+          const payload = await res.json();
+          message = payload?.error?.message ?? message;
+        } catch {
+          // Keep the HTTP status text.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const filename =
+        getFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        codeExportFilename(target, workbookFilename ?? file?.name ?? inspectResult?.filename);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      setReviewFileMessage(`Downloaded ${filename}`);
+      addLog(`Code export downloaded: ${filename}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setReviewFileError(`Code export failed: ${message}`);
+      addLog(`Code export failed: ${message}`);
+    } finally {
+      setCodeExportLoading(null);
+    }
+  }
+
   async function loadReviewFileFromInput(event: React.ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0];
 
@@ -2871,12 +3163,57 @@ export default function QaoaRqpV9Page() {
 
     try {
       const text = await selectedFile.text();
-      const snapshot = JSON.parse(text) as SavedQaoaSnapshot;
+      const parsed = JSON.parse(text) as SavedQaoaSnapshot | RawJsonDataDownload;
 
-      if (
-        snapshot.schema !== "qaoa-rqp-review-snapshot" ||
-        snapshot.schema_version !== 1
-      ) {
+      if (parsed.schema === "qaoa-rqp-v9-raw-json-data" && parsed.schema_version === 1) {
+        const raw = parsed as RawJsonDataDownload;
+        const loadedResult =
+          raw.result ??
+          (raw.code_export_package
+            ? ({
+                status: "completed",
+                code_export_package: raw.code_export_package,
+              } as RunResult)
+            : null);
+        const resultDiagnostics = loadedResult?.diagnostics ?? {};
+        const requestedMode =
+          String(resultDiagnostics.run_mode ?? loadedResult?.mode ?? DEFAULT_RUN_MODE);
+
+        clearPollInterval();
+        setFile(null);
+        setWorkbookFilename(raw.original_filename ?? selectedFile.name);
+        setMode(toSelectableRunMode(requestedMode));
+        setExportMode(
+          normalizeExportMode(
+            String(
+              resultDiagnostics.export_mode ??
+                getEffectiveSetting(resultDiagnostics, "export_mode") ??
+                DEFAULT_EXPORT_MODE
+            )
+          )
+        );
+        setInspectResult(raw.inspect_result ?? null);
+        setResult(loadedResult);
+        setJobStatus(raw.job_status ?? null);
+        setLicense(loadedResult?.license ?? raw.inspect_result?.license ?? raw.job_status?.license ?? null);
+        setActiveJobId(raw.job_status?.job_id ?? null);
+        setBackendJobLogs([]);
+        setLogs([]);
+        setLoading(false);
+        setProgress(undefined);
+        setProgressMessage("");
+        setJobError(null);
+        settingsTouchedRef.current = true;
+        setSettingsLoadedFromWorkbook(false);
+
+        const msg = `Loaded raw JSON data: ${selectedFile.name}`;
+        setReviewFileMessage(msg);
+        addLog(msg);
+        return;
+      }
+
+      const snapshot = parsed as SavedQaoaSnapshot;
+      if (snapshot.schema !== "qaoa-rqp-review-snapshot" || snapshot.schema_version !== 1) {
         throw new Error("Unsupported review file format.");
       }
 
@@ -2889,6 +3226,7 @@ export default function QaoaRqpV9Page() {
       setFile(null);
       setWorkbookFilename(snapshot.original_filename ?? selectedFile.name);
       setMode(reviewMode);
+      setExportMode(normalizeExportMode(snapshot.ui_state?.export_mode));
       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
       setWorkerProfile(normalizeWorkerProfile(snapshot.ui_state?.worker_profile));
       setLayers(snapshot.ui_state?.layers ?? 1);
@@ -3094,6 +3432,7 @@ export default function QaoaRqpV9Page() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("mode", mode);
+      formData.append("export_mode", exportMode);
       formData.append("response_level", responseLevel);
       formData.append("worker_profile", workerProfile);
 
@@ -3216,6 +3555,7 @@ export default function QaoaRqpV9Page() {
     file,
     apiKey,
     mode,
+    exportMode,
     responseLevel,
     workerProfile,
     layers,
@@ -3318,6 +3658,7 @@ export default function QaoaRqpV9Page() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("mode", mode);
+      formData.append("export_mode", exportMode);
       formData.append("response_level", responseLevel);
       formData.append("worker_profile", workerProfile);
       formData.append("layers", String(layers));
@@ -3383,6 +3724,19 @@ export default function QaoaRqpV9Page() {
     [
       "Model version",
       result?.model_version ?? inspectResult?.model_version ?? "9.0.0",
+    ],
+    [
+      "Export mode",
+      displayExportMode(
+        formatText(
+          diagnostics.export_mode ??
+            inspectDiagnostics.export_mode ??
+            getEffectiveSetting(diagnostics, "export_mode") ??
+            getEffectiveSetting(inspectDiagnostics, "export_mode") ??
+            exportMode,
+          exportMode
+        )
+      ),
     ],
     ["Worker profile", activeWorkerMetadata.worker_profile_label],
     [
@@ -3480,14 +3834,15 @@ export default function QaoaRqpV9Page() {
         </h1>
 
         <p className="text-cyan-100 text-base font-semibold mb-3">
-          Excel-to-Quantum portfolio optimization with optional exact type-budget constraints.
+          Exact type budgets, worker profiles, live logs, memory telemetry, tensor sim,
+          and opt-in Qiskit export.
         </p>
 
         <div className="max-w-7xl mb-5 space-y-3">
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            This hidden V9.2 test page uses the separate V9 backend. It supports the
-            existing QAOA RQP workflow plus up to five optional exact type budgets,
-            for example Bond, Equity, Alternatives, Region, or Rating buckets.
+            V9.2 adds tester diagnostics on top of V8: additional exact type-budget
+            constraints, asynchronous worker status, memory tracking, tensor simulation,
+            and selectable export mode.
           </p>
 
           <div className="rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">
@@ -3826,6 +4181,43 @@ export default function QaoaRqpV9Page() {
                   allowed mode or use a key with tensor simulation access.
                 </div>
               )}
+
+              <label className="block text-xs text-gray-300 mb-1.5">
+                Export mode
+              </label>
+              <select
+                value={exportMode}
+                onChange={(e) => {
+                  markSettingsTouched();
+                  setExportMode(normalizeExportMode(e.target.value));
+                }}
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-2"
+              >
+                {EXPORT_MODE_OPTIONS.map((option) => {
+                  const allowed = option.enabled && isExportModeAllowed(license, option.value);
+
+                  return (
+                    <option key={option.value} value={option.value} disabled={!allowed}>
+                      {option.label}
+                      {allowed ? "" : ` (${requiredExportModeText(option)})`}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs">
+                <div className="font-semibold text-cyan-100">
+                  {selectedExportModeInfo?.label ?? displayExportMode(exportMode)}
+                </div>
+                <div className="mt-1 text-gray-400">
+                  {selectedExportModeInfo?.description ?? "No external export payload."}
+                </div>
+                {!selectedExportModeAllowed && (
+                  <div className="mt-2 rounded-lg border border-red-800 bg-red-950/30 p-2 text-red-100">
+                    This export mode is not available for the current key.
+                  </div>
+                )}
+              </div>
 
               <label className="block text-xs text-gray-300 mb-1.5">
                 Response level
@@ -4194,11 +4586,49 @@ export default function QaoaRqpV9Page() {
                 Download Raw JSON Data
               </button>
 
+              <div className="mt-3 border-t border-slate-800 pt-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                  Code Exports
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {CODE_EXPORT_TARGET_OPTIONS.map((option) => {
+                    const allowed = isCodeExportTargetAllowed(license, option);
+                    const disabled = !canRequestCodeExport || !allowed || codeExportLoading !== null;
+                    const suffix = !option.enabled
+                      ? "later"
+                      : usageLevelId(license) < option.minLevelId
+                        ? `level ${option.minLevelId}+`
+                        : !apiKey.trim()
+                          ? "key required"
+                          : !codeExportPackage
+                            ? "no QAOA package"
+                            : "";
+
+                    return (
+                      <button
+                        key={option.value}
+                        onClick={() => downloadCodeExport(option.value)}
+                        disabled={disabled}
+                        className="w-full rounded-lg border border-cyan-800 bg-slate-950/80 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-slate-900 disabled:border-slate-800 disabled:bg-slate-900/60 disabled:text-slate-500"
+                      >
+                        {codeExportLoading === option.value
+                          ? "Preparing..."
+                          : `${option.label}${suffix ? ` (${suffix})` : ""}`}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                  Exports use the optimization package inside the saved result JSON. Load
+                  a completed review or raw JSON file, then use a key at the required level.
+                </p>
+              </div>
+
               <button
                 onClick={() => reviewFileInputRef.current?.click()}
                 className="mt-2 w-full rounded-lg border border-cyan-800 bg-slate-950/80 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-slate-900"
               >
-                Load Review File
+                Load Review / Raw JSON File
               </button>
 
               <input
@@ -4437,7 +4867,10 @@ export default function QaoaRqpV9Page() {
                 ) : (
                   backendOptimizationLogsLatestFirst.map((line, idx) => (
                     <div key={idx}>
-                      <span className="text-gray-500">{idx + 1}.</span> {line}
+                      <span className="text-gray-500">
+                        {backendOptimizationLogs.length - idx}.
+                      </span>{" "}
+                      {line}
                     </div>
                   ))
                 )}
@@ -4463,9 +4896,15 @@ export default function QaoaRqpV9Page() {
             )}
 
             {result && !result.error && (
-              <Panel title="Memory Diagnostics">
-                <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
-              </Panel>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <Panel title="Memory Diagnostics">
+                  <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
+                </Panel>
+
+                <Panel title="IBM / Qiskit Dry Run" tone="amber">
+                  <IbmCircuitDiagnostics metadata={ibmCircuit} />
+                </Panel>
+              </div>
             )}
 
             {result && !result.error && circuit !== undefined && (
@@ -4491,6 +4930,13 @@ export default function QaoaRqpV9Page() {
                     <InfoRow
                       label="Shots mode"
                       value={formatText(getCircuitValue(circuit, "shots_mode"))}
+                    />
+                    <InfoRow
+                      label="Export mode"
+                      value={formatText(
+                        getCircuitValue(circuit, "export_mode_label") ??
+                          getCircuitValue(circuit, "export_mode")
+                      )}
                     />
                     <InfoRow
                       label="QAOA shots"
@@ -4554,12 +5000,6 @@ export default function QaoaRqpV9Page() {
                     {formatText(getCircuitValue(circuit, "reason"))}
                   </p>
                 )}
-              </Panel>
-            )}
-
-            {result && !result.error && (
-              <Panel title="IBM / Qiskit Dry Run" tone="amber">
-                <IbmCircuitDiagnostics metadata={ibmCircuit} />
               </Panel>
             )}
 
