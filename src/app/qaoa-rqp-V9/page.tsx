@@ -586,14 +586,14 @@ const EXPORT_MODE_OPTIONS: Array<{
   },
   {
     value: EXPORT_MODE_QISKIT_EXPORT,
-    label: "Qiskit internal run",
-    description: "Adds a Qiskit dry-run comparison from the optimized circuit.",
+    label: "Qiskit simulation",
+    description: "Adds a Qiskit simulation comparison from the optimized circuit.",
     requiredLevel: "tester",
     enabled: true,
   },
   {
     value: EXPORT_MODE_IBM_EXTERNAL_RUN,
-    label: "Qiskit run on IBM hardware (later)",
+    label: "Qiskit on IBM Hardware",
     description: "Reserved for a later IBM hardware comparison path.",
     requiredLevel: "internal ultra",
     enabled: false,
@@ -763,7 +763,12 @@ function formatText(value: unknown, fallback = "n/a") {
 function formatCandidateSource(value: unknown, fallback = "n/a") {
   const text = formatText(value, fallback);
   const lowered = text.toLowerCase();
-  if (lowered.includes("qiskit") || lowered.includes("second_opinion")) {
+  if (
+    lowered.includes("qiskit") ||
+    lowered.includes("second_opinion") ||
+    lowered.includes("second opinion") ||
+    lowered.includes("2nd opinion")
+  ) {
     return "Quantum / QAOA (2nd opinion)";
   }
   if (lowered.includes("qaoa") || lowered.includes("pennylane")) {
@@ -775,6 +780,13 @@ function formatCandidateSource(value: unknown, fallback = "n/a") {
 function displayRunMode(value: unknown, fallback = "n/a") {
   if (typeof value !== "string" || value === "") return fallback;
   return RUN_MODE_LABELS[value] ?? value;
+}
+
+function displaySecondOpinionSource(exportMode: ExportMode | string | undefined) {
+  const normalized = normalizeExportMode(exportMode ?? EXPORT_MODE_INTERNAL_ONLY);
+  if (normalized === EXPORT_MODE_QISKIT_EXPORT) return "Qiskit simulation";
+  if (normalized === EXPORT_MODE_IBM_EXTERNAL_RUN) return "IBM Hardware";
+  return "No 2nd opinion";
 }
 
 function formatAllowedRunModes(value: unknown) {
@@ -1687,11 +1699,18 @@ function Panel({
   title: string;
   children: React.ReactNode;
   className?: string;
-  tone?: "cyan" | "amber";
+  tone?: "cyan" | "amber" | "secondOpinion";
 }) {
-  const titleClass = tone === "amber" ? "text-amber-300" : "text-cyan-200";
+  const titleClass =
+    tone === "secondOpinion"
+      ? "text-amber-500"
+      : tone === "amber"
+        ? "text-amber-300"
+        : "text-cyan-200";
   const borderClass =
-    tone === "amber" ? "border-amber-900/60" : "border-cyan-900/60";
+    tone === "secondOpinion" || tone === "amber"
+      ? "border-amber-900/60"
+      : "border-cyan-900/60";
 
   return (
     <div
@@ -1815,7 +1834,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
   if (!metadata) {
     return (
       <QuantumPlaceholder title="Export metadata not in this result">
-        Select Qiskit internal run before running a QAOA job to add dry-run
+        Select Qiskit simulation before running a QAOA job to add
         <span className="font-mono"> circuit.ibm </span> diagnostics.
       </QuantumPlaceholder>
     );
@@ -1840,7 +1859,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             value={formatText(getRecordValue(metadata, "available"))}
           />
           <InfoRow
-            label="Export mode"
+            label="2nd opinion"
             value={formatText(
               getRecordValue(metadata, "export_mode_label") ??
                 getRecordValue(metadata, "export_mode")
@@ -1852,7 +1871,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
           />
           <InfoRow label="SDK" value={formatText(getRecordValue(metadata, "sdk"))} />
           <InfoRow
-            label="Dry run"
+            label="Simulation"
             value={formatText(getRecordValue(metadata, "dry_run"))}
           />
           <InfoRow
@@ -2705,6 +2724,10 @@ export default function QaoaRqpV9Page() {
   );
   const secondOpinionBestQubo = secondOpinion?.best_qubo ?? [];
   const secondOpinionSamples = secondOpinion?.samples ?? [];
+  const secondOpinionSourceLabel = displaySecondOpinionSource(activeResultExportMode);
+  const secondOpinionPanelSuffix = secondOpinionModeChosen
+    ? ` - ${secondOpinionSourceLabel}`
+    : "";
   const displayedSolverComparison = useMemo(() => {
     if (!secondOpinionModeChosen || !hasSecondOpinionAvailable || !secondOpinionSummary) {
       return solverComparison;
@@ -2734,6 +2757,9 @@ export default function QaoaRqpV9Page() {
     secondOpinionSummary,
   ]);
   const comparisonGridClass = secondOpinionModeChosen
+    ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
+    : "grid grid-cols-1 xl:grid-cols-2 gap-4";
+  const summaryGridClass = secondOpinionModeChosen
     ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
     : "grid grid-cols-1 xl:grid-cols-2 gap-4";
   const codeExportPackage = useMemo(() => getCodeExportPackage(result), [result]);
@@ -2813,6 +2839,10 @@ export default function QaoaRqpV9Page() {
       charts.qubo_breakdown_classical ?? charts.qubo_breakdown,
     ],
     ["QUBO Breakdown - Quantum", charts.qubo_breakdown_quantum],
+    [
+      "QUBO Breakdown - Quantum 2nd opinion",
+      charts.qubo_breakdown_second_opinion,
+    ],
     ["Optimization History", charts.optimization_history],
     ["Circuit Overview", charts.circuit_overview],
     ["Solver Comparison", charts.solver_comparison],
@@ -3924,7 +3954,7 @@ export default function QaoaRqpV9Page() {
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
             V9.2 adds tester diagnostics on top of V8: additional exact type-budget
             constraints, asynchronous worker status, memory tracking, tensor simulation,
-            and selectable export mode.
+            and selectable 2nd opinion comparison.
           </p>
 
           <div className="rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">
@@ -4740,7 +4770,7 @@ export default function QaoaRqpV9Page() {
               <ErrorBox error={jobError} onReconnect={(jobId) => startPolling(jobId)} />
             )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className={summaryGridClass}>
               <Panel title="Classical Result Summary">
                 {!result && (
                   <p className="text-gray-400 text-sm">
@@ -4876,6 +4906,70 @@ export default function QaoaRqpV9Page() {
                     : "This block displays the best QUBO result from exported quantum samples when a QAOA simulator run completes successfully."}
                 </p>
               </Panel>
+
+              {secondOpinionModeChosen && (
+                <Panel
+                  title={`Quantum Result Summary (2nd opinion)${secondOpinionPanelSuffix}`}
+                  tone="secondOpinion"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                    <MetricCard
+                      label="QUBO value"
+                      value={formatNumber(secondOpinionSummary?.qubo_value, 6)}
+                      subtle={!hasSecondOpinionAvailable}
+                    />
+                    <MetricCard
+                      label="Selected amount"
+                      value={formatCurrency(secondOpinionSummary?.selected_usd, currencyCode)}
+                      subtle={!hasSecondOpinionAvailable}
+                    />
+                    <MetricCard
+                      label="Budget gap"
+                      value={formatCurrency(secondOpinionSummary?.budget_gap, currencyCode)}
+                      subtle={!hasSecondOpinionAvailable}
+                    />
+                    <MetricCard
+                      label="Return proxy"
+                      value={formatNumber(secondOpinionSummary?.portfolio_return, 3)}
+                      subtle={!hasSecondOpinionAvailable}
+                    />
+                    <MetricCard
+                      label="Volatility"
+                      value={formatNumber(secondOpinionSummary?.portfolio_vol, 3)}
+                      subtle={!hasSecondOpinionAvailable}
+                    />
+                    <MetricCard
+                      label="Sharpe ratio"
+                      value={formatNumber(secondOpinionSummary?.sharpe_like, 3)}
+                      subtle={!hasSecondOpinionAvailable}
+                    />
+                    <MetricCard
+                      label="Bitstring"
+                      value={formatText(secondOpinionSummary?.best_bitstring)}
+                      subtle={!hasSecondOpinionAvailable}
+                      kind="text"
+                    />
+                    <MetricCard
+                      label="Source"
+                      value={formatText(secondOpinionSummary?.source ?? secondOpinionSourceLabel)}
+                      subtle={!hasSecondOpinionAvailable}
+                      kind="text"
+                    />
+                    <MetricCard
+                      label="Probability"
+                      value={formatProbability(secondOpinionSummary?.probability)}
+                      subtle={!hasSecondOpinionAvailable}
+                    />
+                  </div>
+
+                  <p className="mt-3 text-xs leading-relaxed text-gray-400">
+                    {hasSecondOpinionAvailable
+                      ? `This block displays the comparison result from ${secondOpinionSourceLabel}.`
+                      : secondOpinion?.reason ??
+                        `No ${secondOpinionSourceLabel} comparison result is available for this run yet.`}
+                  </p>
+                </Panel>
+              )}
             </div>
 
             <Panel title="Client Log" className="w-full">
@@ -4948,12 +5042,7 @@ export default function QaoaRqpV9Page() {
                   </div>
                 ) : (
                   backendOptimizationLogsLatestFirst.map((line, idx) => (
-                    <div key={idx}>
-                      <span className="text-gray-500">
-                        {backendOptimizationLogs.length - idx}.
-                      </span>{" "}
-                      {line}
-                    </div>
+                    <div key={idx}>{line}</div>
                   ))
                 )}
               </div>
@@ -5014,7 +5103,7 @@ export default function QaoaRqpV9Page() {
                       value={formatText(getCircuitValue(circuit, "shots_mode"))}
                     />
                     <InfoRow
-                      label="Export mode"
+                      label="2nd opinion"
                       value={formatText(
                         getCircuitValue(circuit, "export_mode_label") ??
                           getCircuitValue(circuit, "export_mode")
@@ -5186,8 +5275,8 @@ export default function QaoaRqpV9Page() {
 
                   {secondOpinionModeChosen && (
                     <Panel
-                      title="Quantum Portfolio Metrics (2nd opinion)"
-                      tone="amber"
+                      title={`Quantum Portfolio Metrics (2nd opinion)${secondOpinionPanelSuffix}`}
+                      tone="secondOpinion"
                     >
                       {hasSecondOpinionAvailable ? (
                         <>
@@ -5323,8 +5412,8 @@ export default function QaoaRqpV9Page() {
 
                   {secondOpinionModeChosen && (
                     <Panel
-                      title="Quantum Objective / QUBO Breakdown (2nd opinion)"
-                      tone="amber"
+                      title={`Quantum Objective / QUBO Breakdown (2nd opinion)${secondOpinionPanelSuffix}`}
+                      tone="secondOpinion"
                     >
                       {hasSecondOpinionAvailable ? (
                         <>
@@ -5398,8 +5487,8 @@ export default function QaoaRqpV9Page() {
 
             {result && !result.error && secondOpinionModeChosen && (
               <Panel
-                title="Quantum Portfolio Contents (2nd opinion) - Qiskit dry run or IBM Hardware"
-                tone="amber"
+                title={`Quantum Portfolio Contents (2nd opinion)${secondOpinionPanelSuffix}`}
+                tone="secondOpinion"
               >
                 {secondOpinionPortfolioContents.length > 0 ||
                 fallbackSecondOpinionPortfolioContents.length > 0 ? (
@@ -5453,8 +5542,8 @@ export default function QaoaRqpV9Page() {
 
             {result && !result.error && secondOpinionModeChosen && (
               <Panel
-                title="Top Quantum Candidates (2nd opinion) - Qiskit dry run or IBM Hardware"
-                tone="amber"
+                title={`Top Quantum Candidates (2nd opinion)${secondOpinionPanelSuffix}`}
+                tone="secondOpinion"
               >
                 {secondOpinionBestQubo.length > 0 || secondOpinionSamples.length > 0 ? (
                   <CandidateTable
@@ -5469,7 +5558,7 @@ export default function QaoaRqpV9Page() {
                 ) : (
                   <QuantumPlaceholder title="No 2nd opinion candidates">
                     {secondOpinion?.reason ??
-                      "No Qiskit or IBM 2nd opinion candidates are available for this result."}
+                      `No ${secondOpinionSourceLabel} 2nd opinion candidates are available for this result.`}
                   </QuantumPlaceholder>
                 )}
               </Panel>
