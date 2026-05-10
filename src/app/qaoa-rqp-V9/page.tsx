@@ -941,11 +941,28 @@ function getCircuitValue(circuit: unknown, key: string) {
   return (circuit as Record<string, unknown>)[key];
 }
 
+function getIbmCircuitMetadata(circuit: unknown): Record<string, unknown> | undefined {
+  const metadata = getCircuitValue(circuit, "ibm");
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return undefined;
+  }
+  return metadata as Record<string, unknown>;
+}
+
 function getRecordValue(record: unknown, key: string) {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     return undefined;
   }
   return (record as Record<string, unknown>)[key];
+}
+
+function formatGateCounts(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "n/a";
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, count]) => getNumber(count) !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length === 0) return "n/a";
+  return entries.map(([gate, count]) => `${gate}: ${formatNumber(count, 0)}`).join(", ");
 }
 
 function getEffectiveSetting(diagnostics: Diagnostics | undefined, key: string) {
@@ -1592,6 +1609,181 @@ function MemoryDiagnosticsChart({
         <InfoRow label="Configured memory limit" value={formatMemoryGib(limit)} />
         <InfoRow label="Samples" value={String(points.length)} />
       </div>
+    </div>
+  );
+}
+
+function IbmCircuitDiagnostics({ metadata }: { metadata: Record<string, unknown> }) {
+  const openqasm = getRecordValue(metadata, "openqasm3");
+  const qasmPreview =
+    openqasm && typeof openqasm === "object" && !Array.isArray(openqasm)
+      ? (openqasm as Record<string, unknown>)
+      : undefined;
+  const previewText = formatText(getRecordValue(qasmPreview, "preview"), "");
+  const reason =
+    formatText(getRecordValue(metadata, "reason"), "") ||
+    formatText(getRecordValue(metadata, "qiskit_unavailable_reason"), "");
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6">
+        <div>
+          <InfoRow
+            label="Available"
+            value={formatText(getRecordValue(metadata, "available"))}
+          />
+          <InfoRow
+            label="Provider"
+            value={formatText(getRecordValue(metadata, "provider"))}
+          />
+          <InfoRow label="SDK" value={formatText(getRecordValue(metadata, "sdk"))} />
+          <InfoRow
+            label="Dry run"
+            value={formatText(getRecordValue(metadata, "dry_run"))}
+          />
+          <InfoRow
+            label="Hardware submission"
+            value={formatText(getRecordValue(metadata, "hardware_submission"))}
+          />
+          <InfoRow
+            label="Qiskit available"
+            value={formatText(getRecordValue(metadata, "qiskit_available"))}
+          />
+        </div>
+
+        <div>
+          <InfoRow
+            label="Qiskit version"
+            value={formatText(getRecordValue(metadata, "qiskit_version"))}
+          />
+          <InfoRow
+            label="Runtime version"
+            value={formatText(getRecordValue(metadata, "qiskit_ibm_runtime_version"))}
+          />
+          <InfoRow
+            label="Qubits"
+            value={formatText(getRecordValue(metadata, "n_qubits"))}
+          />
+          <InfoRow
+            label="Layers"
+            value={formatText(getRecordValue(metadata, "layers"))}
+          />
+          <InfoRow
+            label="Classical bits"
+            value={formatText(getRecordValue(metadata, "classical_bits"))}
+          />
+          <InfoRow
+            label="Operation count"
+            value={formatText(getRecordValue(metadata, "operation_count"))}
+          />
+        </div>
+
+        <div>
+          <InfoRow
+            label="Depth without measurements"
+            value={formatText(
+              getRecordValue(metadata, "qiskit_depth_without_measurements")
+            )}
+          />
+          <InfoRow
+            label="Depth with measurements"
+            value={formatText(getRecordValue(metadata, "qiskit_depth_with_measurements"))}
+          />
+          <InfoRow
+            label="Size without measurements"
+            value={formatText(
+              getRecordValue(metadata, "qiskit_size_without_measurements")
+            )}
+          />
+          <InfoRow
+            label="Size with measurements"
+            value={formatText(getRecordValue(metadata, "qiskit_size_with_measurements"))}
+          />
+          <InfoRow
+            label="Sampler measurements"
+            value={formatText(getRecordValue(metadata, "measurement_required_for_sampler"))}
+          />
+          <InfoRow
+            label="Counts decoder"
+            value={formatText(getRecordValue(metadata, "counts_decoder"))}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">Gate counts</div>
+        <InfoRow
+          label="Export plan"
+          value={formatGateCounts(getRecordValue(metadata, "gate_counts"))}
+        />
+        <InfoRow
+          label="Qiskit no measurements"
+          value={formatGateCounts(
+            getRecordValue(metadata, "qiskit_gate_counts_without_measurements")
+          )}
+        />
+        <InfoRow
+          label="Qiskit with measurements"
+          value={formatGateCounts(
+            getRecordValue(metadata, "qiskit_gate_counts_with_measurements")
+          )}
+        />
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">Bit ordering</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+          <InfoRow
+            label="Optimizer bitstring order"
+            value={formatText(getRecordValue(metadata, "optimizer_bitstring_order"))}
+          />
+          <InfoRow
+            label="Qiskit counts key order"
+            value={formatText(getRecordValue(metadata, "qiskit_counts_key_order"))}
+          />
+          <InfoRow
+            label="Measurement map"
+            value={formatText(getRecordValue(metadata, "measurement_qubit_to_clbit"))}
+          />
+          <InfoRow
+            label="Export format"
+            value={formatText(getRecordValue(metadata, "export_format"))}
+          />
+        </div>
+      </div>
+
+      {reason !== "" && (
+        <div className="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-amber-100/80">
+          {reason}
+        </div>
+      )}
+
+      {qasmPreview && (
+        <details className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+          <summary className="cursor-pointer font-semibold text-amber-100">
+            OpenQASM 3 preview
+          </summary>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-x-6">
+            <InfoRow
+              label="Available"
+              value={formatText(getRecordValue(qasmPreview, "available"))}
+            />
+            <InfoRow
+              label="Length"
+              value={formatText(getRecordValue(qasmPreview, "length"))}
+            />
+            <InfoRow
+              label="Truncated"
+              value={formatText(getRecordValue(qasmPreview, "truncated"))}
+            />
+          </div>
+          {previewText !== "" && (
+            <pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-black/40 p-3 text-[11px] leading-relaxed text-gray-300">
+              {previewText}
+            </pre>
+          )}
+        </details>
+      )}
     </div>
   );
 }
@@ -2257,6 +2449,7 @@ export default function QaoaRqpV9Page() {
     !Array.isArray(diagnostics.circuit)
       ? (diagnostics.circuit as Record<string, unknown>)
       : undefined);
+  const ibmCircuit = useMemo(() => getIbmCircuitMetadata(circuit), [circuit]);
 
   const classicalCandidates =
     reporting?.classical_candidates ?? result?.top_candidates ?? [];
@@ -4350,6 +4543,12 @@ export default function QaoaRqpV9Page() {
                     {formatText(getCircuitValue(circuit, "reason"))}
                   </p>
                 )}
+              </Panel>
+            )}
+
+            {result && !result.error && ibmCircuit && (
+              <Panel title="IBM / Qiskit Dry Run" tone="amber">
+                <IbmCircuitDiagnostics metadata={ibmCircuit} />
               </Panel>
             )}
 
