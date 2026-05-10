@@ -3946,25 +3946,20 @@ export default function QaoaRqpV9Page() {
         </h1>
 
         <p className="text-cyan-100 text-base font-semibold mb-3">
-          Exact type budgets, worker profiles, live logs, memory telemetry, tensor sim,
-          and opt-in 2nd opinion.
+          Advanced QAOA portfolio optimization with exact type-budget constraints,
+          selectable worker profiles, live logs, memory telemetry, tensor simulation,
+          opt-in second opinion comparison, and multi-framework circuit extraction.
         </p>
 
         <div className="max-w-7xl mb-5 space-y-3">
           <p className="text-gray-200 text-base font-semibold leading-relaxed">
-            V9.2 adds tester diagnostics on top of V8: additional exact type-budget
-            constraints, asynchronous worker status, memory tracking, tensor simulation,
-            and selectable 2nd opinion comparison.
+            V9.2 adds pro-level controls, diagnostics, and execution options beyond
+            the current public V8 release.
           </p>
-
-          <div className="rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">
-            V9.2 test route. Not yet linked from the public site navigation. The current
-            public QAOA RQP page remains on V8.
-          </div>
 
           <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
             Best used on a desktop or laptop screen. Use browser zoom to fit the workspace
-            comfortably. Mobile screens are supported only for basic review.
+            comfortably. Mobile screens are supported for basic review only.
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
