@@ -3481,6 +3481,19 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert payload["diagnostics"]["circuit"]["shots_mode"] == "exact"
     assert payload["diagnostics"]["circuit"]["qaoa_shots"] is None
     assert payload["diagnostics"]["circuit"]["qaoa_shots_display"] == "exact"
+    ibm_circuit = payload["diagnostics"]["circuit"]["ibm"]
+    assert ibm_circuit["available"] is True
+    assert ibm_circuit["dry_run"] is True
+    assert ibm_circuit["qiskit_available"] is True
+    assert ibm_circuit["hardware_submission"] == "not_configured"
+    assert ibm_circuit["measurement_required_for_sampler"] is True
+    assert ibm_circuit["counts_decoder"] == "reverse_qiskit_count_key"
+    assert ibm_circuit["classical_bits"] == 7
+    assert ibm_circuit["qiskit_depth_with_measurements"] >= ibm_circuit["qiskit_depth_without_measurements"]
+    assert ibm_circuit["qiskit_size_with_measurements"] > ibm_circuit["qiskit_size_without_measurements"]
+    assert ibm_circuit["qiskit_gate_counts_with_measurements"]["measure"] == 7
+    assert ibm_circuit["openqasm3"]["available"] is True
+    assert ibm_circuit["openqasm3"]["preview"].startswith("OPENQASM 3.0;")
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] is None
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots_display"] == "exact"
 
@@ -3508,6 +3521,7 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert reporting["circuit"]["available"] is True
     assert reporting["circuit"]["counts_are_estimated"] is True
     assert reporting["circuit"]["n_qubits"] == 7
+    assert reporting["circuit"]["ibm"]["qiskit_available"] is True
     assert reporting["charts"]["qubo_breakdown_quantum"].startswith("data:image/png;base64,")
     assert reporting["charts"]["optimization_history"].startswith("data:image/png;base64,")
     assert reporting["charts"]["circuit_overview"].startswith("data:image/png;base64,")

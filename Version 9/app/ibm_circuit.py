@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from importlib import metadata
 from typing import Mapping
 
 import numpy as np
@@ -75,8 +76,8 @@ def qaoa_operation_counts(operations: list[QAOAOperation]) -> dict[str, int]:
     return {name: int(count) for name, count in sorted(counts.items())}
 
 
-def qaoa_ibm_circuit_metadata(optimizer) -> dict[str, object]:
-    """Return IBM/Qiskit-facing circuit metadata without importing Qiskit."""
+def qaoa_ibm_circuit_metadata(optimizer, *, qasm_preview_chars: int = 2000) -> dict[str, object]:
+    """Return IBM/Qiskit-facing dry-run circuit metadata."""
 
     try:
         gammas = _final_angles(getattr(optimizer, "best_gammas", None), "best_gammas")
@@ -84,11 +85,13 @@ def qaoa_ibm_circuit_metadata(optimizer) -> dict[str, object]:
         h_terms, j_terms, _offset = optimizer._qubo_to_ising(optimizer.Q, optimizer.constant)
         operations = qaoa_operation_plan(int(optimizer.n), h_terms, j_terms, gammas, betas)
         counts = qaoa_operation_counts(operations)
-        return {
+        metadata_payload = {
             "available": True,
             "provider": "ibm_quantum",
             "sdk": "qiskit",
             "export_format": "QuantumCircuit",
+            "dry_run": True,
+            "qiskit_available": False,
             "n_qubits": int(optimizer.n),
             "layers": int(len(gammas)),
             "operation_count": int(len(operations)),
@@ -100,6 +103,43 @@ def qaoa_ibm_circuit_metadata(optimizer) -> dict[str, object]:
             "counts_decoder": "reverse_qiskit_count_key",
             "hardware_submission": "not_configured",
         }
+        try:
+            measured_circuit = build_qiskit_qaoa_circuit(
+                int(optimizer.n),
+                h_terms,
+                j_terms,
+                gammas,
+                betas,
+                measure=True,
+            )
+            unmeasured_circuit = build_qiskit_qaoa_circuit(
+                int(optimizer.n),
+                h_terms,
+                j_terms,
+                gammas,
+                betas,
+                measure=False,
+            )
+            metadata_payload.update(
+                {
+                    "qiskit_available": True,
+                    "qiskit_version": _package_version("qiskit"),
+                    "qiskit_ibm_runtime_version": _package_version("qiskit-ibm-runtime"),
+                    "qiskit_depth_without_measurements": int(unmeasured_circuit.depth() or 0),
+                    "qiskit_depth_with_measurements": int(measured_circuit.depth() or 0),
+                    "qiskit_size_without_measurements": int(unmeasured_circuit.size()),
+                    "qiskit_size_with_measurements": int(measured_circuit.size()),
+                    "qiskit_gate_counts_without_measurements": _count_ops_dict(unmeasured_circuit),
+                    "qiskit_gate_counts_with_measurements": _count_ops_dict(measured_circuit),
+                    "classical_bits": int(measured_circuit.num_clbits),
+                    "openqasm3": _openqasm3_preview(measured_circuit, qasm_preview_chars),
+                }
+            )
+        except QiskitUnavailableError:
+            metadata_payload["qiskit_unavailable_reason"] = "qiskit_not_installed"
+        except Exception as exc:  # noqa: BLE001 - keep response serialization robust
+            metadata_payload["qiskit_unavailable_reason"] = type(exc).__name__
+        return metadata_payload
     except Exception as exc:  # noqa: BLE001 - metadata should never break result serialization
         return {
             "available": False,
@@ -197,6 +237,37 @@ def qiskit_counts_to_optimizer_probabilities(counts: Mapping[str, int | float], 
         bitstring = optimizer_bitstring_from_qiskit_key(str(key), n_qubits)
         probabilities[bitstring] = probabilities.get(bitstring, 0.0) + float(value) / total
     return dict(sorted(probabilities.items()))
+
+
+def _openqasm3_preview(circuit, max_chars: int) -> dict[str, object]:
+    try:
+        from qiskit import qasm3
+
+        qasm = str(qasm3.dumps(circuit))
+    except Exception as exc:  # noqa: BLE001 - optional export detail
+        return {
+            "available": False,
+            "reason": type(exc).__name__,
+        }
+    max_len = max(0, int(max_chars))
+    return {
+        "available": True,
+        "format": "openqasm3",
+        "length": int(len(qasm)),
+        "truncated": bool(len(qasm) > max_len),
+        "preview": qasm[:max_len],
+    }
+
+
+def _count_ops_dict(circuit) -> dict[str, int]:
+    return {str(name): int(count) for name, count in circuit.count_ops().items()}
+
+
+def _package_version(package_name: str) -> str | None:
+    try:
+        return str(metadata.version(package_name))
+    except metadata.PackageNotFoundError:
+        return None
 
 
 def _sorted_j_terms(j_terms: Mapping[tuple[int, int], float]) -> list[tuple[tuple[int, int], float]]:
