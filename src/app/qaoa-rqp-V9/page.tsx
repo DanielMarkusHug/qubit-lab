@@ -227,10 +227,25 @@ type ReportingSummaryBlock = {
   additional_type_budget_penalty?: number | null;
 };
 
+type SecondOpinionReporting = {
+  available?: boolean;
+  enabled?: boolean;
+  label?: string;
+  source?: string;
+  reason?: string;
+  summary?: ReportingSummaryBlock;
+  samples?: CandidateRow[];
+  best_qubo?: CandidateRow[];
+  portfolio_contents?: CandidateRow[];
+};
+
 type Reporting = {
   summary?: {
     classical_result_summary?: ReportingSummaryBlock;
     quantum_result_summary?: ReportingSummaryBlock;
+    quantum_second_opinion_summary?: ReportingSummaryBlock;
+    second_opinion_available?: boolean;
+    second_opinion_label?: string;
 
     currency_code?: string;
     decision_variables?: number;
@@ -249,6 +264,7 @@ type Reporting = {
     qaoa_status?: string;
     qaoa_mode?: string;
     qaoa_p?: number;
+    export_mode?: string | null;
 
     budget_lambda?: number;
     risk_lambda?: number;
@@ -267,6 +283,7 @@ type Reporting = {
   classical_candidates?: CandidateRow[];
   quantum_samples?: CandidateRow[];
   qaoa_best_qubo?: CandidateRow[];
+  second_opinion?: SecondOpinionReporting;
   solver_comparison?: CandidateRow[];
   portfolio_contents?: CandidateRow[];
   optimization_history?: CandidateRow[];
@@ -563,21 +580,21 @@ const EXPORT_MODE_OPTIONS: Array<{
 }> = [
   {
     value: EXPORT_MODE_INTERNAL_ONLY,
-    label: "Internal only",
-    description: "No Qiskit export payload.",
+    label: "Internal only / no 2nd opinion",
+    description: "Use only the internal optimizer result.",
     enabled: true,
   },
   {
     value: EXPORT_MODE_QISKIT_EXPORT,
-    label: "Qiskit export",
-    description: "Adds dry-run QuantumCircuit diagnostics.",
+    label: "Qiskit internal run",
+    description: "Adds a Qiskit dry-run comparison from the optimized circuit.",
     requiredLevel: "tester",
     enabled: true,
   },
   {
     value: EXPORT_MODE_IBM_EXTERNAL_RUN,
-    label: "IBM external run",
-    description: "Reserved for future IBM hardware submission.",
+    label: "Qiskit run on IBM hardware (later)",
+    description: "Reserved for a later IBM hardware comparison path.",
     requiredLevel: "internal ultra",
     enabled: false,
   },
@@ -741,6 +758,18 @@ function formatText(value: unknown, fallback = "n/a") {
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function formatCandidateSource(value: unknown, fallback = "n/a") {
+  const text = formatText(value, fallback);
+  const lowered = text.toLowerCase();
+  if (lowered.includes("qiskit") || lowered.includes("second_opinion")) {
+    return "Quantum / QAOA (2nd opinion)";
+  }
+  if (lowered.includes("qaoa") || lowered.includes("pennylane")) {
+    return "Quantum / QAOA";
+  }
+  return text;
 }
 
 function displayRunMode(value: unknown, fallback = "n/a") {
@@ -1786,7 +1815,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
   if (!metadata) {
     return (
       <QuantumPlaceholder title="Export metadata not in this result">
-        Select Qiskit export before running a QAOA job to add dry-run
+        Select Qiskit internal run before running a QAOA job to add dry-run
         <span className="font-mono"> circuit.ibm </span> diagnostics.
       </QuantumPlaceholder>
     );
@@ -2503,7 +2532,7 @@ function CandidateTable({
                 {formatText(candidate.rank ?? idx + 1)}
               </td>
               <td className="py-1.5 pr-3 text-gray-400">
-                {formatText(candidate.source ?? candidate.solver)}
+                {formatCandidateSource(candidate.source ?? candidate.solver)}
               </td>
               <td className="py-1.5 pr-3 font-mono text-cyan-200">
                 {formatText(candidate.bitstring)}
@@ -2654,6 +2683,59 @@ export default function QaoaRqpV9Page() {
   const solverComparison = reporting?.solver_comparison ?? [];
   const quantumSamples = reporting?.quantum_samples ?? [];
   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
+  const secondOpinion = reporting?.second_opinion;
+  const secondOpinionSummary =
+    reportingSummary?.quantum_second_opinion_summary ?? secondOpinion?.summary;
+  const activeResultExportModeValue =
+    (diagnostics.export_mode as string | undefined) ??
+      (reportingSummary?.export_mode as string | undefined) ??
+      getEffectiveSetting(diagnostics, "export_mode") ??
+      exportMode;
+  const activeResultExportMode = normalizeExportMode(
+    typeof activeResultExportModeValue === "string" ? activeResultExportModeValue : null
+  );
+  const secondOpinionModeChosen = activeResultExportMode !== EXPORT_MODE_INTERNAL_ONLY;
+  const hasSecondOpinionAvailable = hasQuantumResult(secondOpinionSummary);
+  const secondOpinionPortfolioContents = uniquePortfolioRows(
+    secondOpinion?.portfolio_contents ?? []
+  );
+  const fallbackSecondOpinionPortfolioContents = buildPortfolioFromBitstring(
+    portfolioContents,
+    secondOpinionSummary?.best_bitstring
+  );
+  const secondOpinionBestQubo = secondOpinion?.best_qubo ?? [];
+  const secondOpinionSamples = secondOpinion?.samples ?? [];
+  const displayedSolverComparison = useMemo(() => {
+    if (!secondOpinionModeChosen || !hasSecondOpinionAvailable || !secondOpinionSummary) {
+      return solverComparison;
+    }
+    const alreadyIncluded = solverComparison.some((row) =>
+      formatCandidateSource(row.solver ?? row.source).includes("2nd opinion")
+    );
+    if (alreadyIncluded) return solverComparison;
+    return [
+      ...solverComparison,
+      {
+        solver: "Quantum / QAOA (2nd opinion)",
+        bitstring: secondOpinionSummary.best_bitstring,
+        qubo_value: secondOpinionSummary.qubo_value,
+        selected_usd: secondOpinionSummary.selected_usd,
+        budget_gap: secondOpinionSummary.budget_gap,
+        portfolio_return: secondOpinionSummary.portfolio_return,
+        portfolio_vol: secondOpinionSummary.portfolio_vol,
+        sharpe_like: secondOpinionSummary.sharpe_like,
+        probability: secondOpinionSummary.probability,
+      },
+    ];
+  }, [
+    solverComparison,
+    secondOpinionModeChosen,
+    hasSecondOpinionAvailable,
+    secondOpinionSummary,
+  ]);
+  const comparisonGridClass = secondOpinionModeChosen
+    ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
+    : "grid grid-cols-1 xl:grid-cols-2 gap-4";
   const codeExportPackage = useMemo(() => getCodeExportPackage(result), [result]);
 
   const backendOptimizationLogs =
@@ -2730,7 +2812,7 @@ export default function QaoaRqpV9Page() {
       "QUBO Breakdown - Classical",
       charts.qubo_breakdown_classical ?? charts.qubo_breakdown,
     ],
-    ["QUBO Breakdown - Quantum by QUBO", charts.qubo_breakdown_quantum],
+    ["QUBO Breakdown - Quantum", charts.qubo_breakdown_quantum],
     ["Optimization History", charts.optimization_history],
     ["Circuit Overview", charts.circuit_overview],
     ["Solver Comparison", charts.solver_comparison],
@@ -2987,7 +3069,7 @@ export default function QaoaRqpV9Page() {
     if (selectedExportModeAllowed) return;
     setExportMode(DEFAULT_EXPORT_MODE);
     addLog(
-      `Selected export mode is not available for this key. Switched to ${displayExportMode(
+      `Selected 2nd opinion mode is not available for this key. Switched to ${displayExportMode(
         DEFAULT_EXPORT_MODE
       )}.`
     );
@@ -3726,7 +3808,7 @@ export default function QaoaRqpV9Page() {
       result?.model_version ?? inspectResult?.model_version ?? "9.0.0",
     ],
     [
-      "Export mode",
+      "2nd opinion",
       displayExportMode(
         formatText(
           diagnostics.export_mode ??
@@ -3835,7 +3917,7 @@ export default function QaoaRqpV9Page() {
 
         <p className="text-cyan-100 text-base font-semibold mb-3">
           Exact type budgets, worker profiles, live logs, memory telemetry, tensor sim,
-          and opt-in Qiskit export.
+          and opt-in 2nd opinion.
         </p>
 
         <div className="max-w-7xl mb-5 space-y-3">
@@ -4183,7 +4265,7 @@ export default function QaoaRqpV9Page() {
               )}
 
               <label className="block text-xs text-gray-300 mb-1.5">
-                Export mode
+                2nd opinion / comparison
               </label>
               <select
                 value={exportMode}
@@ -4214,7 +4296,7 @@ export default function QaoaRqpV9Page() {
                 </div>
                 {!selectedExportModeAllowed && (
                   <div className="mt-2 rounded-lg border border-red-800 bg-red-950/30 p-2 text-red-100">
-                    This export mode is not available for the current key.
+                    This 2nd opinion mode is not available for the current key.
                   </div>
                 )}
               </div>
@@ -5004,193 +5086,287 @@ export default function QaoaRqpV9Page() {
             )}
 
             {result && !result.error && (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                <Panel title="Classical Portfolio Metrics">
-                  <InfoRow
-                    label="Cash weight"
-                    value={formatPercent(
-                      classicalSummary?.cash_weight ?? metrics.cash_weight,
-                      3
-                    )}
-                  />
-                  <InfoRow
-                    label="Fixed amount"
-                    value={formatCurrency(metrics.fixed_usd, currencyCode)}
-                  />
-                  <InfoRow
-                    label="Variable selected amount"
-                    value={formatCurrency(metrics.variable_selected_usd, currencyCode)}
-                  />
-                  <InfoRow
-                    label="Max position amount"
-                    value={formatCurrency(metrics.max_position_usd, currencyCode)}
-                  />
-                  <InfoRow
-                    label="Portfolio return"
-                    value={formatNumber(
-                      classicalSummary?.portfolio_return ?? metrics.portfolio_return,
-                      4
-                    )}
-                  />
-                  <InfoRow
-                    label="Portfolio volatility"
-                    value={formatNumber(
-                      classicalSummary?.portfolio_vol ?? metrics.portfolio_vol,
-                      4
-                    )}
-                  />
-                  <InfoRow
-                    label="Sharpe ratio"
-                    value={formatNumber(
-                      classicalSummary?.sharpe_like ?? metrics.sharpe_like,
-                      4
-                    )}
-                  />
-                  <InfoRow
-                    label="Budget-normalized return"
-                    value={formatNumber(metrics.portfolio_return_budget_normalized, 4)}
-                  />
-                  <InfoRow
-                    label="Budget-normalized volatility"
-                    value={formatNumber(metrics.portfolio_vol_budget_normalized, 4)}
-                  />
-                  <InfoRow
-                    label="Budget-normalized Sharpe ratio"
-                    value={formatNumber(metrics.sharpe_like_budget_normalized, 4)}
-                  />
-                </Panel>
+              <>
+                <div className={comparisonGridClass}>
+                  <Panel title="Classical Portfolio Metrics">
+                    <InfoRow
+                      label="Cash weight"
+                      value={formatPercent(
+                        classicalSummary?.cash_weight ?? metrics.cash_weight,
+                        3
+                      )}
+                    />
+                    <InfoRow
+                      label="Fixed amount"
+                      value={formatCurrency(metrics.fixed_usd, currencyCode)}
+                    />
+                    <InfoRow
+                      label="Variable selected amount"
+                      value={formatCurrency(metrics.variable_selected_usd, currencyCode)}
+                    />
+                    <InfoRow
+                      label="Max position amount"
+                      value={formatCurrency(metrics.max_position_usd, currencyCode)}
+                    />
+                    <InfoRow
+                      label="Portfolio return"
+                      value={formatNumber(
+                        classicalSummary?.portfolio_return ?? metrics.portfolio_return,
+                        4
+                      )}
+                    />
+                    <InfoRow
+                      label="Portfolio volatility"
+                      value={formatNumber(
+                        classicalSummary?.portfolio_vol ?? metrics.portfolio_vol,
+                        4
+                      )}
+                    />
+                    <InfoRow
+                      label="Sharpe ratio"
+                      value={formatNumber(
+                        classicalSummary?.sharpe_like ?? metrics.sharpe_like,
+                        4
+                      )}
+                    />
+                    <InfoRow
+                      label="Budget-normalized return"
+                      value={formatNumber(metrics.portfolio_return_budget_normalized, 4)}
+                    />
+                    <InfoRow
+                      label="Budget-normalized volatility"
+                      value={formatNumber(metrics.portfolio_vol_budget_normalized, 4)}
+                    />
+                    <InfoRow
+                      label="Budget-normalized Sharpe ratio"
+                      value={formatNumber(metrics.sharpe_like_budget_normalized, 4)}
+                    />
+                  </Panel>
 
-                <Panel title="Quantum Portfolio Metrics" tone="amber">
-                  {hasQuantumResult(quantumSummary) ? (
-                    <>
-                      <InfoRow
-                        label="Cash weight"
-                        value={formatPercent(quantumSummary?.cash_weight, 3)}
-                      />
-                      <InfoRow
-                        label="Selected amount"
-                        value={formatCurrency(quantumSummary?.selected_usd, currencyCode)}
-                      />
-                      <InfoRow
-                        label="Budget gap"
-                        value={formatCurrency(quantumSummary?.budget_gap, currencyCode)}
-                      />
-                      <InfoRow
-                        label="Portfolio return"
-                        value={formatNumber(quantumSummary?.portfolio_return, 4)}
-                      />
-                      <InfoRow
-                        label="Portfolio volatility"
-                        value={formatNumber(quantumSummary?.portfolio_vol, 4)}
-                      />
-                      <InfoRow
-                        label="Sharpe ratio"
-                        value={formatNumber(quantumSummary?.sharpe_like, 4)}
-                      />
-                      <InfoRow
-                        label="Probability"
-                        value={formatProbability(quantumSummary?.probability)}
-                      />
-                    </>
-                  ) : (
-                    <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
-                      Quantum portfolio metrics will be populated from the best
-                      QUBO candidate within the exported QAOA sample set once
-                      a QAOA simulator run completes successfully.
-                    </QuantumPlaceholder>
+                  <Panel title="Quantum Portfolio Metrics" tone="amber">
+                    {hasQuantumResult(quantumSummary) ? (
+                      <>
+                        <InfoRow
+                          label="Cash weight"
+                          value={formatPercent(quantumSummary?.cash_weight, 3)}
+                        />
+                        <InfoRow
+                          label="Selected amount"
+                          value={formatCurrency(quantumSummary?.selected_usd, currencyCode)}
+                        />
+                        <InfoRow
+                          label="Budget gap"
+                          value={formatCurrency(quantumSummary?.budget_gap, currencyCode)}
+                        />
+                        <InfoRow
+                          label="Portfolio return"
+                          value={formatNumber(quantumSummary?.portfolio_return, 4)}
+                        />
+                        <InfoRow
+                          label="Portfolio volatility"
+                          value={formatNumber(quantumSummary?.portfolio_vol, 4)}
+                        />
+                        <InfoRow
+                          label="Sharpe ratio"
+                          value={formatNumber(quantumSummary?.sharpe_like, 4)}
+                        />
+                        <InfoRow
+                          label="Probability"
+                          value={formatProbability(quantumSummary?.probability)}
+                        />
+                      </>
+                    ) : (
+                      <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
+                        Quantum portfolio metrics will be populated from the best
+                        QUBO candidate within the exported QAOA sample set once
+                        a QAOA simulator run completes successfully.
+                      </QuantumPlaceholder>
+                    )}
+                  </Panel>
+
+                  {secondOpinionModeChosen && (
+                    <Panel
+                      title="Quantum Portfolio Metrics (2nd opinion)"
+                      tone="amber"
+                    >
+                      {hasSecondOpinionAvailable ? (
+                        <>
+                          <InfoRow
+                            label="Cash weight"
+                            value={formatPercent(secondOpinionSummary?.cash_weight, 3)}
+                          />
+                          <InfoRow
+                            label="Selected amount"
+                            value={formatCurrency(secondOpinionSummary?.selected_usd, currencyCode)}
+                          />
+                          <InfoRow
+                            label="Budget gap"
+                            value={formatCurrency(secondOpinionSummary?.budget_gap, currencyCode)}
+                          />
+                          <InfoRow
+                            label="Portfolio return"
+                            value={formatNumber(secondOpinionSummary?.portfolio_return, 4)}
+                          />
+                          <InfoRow
+                            label="Portfolio volatility"
+                            value={formatNumber(secondOpinionSummary?.portfolio_vol, 4)}
+                          />
+                          <InfoRow
+                            label="Sharpe ratio"
+                            value={formatNumber(secondOpinionSummary?.sharpe_like, 4)}
+                          />
+                          <InfoRow
+                            label="Probability"
+                            value={formatProbability(secondOpinionSummary?.probability)}
+                          />
+                        </>
+                      ) : (
+                        <QuantumPlaceholder title={quantumPlaceholderText(secondOpinionSummary)}>
+                          {secondOpinion?.reason ??
+                            "The selected 2nd opinion mode did not return comparison metrics for this result."}
+                        </QuantumPlaceholder>
+                      )}
+                    </Panel>
                   )}
-                </Panel>
+                </div>
 
-                <Panel title="Classical Objective / QUBO Breakdown">
-                  <InfoRow
-                    label="Return term"
-                    value={formatNumber(
-                      classicalSummary?.return_term ?? components.return_term,
-                      6
-                    )}
-                  />
-                  <InfoRow
-                    label="Risk term"
-                    value={formatNumber(
-                      classicalSummary?.risk_term ?? components.risk_term,
-                      6
-                    )}
-                  />
-                  <InfoRow
-                    label="Budget term"
-                    value={formatNumber(
-                      classicalSummary?.budget_term ?? components.budget_term,
-                      6
-                    )}
-                  />
-                  <InfoRow
-                    label="Type-budget term"
-                    value={formatNumber(
-                      classicalSummary?.type_budget_term ??
-                        classicalSummary?.additional_type_budget_penalty ??
-                        components.type_budget_term ??
-                        components.additional_type_budget_penalty,
-                      6
-                    )}
-                  />
-                  <InfoRow
-                    label="QUBO reconstructed"
-                    value={formatNumber(components.qubo_reconstructed, 6)}
-                  />
-                  <InfoRow
-                    label="Budget lambda"
-                    value={formatNumber(reportingSummary?.budget_lambda, 3)}
-                  />
-                  <InfoRow
-                    label="Risk lambda"
-                    value={formatNumber(reportingSummary?.risk_lambda, 3)}
-                  />
-                  <InfoRow
-                    label="Risk-free rate"
-                    value={formatPercent(reportingSummary?.risk_free_rate, 2)}
-                  />
-                </Panel>
+                <div className={`${comparisonGridClass} mt-4`}>
+                  <Panel title="Classical Objective / QUBO Breakdown">
+                    <InfoRow
+                      label="Return term"
+                      value={formatNumber(
+                        classicalSummary?.return_term ?? components.return_term,
+                        6
+                      )}
+                    />
+                    <InfoRow
+                      label="Risk term"
+                      value={formatNumber(
+                        classicalSummary?.risk_term ?? components.risk_term,
+                        6
+                      )}
+                    />
+                    <InfoRow
+                      label="Budget term"
+                      value={formatNumber(
+                        classicalSummary?.budget_term ?? components.budget_term,
+                        6
+                      )}
+                    />
+                    <InfoRow
+                      label="Type-budget term"
+                      value={formatNumber(
+                        classicalSummary?.type_budget_term ??
+                          classicalSummary?.additional_type_budget_penalty ??
+                          components.type_budget_term ??
+                          components.additional_type_budget_penalty,
+                        6
+                      )}
+                    />
+                    <InfoRow
+                      label="QUBO reconstructed"
+                      value={formatNumber(components.qubo_reconstructed, 6)}
+                    />
+                    <InfoRow
+                      label="Budget lambda"
+                      value={formatNumber(reportingSummary?.budget_lambda, 3)}
+                    />
+                    <InfoRow
+                      label="Risk lambda"
+                      value={formatNumber(reportingSummary?.risk_lambda, 3)}
+                    />
+                    <InfoRow
+                      label="Risk-free rate"
+                      value={formatPercent(reportingSummary?.risk_free_rate, 2)}
+                    />
+                  </Panel>
 
-                <Panel title="Quantum Objective / QUBO Breakdown" tone="amber">
-                  {hasQuantumResult(quantumSummary) ? (
-                    <>
-                      <InfoRow
-                        label="Return term"
-                        value={formatNumber(quantumSummary?.return_term, 6)}
-                      />
-                      <InfoRow
-                        label="Risk term"
-                        value={formatNumber(quantumSummary?.risk_term, 6)}
-                      />
-                      <InfoRow
-                        label="Budget term"
-                        value={formatNumber(quantumSummary?.budget_term, 6)}
-                      />
-                      <InfoRow
-                        label="Type-budget term"
-                        value={formatNumber(
-                          quantumSummary?.type_budget_term ??
-                            quantumSummary?.additional_type_budget_penalty,
-                          6
-                        )}
-                      />
-                      <InfoRow
-                        label="QUBO value"
-                        value={formatNumber(quantumSummary?.qubo_value, 6)}
-                      />
-                      <InfoRow
-                        label="Probability"
-                        value={formatProbability(quantumSummary?.probability)}
-                      />
-                    </>
-                  ) : (
-                    <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
-                      Quantum QUBO terms will be populated from QAOA_Samples and
-                      QAOA_Best_QUBO once a QAOA simulator run completes successfully.
-                    </QuantumPlaceholder>
+                  <Panel title="Quantum Objective / QUBO Breakdown" tone="amber">
+                    {hasQuantumResult(quantumSummary) ? (
+                      <>
+                        <InfoRow
+                          label="Return term"
+                          value={formatNumber(quantumSummary?.return_term, 6)}
+                        />
+                        <InfoRow
+                          label="Risk term"
+                          value={formatNumber(quantumSummary?.risk_term, 6)}
+                        />
+                        <InfoRow
+                          label="Budget term"
+                          value={formatNumber(quantumSummary?.budget_term, 6)}
+                        />
+                        <InfoRow
+                          label="Type-budget term"
+                          value={formatNumber(
+                            quantumSummary?.type_budget_term ??
+                              quantumSummary?.additional_type_budget_penalty,
+                            6
+                          )}
+                        />
+                        <InfoRow
+                          label="QUBO value"
+                          value={formatNumber(quantumSummary?.qubo_value, 6)}
+                        />
+                        <InfoRow
+                          label="Probability"
+                          value={formatProbability(quantumSummary?.probability)}
+                        />
+                      </>
+                    ) : (
+                      <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
+                        Quantum QUBO terms will be populated from QAOA_Samples and
+                        QAOA_Best_QUBO once a QAOA simulator run completes successfully.
+                      </QuantumPlaceholder>
+                    )}
+                  </Panel>
+
+                  {secondOpinionModeChosen && (
+                    <Panel
+                      title="Quantum Objective / QUBO Breakdown (2nd opinion)"
+                      tone="amber"
+                    >
+                      {hasSecondOpinionAvailable ? (
+                        <>
+                          <InfoRow
+                            label="Return term"
+                            value={formatNumber(secondOpinionSummary?.return_term, 6)}
+                          />
+                          <InfoRow
+                            label="Risk term"
+                            value={formatNumber(secondOpinionSummary?.risk_term, 6)}
+                          />
+                          <InfoRow
+                            label="Budget term"
+                            value={formatNumber(secondOpinionSummary?.budget_term, 6)}
+                          />
+                          <InfoRow
+                            label="Type-budget term"
+                            value={formatNumber(
+                              secondOpinionSummary?.type_budget_term ??
+                                secondOpinionSummary?.additional_type_budget_penalty,
+                              6
+                            )}
+                          />
+                          <InfoRow
+                            label="QUBO value"
+                            value={formatNumber(secondOpinionSummary?.qubo_value, 6)}
+                          />
+                          <InfoRow
+                            label="Probability"
+                            value={formatProbability(secondOpinionSummary?.probability)}
+                          />
+                        </>
+                      ) : (
+                        <QuantumPlaceholder title={quantumPlaceholderText(secondOpinionSummary)}>
+                          {secondOpinion?.reason ??
+                            "The selected 2nd opinion mode did not return QUBO breakdown metrics for this result."}
+                        </QuantumPlaceholder>
+                      )}
+                    </Panel>
                   )}
-                </Panel>
-              </div>
+                </div>
+              </>
             )}
 
             {portfolioContents.length > 0 && (
@@ -5215,6 +5391,30 @@ export default function QaoaRqpV9Page() {
                     quantum candidate. This usually means no quantum bitstring was
                     returned or the frontend could not map the bitstring back to
                     portfolio rows.
+                  </QuantumPlaceholder>
+                )}
+              </Panel>
+            )}
+
+            {result && !result.error && secondOpinionModeChosen && (
+              <Panel
+                title="Quantum Portfolio Contents (2nd opinion) - Qiskit dry run or IBM Hardware"
+                tone="amber"
+              >
+                {secondOpinionPortfolioContents.length > 0 ||
+                fallbackSecondOpinionPortfolioContents.length > 0 ? (
+                  <PortfolioContentsTable
+                    rows={
+                      secondOpinionPortfolioContents.length > 0
+                        ? secondOpinionPortfolioContents
+                        : fallbackSecondOpinionPortfolioContents
+                    }
+                    currencyCode={currencyCode}
+                  />
+                ) : (
+                  <QuantumPlaceholder title="No 2nd opinion portfolio contents">
+                    {secondOpinion?.reason ??
+                      "No 2nd opinion portfolio contents are available for this result."}
                   </QuantumPlaceholder>
                 )}
               </Panel>
@@ -5251,9 +5451,33 @@ export default function QaoaRqpV9Page() {
               </Panel>
             )}
 
-            {solverComparison.length > 0 && (
+            {result && !result.error && secondOpinionModeChosen && (
+              <Panel
+                title="Top Quantum Candidates (2nd opinion) - Qiskit dry run or IBM Hardware"
+                tone="amber"
+              >
+                {secondOpinionBestQubo.length > 0 || secondOpinionSamples.length > 0 ? (
+                  <CandidateTable
+                    rows={
+                      secondOpinionBestQubo.length > 0
+                        ? secondOpinionBestQubo
+                        : secondOpinionSamples
+                    }
+                    currencyCode={currencyCode}
+                    showProbability
+                  />
+                ) : (
+                  <QuantumPlaceholder title="No 2nd opinion candidates">
+                    {secondOpinion?.reason ??
+                      "No Qiskit or IBM 2nd opinion candidates are available for this result."}
+                  </QuantumPlaceholder>
+                )}
+              </Panel>
+            )}
+
+            {displayedSolverComparison.length > 0 && (
               <Panel title="Solver Comparison">
-                <CandidateTable rows={solverComparison} currencyCode={currencyCode} />
+                <CandidateTable rows={displayedSolverComparison} currencyCode={currencyCode} />
               </Panel>
             )}
 
