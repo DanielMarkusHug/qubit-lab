@@ -83,6 +83,11 @@ type AdditionalTypeConstraint = Record<string, unknown> & {
   raw_budget_target?: number;
   penalty?: number;
   penalty_weight?: number;
+  qualifier?: string;
+  budget_qualifier?: string;
+  encoding?: string;
+  slack_variable_index?: number | null;
+  slack_raw_size?: number;
   active?: boolean;
   status?: string;
 };
@@ -101,6 +106,13 @@ type AdditionalTypeAchievement = Record<string, unknown> & {
   deviation?: number;
   raw_deviation?: number;
   relative_deviation?: number;
+  encoded_relative_deviation?: number;
+  limit_violation?: number;
+  within_limit?: boolean;
+  qualifier?: string;
+  budget_qualifier?: string;
+  encoding?: string;
+  slack_bit?: number | null;
   penalty?: number;
   penalty_contribution?: number;
 };
@@ -1460,6 +1472,13 @@ function getTypeConstraintPenalty(constraint: AdditionalTypeConstraint) {
   );
 }
 
+function getTypeConstraintQualifier(constraint: AdditionalTypeConstraint) {
+  return formatText(
+    constraint.qualifier ?? constraint.budget_qualifier ?? constraint["mode"],
+    "exact"
+  );
+}
+
 function getAchievementLabel(achievement: AdditionalTypeAchievement) {
   return (
     formatText(achievement.label, "") ||
@@ -1578,6 +1597,32 @@ function getConstraintForAchievement(
   );
 }
 
+function getAchievementQualifier(
+  achievement: AdditionalTypeAchievement,
+  constraints: AdditionalTypeConstraint[] = []
+) {
+  const direct = formatText(
+    achievement.qualifier ?? achievement.budget_qualifier ?? achievement["mode"],
+    ""
+  );
+  if (direct) return direct;
+  const matchingConstraint = getConstraintForAchievement(achievement, constraints);
+  return matchingConstraint ? getTypeConstraintQualifier(matchingConstraint) : "exact";
+}
+
+function getAchievementLimitViolation(achievement: AdditionalTypeAchievement) {
+  const direct =
+    achievement.limit_violation ??
+    getNumber(achievement["budget_violation"]) ??
+    getNumber(achievement["limit_deviation"]);
+
+  if (direct !== undefined) return direct;
+
+  const deviation = getAchievementDeviation(achievement);
+  if (deviation === undefined) return undefined;
+  return Math.abs(deviation);
+}
+
 function getAchievementPenalty(
   achievement: AdditionalTypeAchievement,
   constraints: AdditionalTypeConstraint[] = []
@@ -1590,7 +1635,10 @@ function getAchievementPenalty(
 
   if (direct !== undefined) return direct;
 
-  const normalized = getAchievementNormalized(achievement);
+  const normalized =
+    achievement.encoded_relative_deviation !== undefined
+      ? achievement.encoded_relative_deviation + 1
+      : getAchievementNormalized(achievement);
   const matchingConstraint = getConstraintForAchievement(achievement, constraints);
   const penaltyWeight = matchingConstraint
     ? getTypeConstraintPenalty(matchingConstraint)
@@ -2053,7 +2101,8 @@ function TypeConstraintsPanel({
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs text-gray-400">
         No additional type-budget constraints detected. V9.2 supports up to five
-        optional exact type budgets: Type A through Type E.
+        optional subtype budget limits: Type A through Type E, each as exact,
+        max, or min.
       </div>
     );
   }
@@ -2067,9 +2116,11 @@ function TypeConstraintsPanel({
               <tr>
                 <th className="py-1.5 pr-3">ID</th>
                 <th className="py-1.5 pr-3">Name</th>
+                <th className="py-1.5 pr-3">Qualifier</th>
                 <th className="py-1.5 pr-3">Size column</th>
                 <th className="py-1.5 pr-3">Budget</th>
                 <th className="py-1.5 pr-3">Penalty</th>
+                <th className="py-1.5 pr-3">Slack qubit</th>
                 <th className="py-1.5 pr-3">Status</th>
               </tr>
             </thead>
@@ -2083,6 +2134,9 @@ function TypeConstraintsPanel({
                     {getTypeConstraintLabel(constraint)}
                   </td>
                   <td className="py-1.5 pr-3 text-gray-300">
+                    {getTypeConstraintQualifier(constraint)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-gray-300">
                     {formatText(constraint.size_column)}
                   </td>
                   <td className="py-1.5 pr-3 text-gray-300">
@@ -2090,6 +2144,12 @@ function TypeConstraintsPanel({
                   </td>
                   <td className="py-1.5 pr-3 text-gray-300">
                     {formatNumber(getTypeConstraintPenalty(constraint), 4)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-gray-300">
+                    {constraint.slack_variable_index === undefined ||
+                    constraint.slack_variable_index === null
+                      ? "none"
+                      : `q${constraint.slack_variable_index}`}
                   </td>
                   <td className="py-1.5 pr-3 text-gray-300">
                     {formatText(
@@ -2113,11 +2173,14 @@ function TypeConstraintsPanel({
             <thead className="text-gray-400 border-b border-slate-700">
               <tr>
                 <th className="py-1.5 pr-3">Name</th>
+                <th className="py-1.5 pr-3">Qualifier</th>
                 <th className="py-1.5 pr-3">Budget</th>
                 <th className="py-1.5 pr-3">Achieved</th>
                 <th className="py-1.5 pr-3">Normalized</th>
                 <th className="py-1.5 pr-3">Deviation</th>
+                <th className="py-1.5 pr-3">Violation</th>
                 <th className="py-1.5 pr-3">Relative deviation</th>
+                <th className="py-1.5 pr-3">Slack bit</th>
                 <th className="py-1.5 pr-3">Penalty</th>
               </tr>
             </thead>
@@ -2127,8 +2190,10 @@ function TypeConstraintsPanel({
                 const achieved = getAchievementAchieved(achievement);
                 const normalized = getAchievementNormalized(achievement);
                 const deviation = getAchievementDeviation(achievement);
+                const violation = getAchievementLimitViolation(achievement);
                 const relativeDeviation = getAchievementRelativeDeviation(achievement);
                 const penalty = getAchievementPenalty(achievement, constraints);
+                const qualifier = getAchievementQualifier(achievement, constraints);
 
                 return (
                   <tr
@@ -2137,6 +2202,9 @@ function TypeConstraintsPanel({
                   >
                     <td className="py-1.5 pr-3 text-gray-200">
                       {getAchievementLabel(achievement)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {qualifier}
                     </td>
                     <td className="py-1.5 pr-3 text-gray-300">
                       {formatCurrency(budget, currencyCode)}
@@ -2151,7 +2219,15 @@ function TypeConstraintsPanel({
                       {formatCurrency(deviation, currencyCode)}
                     </td>
                     <td className="py-1.5 pr-3 text-gray-300">
+                      {formatCurrency(violation, currencyCode)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
                       {formatPercent(relativeDeviation, 3)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-300">
+                      {achievement.slack_bit === undefined || achievement.slack_bit === null
+                        ? "none"
+                        : formatNumber(achievement.slack_bit, 0)}
                     </td>
                     <td className="py-1.5 pr-3 text-gray-300">
                       {formatNumber(penalty, 6)}
@@ -4229,9 +4305,9 @@ export default function QaoaRqpV9Page() {
 
             <Panel title="Additional Type Budgets" tone="amber">
               <p className="mb-3 text-xs leading-relaxed text-amber-100/80">
-                V9.2 supports up to five exact type budgets. In Excel, use
+                V9.2 supports up to five exact, max, or min subtype budgets. In Excel, use
                 Additional Type Constraints plus Type A-E Size, Name, Budget,
-                and Budget Penalty fields.
+                Budget Penalty, and optional Budget Qualifier fields.
               </p>
 
               <TypeConstraintsPanel
