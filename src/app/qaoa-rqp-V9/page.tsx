@@ -2941,6 +2941,7 @@ export default function QaoaRqpV9Page() {
       : undefined;
   const ibmHardwarePreview = useMemo(() => {
     const previewSource = result ? circuit : inspectCircuit;
+    const previewDepth = getNumber(getCircuitValue(previewSource, "preview_transpiled_depth"));
     const previewTotalGates = getNumber(
       getCircuitValue(previewSource, "preview_transpiled_total_gates")
     );
@@ -2952,6 +2953,8 @@ export default function QaoaRqpV9Page() {
     );
     const totalGates =
       previewTotalGates ?? getNumber(getCircuitValue(previewSource, "total_gates"));
+    const totalDepth =
+      previewDepth ?? getNumber(getCircuitValue(previewSource, "estimated_circuit_depth"));
     const twoQGates =
       previewTwoQGates ?? getNumber(getCircuitValue(previewSource, "two_qubit_gates"));
     const sequentialTwoQDepth =
@@ -2970,6 +2973,7 @@ export default function QaoaRqpV9Page() {
         : undefined;
 
     return {
+      totalDepth,
       totalGates,
       twoQGates,
       sequentialTwoQDepth,
@@ -4028,6 +4032,7 @@ export default function QaoaRqpV9Page() {
     apiKey,
     mode,
     exportMode,
+    ibmFractionalGates,
     ibmInstance,
     ibmBackend,
     responseLevel,
@@ -4863,7 +4868,17 @@ export default function QaoaRqpV9Page() {
                         ? ` · ${ibmHardwarePreview.fractionalModeLabel}`
                         : ""}
                     </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-5">
+                      <div>
+                        <div className="text-gray-500">
+                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled depth"
+                            : "Logical depth"}
+                        </div>
+                        <div className="font-mono text-gray-100">
+                          {formatText(ibmHardwarePreview.totalDepth)}
+                        </div>
+                      </div>
                       <div>
                         <div className="text-gray-500">
                           {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
