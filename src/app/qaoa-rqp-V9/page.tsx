@@ -1920,6 +1920,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
   const reason =
     formatText(getRecordValue(metadata, "reason"), "") ||
     formatText(getRecordValue(metadata, "qiskit_unavailable_reason"), "");
+  const comparabilityNote = formatText(getRecordValue(metadata, "comparability_note"), "");
 
   return (
     <div className="space-y-3 text-xs">
@@ -1951,6 +1952,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
                 getRecordValue(getRecordValue(metadata, "backend_details"), "name")
             )}
           />
+          <InfoRow label="IBM job ID" value={formatText(getRecordValue(metadata, "job_id"))} />
           <InfoRow label="SDK" value={formatText(getRecordValue(metadata, "sdk"))} />
           <InfoRow
             label="Simulation"
@@ -1961,8 +1963,8 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             value={formatText(getRecordValue(metadata, "hardware_submission"))}
           />
           <InfoRow
-            label="Qiskit available"
-            value={formatText(getRecordValue(metadata, "qiskit_available"))}
+            label="Parse status"
+            value={formatText(getRecordValue(metadata, "parse_status"))}
           />
         </div>
 
@@ -1988,19 +1990,59 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             value={formatText(getRecordValue(metadata, "classical_bits"))}
           />
           <InfoRow
-            label="Operation count"
-            value={formatText(getRecordValue(metadata, "operation_count"))}
-          />
-          <InfoRow
             label="Hardware shots"
             value={formatText(
               getRecordValue(metadata, "shots") ??
                 getRecordValue(metadata, "ibm_hardware_shots")
             )}
           />
+          <InfoRow
+            label="Shots source"
+            value={formatText(getRecordValue(metadata, "shots_source"))}
+          />
+          <InfoRow
+            label="Qiskit available"
+            value={formatText(getRecordValue(metadata, "qiskit_available"))}
+          />
+          <InfoRow
+            label="Counts decoder"
+            value={formatText(getRecordValue(metadata, "counts_decoder"))}
+          />
+          <InfoRow
+            label="Sampler measurements"
+            value={formatText(getRecordValue(metadata, "measurement_required_for_sampler"))}
+          />
         </div>
 
         <div>
+          <InfoRow
+            label="Optimizer bit order"
+            value={formatText(getRecordValue(metadata, "optimizer_bitstring_order"))}
+          />
+          <InfoRow
+            label="Qiskit count order"
+            value={formatText(getRecordValue(metadata, "qiskit_counts_key_order"))}
+          />
+          <InfoRow
+            label="Measurement map"
+            value={formatText(getRecordValue(metadata, "measurement_qubit_to_clbit"))}
+          />
+          <InfoRow
+            label="Export format"
+            value={formatText(getRecordValue(metadata, "export_format"))}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">
+          Circuit size before transpilation
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-6">
+          <InfoRow
+            label="Logical operation count"
+            value={formatText(getRecordValue(metadata, "operation_count"))}
+          />
           <InfoRow
             label="Depth without measurements"
             value={formatText(
@@ -2021,21 +2063,33 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             label="Size with measurements"
             value={formatText(getRecordValue(metadata, "qiskit_size_with_measurements"))}
           />
-          <InfoRow
-            label="Sampler measurements"
-            value={formatText(getRecordValue(metadata, "measurement_required_for_sampler"))}
-          />
-          <InfoRow
-            label="Counts decoder"
-            value={formatText(getRecordValue(metadata, "counts_decoder"))}
-          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">
+          Circuit size after transpilation
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-6">
           <InfoRow
             label="Transpiled depth"
             value={formatText(getRecordValue(metadata, "transpiled_depth"))}
           />
           <InfoRow
+            label="Transpiled total gates"
+            value={formatText(getRecordValue(metadata, "transpiled_total_gates"))}
+          />
+          <InfoRow
+            label="Transpiled 2Q gates"
+            value={formatText(getRecordValue(metadata, "transpiled_two_qubit_gates"))}
+          />
+          <InfoRow
             label="Transpiled 2Q depth"
             value={formatText(getRecordValue(metadata, "transpiled_sequential_2q_depth"))}
+          />
+          <InfoRow
+            label="Transpiled size"
+            value={formatText(getRecordValue(metadata, "transpiled_size"))}
           />
         </div>
       </div>
@@ -2057,6 +2111,13 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
           />
         </div>
       </div>
+
+      {comparabilityNote !== "" && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+          <div className="font-semibold text-amber-100 mb-2">Comparability</div>
+          <div className="text-gray-300">{comparabilityNote}</div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
         <div className="font-semibold text-amber-100 mb-2">Gate counts</div>
@@ -2104,14 +2165,6 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
           <InfoRow
             label="Qiskit counts key order"
             value={formatText(getRecordValue(metadata, "qiskit_counts_key_order"))}
-          />
-          <InfoRow
-            label="Measurement map"
-            value={formatText(getRecordValue(metadata, "measurement_qubit_to_clbit"))}
-          />
-          <InfoRow
-            label="Export format"
-            value={formatText(getRecordValue(metadata, "export_format"))}
           />
         </div>
       </div>
@@ -2641,10 +2694,12 @@ function CandidateTable({
   rows,
   currencyCode,
   showProbability = false,
+  showCount = false,
 }: {
   rows: CandidateRow[];
   currencyCode: string;
   showProbability?: boolean;
+  showCount?: boolean;
 }) {
   const typeIds = getTypeIdsFromRows(rows);
 
@@ -2657,6 +2712,7 @@ function CandidateTable({
             <th className="py-1.5 pr-3">Source</th>
             <th className="py-1.5 pr-3">Bitstring</th>
             {showProbability && <th className="py-1.5 pr-3">Probability</th>}
+            {showCount && <th className="py-1.5 pr-3">Hits</th>}
             <th className="py-1.5 pr-3">QUBO</th>
             <th className="py-1.5 pr-3">Selected amount</th>
             <th className="py-1.5 pr-3">Budget gap</th>
@@ -2690,6 +2746,11 @@ function CandidateTable({
               {showProbability && (
                 <td className="py-1.5 pr-3 text-gray-300">
                   {formatProbability(candidate.probability)}
+                </td>
+              )}
+              {showCount && (
+                <td className="py-1.5 pr-3 text-gray-300">
+                  {formatText(candidate.count)}
                 </td>
               )}
               <td className="py-1.5 pr-3 text-gray-300">
@@ -2884,6 +2945,8 @@ export default function QaoaRqpV9Page() {
   );
   const secondOpinionBestQubo = secondOpinion?.best_qubo ?? [];
   const secondOpinionSamples = secondOpinion?.samples ?? [];
+  const isIbmHardwareSecondOpinion =
+    activeResultExportMode === EXPORT_MODE_IBM_EXTERNAL_RUN;
   const secondOpinionSourceLabel = displaySecondOpinionSource(activeResultExportMode);
   const secondOpinionPanelSuffix = secondOpinionModeChosen
     ? ` - ${secondOpinionSourceLabel}`
@@ -2926,6 +2989,9 @@ export default function QaoaRqpV9Page() {
   const comparisonGridClass = secondOpinionModeChosen
     ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
     : "grid grid-cols-1 xl:grid-cols-2 gap-4";
+  const ibmDiagnosticsTitle = isIbmHardwareSecondOpinion
+    ? "IBM Hardware Diagnostics"
+    : "IBM / Qiskit Circuit Diagnostics";
   const summaryGridClass = secondOpinionModeChosen
     ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
     : "grid grid-cols-1 xl:grid-cols-2 gap-4";
@@ -4674,23 +4740,23 @@ export default function QaoaRqpV9Page() {
 
                   <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-gray-300">
                     <div className="mb-2 font-semibold text-amber-100">
-                      Pre-run hardware depth check
+                      Pre-run hardware depth estimate
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
                       <div>
-                        <div className="text-gray-500">Total gates</div>
+                        <div className="text-gray-500">Est. total gates</div>
                         <div className="font-mono text-gray-100">
                           {formatText(ibmHardwarePreview.totalGates)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-500">2Q gates</div>
+                        <div className="text-gray-500">Est. 2Q gates</div>
                         <div className="font-mono text-gray-100">
                           {formatText(ibmHardwarePreview.twoQGates)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-500">Sequential 2Q</div>
+                        <div className="text-gray-500">Est. sequential 2Q</div>
                         <div className="font-mono text-gray-100">
                           {formatText(ibmHardwarePreview.sequentialTwoQDepth)}
                         </div>
@@ -5475,7 +5541,7 @@ export default function QaoaRqpV9Page() {
                   <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
                 </Panel>
 
-                <Panel title="IBM / Qiskit Circuit Diagnostics" tone="amber">
+                <Panel title={ibmDiagnosticsTitle} tone="amber">
                   <IbmCircuitDiagnostics metadata={ibmCircuit} />
                 </Panel>
               </div>
@@ -5943,7 +6009,7 @@ export default function QaoaRqpV9Page() {
               </Panel>
             )}
 
-            {result && !result.error && secondOpinionModeChosen && (
+            {result && !result.error && secondOpinionModeChosen && !isIbmHardwareSecondOpinion && (
               <Panel
                 title={`Top Quantum Candidates (2nd opinion)${secondOpinionPanelSuffix}`}
                 tone="secondOpinion"
@@ -5962,6 +6028,47 @@ export default function QaoaRqpV9Page() {
                   <QuantumPlaceholder title="No 2nd opinion candidates">
                     {secondOpinion?.reason ??
                       `No ${secondOpinionSourceLabel} 2nd opinion candidates are available for this result.`}
+                  </QuantumPlaceholder>
+                )}
+              </Panel>
+            )}
+
+            {result && !result.error && secondOpinionModeChosen && isIbmHardwareSecondOpinion && (
+              <Panel
+                title={`Top Quantum Candidates by QUBO (2nd opinion)${secondOpinionPanelSuffix}`}
+                tone="secondOpinion"
+              >
+                {secondOpinionBestQubo.length > 0 ? (
+                  <CandidateTable
+                    rows={secondOpinionBestQubo}
+                    currencyCode={currencyCode}
+                    showProbability
+                  />
+                ) : (
+                  <QuantumPlaceholder title="No IBM hardware QUBO candidates">
+                    {secondOpinion?.reason ??
+                      `No ${secondOpinionSourceLabel} QUBO-ranked candidates are available for this result.`}
+                  </QuantumPlaceholder>
+                )}
+              </Panel>
+            )}
+
+            {result && !result.error && secondOpinionModeChosen && isIbmHardwareSecondOpinion && (
+              <Panel
+                title={`Top Quantum Samples by Probability / Hits (2nd opinion)${secondOpinionPanelSuffix}`}
+                tone="secondOpinion"
+              >
+                {secondOpinionSamples.length > 0 ? (
+                  <CandidateTable
+                    rows={secondOpinionSamples}
+                    currencyCode={currencyCode}
+                    showProbability
+                    showCount
+                  />
+                ) : (
+                  <QuantumPlaceholder title="No IBM hardware samples">
+                    {secondOpinion?.reason ??
+                      `No ${secondOpinionSourceLabel} hit-ranked samples are available for this result.`}
                   </QuantumPlaceholder>
                 )}
               </Panel>
