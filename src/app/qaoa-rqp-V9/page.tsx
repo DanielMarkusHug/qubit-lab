@@ -29,6 +29,8 @@ type EffectiveSettings = {
   ibm_backend_selection?: string | null;
   ibm_fractional_gates?: boolean | null;
   ibm_fractional_mode_label?: string | null;
+  ibm_parallelization?: boolean | null;
+  ibm_construction_mode_label?: string | null;
   ibm_hardware_shots?: number | null;
   ibm_hardware_shots_source?: string | null;
   layers?: number | null;
@@ -523,6 +525,7 @@ type SavedQaoaSnapshot = {
     ibm_instance?: string;
     ibm_backend?: string;
     ibm_fractional_gates?: boolean;
+    ibm_parallelization?: boolean;
     response_level: string;
     layers: number;
     iterations: number;
@@ -1940,6 +1943,16 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
     depthComparison && typeof depthComparison === "object" && !Array.isArray(depthComparison)
       ? (depthComparison as Record<string, unknown>)
       : undefined;
+  const constructionComparison = getRecordValue(
+    getRecordValue(previewComparisonRecord, "construction_mode"),
+    "sequential_2q_depth"
+  );
+  const constructionComparisonRecord =
+    constructionComparison &&
+    typeof constructionComparison === "object" &&
+    !Array.isArray(constructionComparison)
+      ? (constructionComparison as Record<string, unknown>)
+      : undefined;
 
   return (
     <div className="space-y-3 text-xs">
@@ -1988,6 +2001,15 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
                 (getRecordValue(metadata, "fractional_gates_enabled")
                   ? "Prefer fractional gates"
                   : "Standard basis")
+            )}
+          />
+          <InfoRow
+            label="Circuit construction"
+            value={formatText(
+              getRecordValue(metadata, "construction_mode_label") ??
+                (getRecordValue(metadata, "parallelized_construction_enabled")
+                  ? "Parallelized construction"
+                  : "Current / standard construction")
             )}
           />
           <InfoRow
@@ -2163,6 +2185,21 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             Standard {formatText(getRecordValue(depthComparisonRecord, "standard"))} vs
             fractional {formatText(getRecordValue(depthComparisonRecord, "fractional"))} sequential 2Q
             layers ({formatPercent(getRecordValue(depthComparisonRecord, "pct_delta"), 1)} delta).
+          </div>
+        </div>
+      )}
+
+      {constructionComparisonRecord && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+          <div className="font-semibold text-amber-100 mb-2">
+            Construction-mode preview comparison
+          </div>
+          <div className="text-gray-300">
+            Current {formatText(getRecordValue(constructionComparisonRecord, "current"))} vs
+            parallelized{" "}
+            {formatText(getRecordValue(constructionComparisonRecord, "parallelized"))} sequential
+            2Q layers (
+            {formatPercent(getRecordValue(constructionComparisonRecord, "pct_delta"), 1)} delta).
           </div>
         </div>
       )}
@@ -2858,6 +2895,7 @@ export default function QaoaRqpV9Page() {
   const [ibmInstance, setIbmInstance] = useState("open-instance");
   const [ibmBackend, setIbmBackend] = useState("");
   const [ibmFractionalGates, setIbmFractionalGates] = useState(false);
+  const [ibmParallelization, setIbmParallelization] = useState(false);
   const [ibmBackends, setIbmBackends] = useState<IbmBackendOption[]>([]);
   const [ibmBackendsLoading, setIbmBackendsLoading] = useState(false);
   const [ibmBackendsError, setIbmBackendsError] = useState<string | null>(null);
@@ -2966,10 +3004,22 @@ export default function QaoaRqpV9Page() {
       comparisonRecord && typeof comparisonRecord === "object" && !Array.isArray(comparisonRecord)
         ? (comparisonRecord as Record<string, unknown>)
         : undefined;
-    const depthComparison = getRecordValue(comparison, "sequential_2q_depth");
-    const depthComparisonRecord =
-      depthComparison && typeof depthComparison === "object" && !Array.isArray(depthComparison)
-        ? (depthComparison as Record<string, unknown>)
+    const fractionalComparison = getRecordValue(comparison, "sequential_2q_depth");
+    const fractionalComparisonRecord =
+      fractionalComparison &&
+      typeof fractionalComparison === "object" &&
+      !Array.isArray(fractionalComparison)
+        ? (fractionalComparison as Record<string, unknown>)
+        : undefined;
+    const constructionComparison = getRecordValue(
+      getRecordValue(comparison, "construction_mode"),
+      "sequential_2q_depth"
+    );
+    const constructionComparisonRecord =
+      constructionComparison &&
+      typeof constructionComparison === "object" &&
+      !Array.isArray(constructionComparison)
+        ? (constructionComparison as Record<string, unknown>)
         : undefined;
 
     return {
@@ -2984,10 +3034,16 @@ export default function QaoaRqpV9Page() {
       okMax: IBM_HERON2_OK_MAX_SEQUENTIAL_2Q_DEPTH,
       criticalMax: IBM_HERON2_CRITICAL_MAX_SEQUENTIAL_2Q_DEPTH,
       rating,
-      depthComparison: depthComparisonRecord,
+      fractionalDepthComparison: fractionalComparisonRecord,
+      constructionDepthComparison: constructionComparisonRecord,
       fractionalModeLabel: formatText(
         getCircuitValue(previewSource, "preview_fractional_mode_label") ??
           getCircuitValue(previewSource, "fractional_mode_label"),
+        ""
+      ),
+      constructionModeLabel: formatText(
+        getCircuitValue(previewSource, "preview_construction_mode_label") ??
+          getCircuitValue(previewSource, "construction_mode_label"),
         ""
       ),
     };
@@ -3319,6 +3375,7 @@ export default function QaoaRqpV9Page() {
     const nextRandomSeed = getNumber(effectiveSettings.random_seed);
     const nextExportMode = formatText(effectiveSettings.export_mode, "");
     const nextIbmFractionalGates = getBoolean(effectiveSettings.ibm_fractional_gates);
+    const nextIbmParallelization = getBoolean(effectiveSettings.ibm_parallelization);
 
     let changed = false;
 
@@ -3368,6 +3425,10 @@ export default function QaoaRqpV9Page() {
     }
     if (nextIbmFractionalGates !== undefined) {
       setIbmFractionalGates(nextIbmFractionalGates);
+      changed = true;
+    }
+    if (nextIbmParallelization !== undefined) {
+      setIbmParallelization(nextIbmParallelization);
       changed = true;
     }
 
@@ -3455,6 +3516,7 @@ export default function QaoaRqpV9Page() {
         ibm_instance: ibmInstance,
         ibm_backend: ibmBackend,
         ibm_fractional_gates: ibmFractionalGates,
+        ibm_parallelization: ibmParallelization,
         response_level: responseLevel,
         layers,
         iterations,
@@ -3655,6 +3717,9 @@ export default function QaoaRqpV9Page() {
         setIbmFractionalGates(
           Boolean(getBoolean(getEffectiveSetting(resultDiagnostics, "ibm_fractional_gates")))
         );
+        setIbmParallelization(
+          Boolean(getBoolean(getEffectiveSetting(resultDiagnostics, "ibm_parallelization")))
+        );
         setInspectResult(raw.inspect_result ?? null);
         setResult(loadedResult);
         setJobStatus(raw.job_status ?? null);
@@ -3693,6 +3758,7 @@ export default function QaoaRqpV9Page() {
       setIbmInstance(snapshot.ui_state?.ibm_instance ?? "open-instance");
       setIbmBackend(snapshot.ui_state?.ibm_backend ?? "");
       setIbmFractionalGates(Boolean(snapshot.ui_state?.ibm_fractional_gates));
+      setIbmParallelization(Boolean(snapshot.ui_state?.ibm_parallelization));
       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
       setWorkerProfile(normalizeWorkerProfile(snapshot.ui_state?.worker_profile));
       setLayers(snapshot.ui_state?.layers ?? 1);
@@ -3910,6 +3976,7 @@ export default function QaoaRqpV9Page() {
           formData.append("ibm_backend", ibmBackend.trim());
         }
         formData.append("ibm_fractional_gates", ibmFractionalGates ? "1" : "0");
+        formData.append("ibm_parallelization", ibmParallelization ? "1" : "0");
       }
 
       if (settingsTouchedRef.current) {
@@ -4033,6 +4100,7 @@ export default function QaoaRqpV9Page() {
     mode,
     exportMode,
     ibmFractionalGates,
+    ibmParallelization,
     ibmInstance,
     ibmBackend,
     responseLevel,
@@ -4212,6 +4280,7 @@ export default function QaoaRqpV9Page() {
           formData.append("ibm_backend", ibmBackend.trim());
         }
         formData.append("ibm_fractional_gates", ibmFractionalGates ? "1" : "0");
+        formData.append("ibm_parallelization", ibmParallelization ? "1" : "0");
       }
       formData.append("layers", String(layers));
       formData.append("iterations", String(iterations));
@@ -4804,6 +4873,26 @@ export default function QaoaRqpV9Page() {
                   />
 
                   <label className="block text-xs text-gray-300 mb-1.5">
+                    Hardware circuit construction
+                  </label>
+                  <select
+                    value={ibmParallelization ? "parallelized" : "current"}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmParallelization(e.target.value === "parallelized");
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  >
+                    <option value="current">Current / standard construction</option>
+                    <option value="parallelized">Parallelized construction</option>
+                  </select>
+                  <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-[11px] text-gray-300">
+                    Parallelized construction keeps the current hardware path intact by default and
+                    uses a separate QAOA cost-layer build that groups disjoint ZZ interactions into
+                    parallel rounds.
+                  </div>
+
+                  <label className="block text-xs text-gray-300 mb-1.5">
                     Hardware gate mode
                   </label>
                   <select
@@ -4864,6 +4953,9 @@ export default function QaoaRqpV9Page() {
                     </div>
                     <div className="mb-2 text-[11px] text-gray-400">
                       {ibmHardwarePreview.sourceLabel}
+                      {ibmHardwarePreview.constructionModeLabel
+                        ? ` · ${ibmHardwarePreview.constructionModeLabel}`
+                        : ""}
                       {ibmHardwarePreview.fractionalModeLabel
                         ? ` · ${ibmHardwarePreview.fractionalModeLabel}`
                         : ""}
@@ -4932,14 +5024,47 @@ export default function QaoaRqpV9Page() {
                       </div>
                     )}
 
-                    {ibmHardwarePreview.depthComparison && (
+                    {ibmHardwarePreview.fractionalDepthComparison && (
                       <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
                         Fractional-gate comparison: standard{" "}
-                        {formatText(getRecordValue(ibmHardwarePreview.depthComparison, "standard"))}{" "}
+                        {formatText(
+                          getRecordValue(ibmHardwarePreview.fractionalDepthComparison, "standard")
+                        )}{" "}
                         vs fractional{" "}
-                        {formatText(getRecordValue(ibmHardwarePreview.depthComparison, "fractional"))}{" "}
+                        {formatText(
+                          getRecordValue(ibmHardwarePreview.fractionalDepthComparison, "fractional")
+                        )}{" "}
                         sequential 2Q layers (
-                        {formatPercent(getRecordValue(ibmHardwarePreview.depthComparison, "pct_delta"), 1)} delta).
+                        {formatPercent(
+                          getRecordValue(ibmHardwarePreview.fractionalDepthComparison, "pct_delta"),
+                          1
+                        )}{" "}
+                        delta).
+                      </div>
+                    )}
+
+                    {ibmHardwarePreview.constructionDepthComparison && (
+                      <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
+                        Construction comparison: current{" "}
+                        {formatText(
+                          getRecordValue(ibmHardwarePreview.constructionDepthComparison, "current")
+                        )}{" "}
+                        vs parallelized{" "}
+                        {formatText(
+                          getRecordValue(
+                            ibmHardwarePreview.constructionDepthComparison,
+                            "parallelized"
+                          )
+                        )}{" "}
+                        sequential 2Q layers (
+                        {formatPercent(
+                          getRecordValue(
+                            ibmHardwarePreview.constructionDepthComparison,
+                            "pct_delta"
+                          ),
+                          1
+                        )}{" "}
+                        delta).
                       </div>
                     )}
                   </div>
