@@ -1256,6 +1256,32 @@ function getEffectiveSetting(diagnostics: Diagnostics | undefined, key: string) 
   return getRecordValue(diagnostics?.effective_settings, key);
 }
 
+function getPlannedIbmShots(...sources: Array<Diagnostics | undefined>): number | undefined {
+  for (const diagnostics of sources) {
+    const explicitHardwareShots =
+      getNumber(diagnostics?.ibm_hardware_shots) ??
+      getNumber(getEffectiveSetting(diagnostics, "ibm_hardware_shots"));
+    if (explicitHardwareShots !== undefined && explicitHardwareShots > 0) {
+      return explicitHardwareShots;
+    }
+  }
+
+  for (const diagnostics of sources) {
+    const requestedCandidateRows =
+      getNumber(diagnostics?.qaoa_export_requested_rows) ??
+      getNumber(getEffectiveSetting(diagnostics, "qaoa_export_requested_rows")) ??
+      getNumber(diagnostics?.qaoa_max_export_rows) ??
+      getNumber(getEffectiveSetting(diagnostics, "qaoa_max_export_rows")) ??
+      getNumber(diagnostics?.qaoa_export_effective_max_rows) ??
+      getNumber(getEffectiveSetting(diagnostics, "qaoa_export_effective_max_rows"));
+    if (requestedCandidateRows !== undefined && requestedCandidateRows > 0) {
+      return requestedCandidateRows;
+    }
+  }
+
+  return undefined;
+}
+
 function getEffectiveRandomSeed(...sources: Array<Diagnostics | undefined>) {
   for (const diagnostics of sources) {
     const direct = getNumber(diagnostics?.random_seed);
@@ -3154,7 +3180,9 @@ export default function QaoaRqpV9Page() {
   const isTensorSimMode = normalizeRunMode(mode) === QAOA_TENSOR_SIM_MODE;
   const isExactShotsMode =
     !isTensorSimMode && (shotsMode === "exact" || qaoaShotsDisplay === "exact");
-  const plannedIbmShots = isExactShotsMode ? IBM_DEFAULT_EXACT_SHOTS : qaoaShots;
+  const plannedIbmShots =
+    getPlannedIbmShots(diagnostics, inspectDiagnostics) ??
+    (isExactShotsMode ? IBM_DEFAULT_EXACT_SHOTS : qaoaShots);
   const effectiveRandomSeed = getEffectiveRandomSeed(diagnostics, inspectDiagnostics);
   const runModeDiagnostics = useMemo(
     () => getRunModeDiagnostics(mode, diagnostics, inspectDiagnostics),
