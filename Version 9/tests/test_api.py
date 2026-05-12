@@ -60,6 +60,53 @@ INTERNAL_POWER_KEY_ID = "demo-internal-power-001"
 INTERNAL_POWER_KEY = "INTERNAL-POWER-123"
 
 
+def _minimal_code_export_package(qubits: int = 2) -> dict:
+    return {
+        "schema": "qaoa-rqp-code-export-package",
+        "schema_version": 1,
+        "generator": {
+            "tool": "QAOA Rapid Quantum Prototyping",
+            "organization": "qubit-lab.ch",
+            "model_version": "9.2.0",
+            "service": "qaoa-rqp-api-v9",
+            "legal_url": "https://qubit-lab.ch/legal",
+        },
+        "use_case": {
+            "source": "pre-optimized Excel workbook",
+            "mode": "qaoa_lightning_sim",
+            "solver": "classical_heuristic+qaoa_lightning_sim",
+            "n_qubits": qubits,
+            "fixed_positions": 1,
+            "variable_positions": qubits,
+            "budget_usd": 1000000.0,
+            "lambda_budget": 50.0,
+            "lambda_variance": 6.0,
+            "workbook_summary": {"decision_variables": qubits},
+        },
+        "qaoa": {
+            "layers": 1,
+            "gammas": [0.1],
+            "betas": [0.2],
+            "best_bitstring": "10"[:qubits],
+            "shots_mode": "exact",
+            "qaoa_shots": None,
+            "max_export_rows": 10,
+            "export_sort_by": "probability",
+        },
+        "ising": {
+            "h_terms": [0.4 for _ in range(qubits)],
+            "j_terms": [[0, 1, -0.3]] if qubits >= 2 else [],
+            "offset": 0.0,
+        },
+        "bit_order": {
+            "optimizer_bitstring_order": "q0...qN-1",
+            "qiskit_counts_key_order": "cN-1...c0",
+            "counts_decoder": "reverse_qiskit_count_key",
+        },
+        "decision_variables": [],
+    }
+
+
 @pytest.fixture(autouse=True)
 def _default_env(monkeypatch):
     monkeypatch.setenv("QAOA_RQP_LOCAL_DEV", "1")
@@ -598,7 +645,7 @@ def _patch_fast_run(monkeypatch, ledger: _RouteLockLedger, *, fail_execution: bo
         lambda run_id, *_args, **_kwargs: {
             "status": "completed",
             "run_id": run_id,
-            "model_version": "9.1.0",
+            "model_version": "9.2.0",
             "mode": "classical_only",
         },
     )
@@ -617,7 +664,7 @@ def test_root_reports_current_version():
 
     assert response.status_code == 200
     assert payload["service"] == "qaoa-rqp-api-v9"
-    assert payload["version"] == "9.1.0"
+    assert payload["version"] == "9.2.0"
 
 
 def test_capabilities():
@@ -626,7 +673,7 @@ def test_capabilities():
 
     assert response.status_code == 200
     assert payload["service"] == "qaoa-rqp-api-v9"
-    assert payload["version"] == "9.1.0"
+    assert payload["version"] == "9.2.0"
     assert payload["supported_modes"] == ["classical_only", "qaoa_lightning_sim", "qaoa_tensor_sim"]
     assert payload["disabled_modes"] == []
     assert payload["mode_aliases"]["qaoa_limited"] == "qaoa_lightning_sim"
@@ -1017,7 +1064,7 @@ def test_worker_marks_completed_and_releases_public_lock(monkeypatch, tmp_path):
         lambda run_id, *_args, **_kwargs: {
             "status": "completed",
             "run_id": run_id,
-            "model_version": "9.1.0",
+            "model_version": "9.2.0",
             "mode": "classical_only",
             "binary_variables": 3,
             "objective": 1.23,
@@ -1083,7 +1130,7 @@ def test_worker_final_result_includes_worker_profile_and_memory(monkeypatch, tmp
         return {
             "status": "completed",
             "run_id": run_id,
-            "model_version": "9.1.0",
+            "model_version": "9.2.0",
             "mode": "classical_only",
             **metadata,
             "diagnostics": dict(metadata),
@@ -1226,7 +1273,7 @@ def test_worker_preserves_random_seed_in_final_result(monkeypatch, tmp_path):
         return {
             "status": "completed",
             "run_id": run_id,
-            "model_version": "9.1.0",
+            "model_version": "9.2.0",
             "mode": "classical_only",
             "diagnostics": {
                 "random_seed": policy.runtime_inputs.random_seed,
@@ -1449,7 +1496,7 @@ def test_firestore_ledger_consumes_success_atomically_and_records_run():
     assert run_record["n_qubits"] == 3
     assert run_record["candidate_count"] == 8
     assert run_record["runtime_ratio"] == 0.5
-    assert run_record["service_version"] == "9.1.0"
+    assert run_record["service_version"] == "9.2.0"
     assert "timestamp" in run_record
 
 
@@ -3223,7 +3270,7 @@ def test_demo_key_gets_qualified_demo_full_response_by_default():
 
     assert response.status_code == 200
     assert payload["status"] == "completed"
-    assert payload["model_version"] == "9.1.0"
+    assert payload["model_version"] == "9.2.0"
     assert payload["mode"] == "classical_only"
     assert payload["license"]["usage_level"] == "qualified_demo"
     assert payload["license"]["max_runs"] == 1000
@@ -3414,7 +3461,114 @@ def test_public_demo_qaoa_limited_runs_within_small_limits(tmp_path):
     assert payload["diagnostics"]["qaoa_enabled"] is True
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] is None
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots_display"] == "exact"
+    assert payload["diagnostics"]["effective_settings"]["export_mode"] == "internal_only"
+    assert payload["diagnostics"]["export_mode"] == "internal_only"
     assert payload["diagnostics"]["circuit"]["shots_mode"] == "exact"
+    assert payload["diagnostics"]["circuit"]["ibm"]["available"] is False
+    assert payload["diagnostics"]["circuit"]["ibm"]["export_mode"] == "internal_only"
+
+
+def test_public_demo_qiskit_export_requires_tester_level(tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=3)
+    response = _post_run_file(
+        workbook_path,
+        mode="qaoa_limited",
+        response_level="compact",
+        export_mode="qiskit_export",
+        qaoa_p="1",
+        qaoa_maxiter="2",
+        qaoa_multistart_restarts="1",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 403
+    assert payload["error"]["code"] == "export_mode_not_allowed"
+    assert payload["error"]["details"]["export_mode"] == "qiskit_export"
+    assert payload["error"]["details"]["required_level"] == "tester"
+
+
+def test_code_export_requires_tester_level():
+    response = app.test_client().post(
+        "/exports/code",
+        json={
+            "target": "qiskit_notebook",
+            "package": _minimal_code_export_package(),
+        },
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 403
+    assert payload["error"]["code"] == "code_export_not_allowed"
+    assert payload["error"]["details"]["required_min_level_id"] == 2
+
+
+def test_tester_can_render_qiskit_code_export_files():
+    package = _minimal_code_export_package()
+    client = app.test_client()
+
+    py_response = client.post(
+        "/exports/code",
+        headers={"X-API-Key": "TESTER-123"},
+        json={"target": "qiskit_py", "package": package},
+    )
+    py_text = py_response.get_data(as_text=True)
+
+    assert py_response.status_code == 200
+    assert py_response.headers["Content-Disposition"] == 'attachment; filename="qaoa_rqp_qiskit.py"'
+    assert "QAOA Rapid Quantum Prototyping by qubit-lab.ch" in py_text
+    assert "Legal terms: https://qubit-lab.ch/legal" in py_text
+    assert "build_qaoa_circuit" in py_text
+    assert "print_circuit_summary" in py_text
+    assert "Full text circuit diagram skipped" in py_text
+    assert "reconstructed_qubo_value" in py_text
+    assert "Top simulated states by reconstructed QUBO objective" in py_text
+    assert "qubo_value" in py_text
+    assert "pre-optimized Excel use case" in py_text
+    assert "PACKAGE = json.loads" in py_text
+    py_package_namespace: dict[str, object] = {}
+    exec(py_text.split("import numpy as np", 1)[0], py_package_namespace)
+    assert py_package_namespace["PACKAGE"]["qaoa"]["qaoa_shots"] is None
+    assert py_package_namespace["PACKAGE"]["qaoa"]["max_export_rows"] == 10
+
+    notebook_response = client.post(
+        "/exports/code",
+        headers={"X-API-Key": "TESTER-123"},
+        json={"target": "qiskit_notebook", "package": package},
+    )
+    notebook = json.loads(notebook_response.get_data(as_text=True))
+
+    assert notebook_response.status_code == 200
+    assert notebook_response.headers["Content-Disposition"] == 'attachment; filename="qaoa_rqp_qiskit.ipynb"'
+    assert notebook["nbformat"] == 4
+    assert notebook["cells"][0]["cell_type"] == "markdown"
+    assert "QAOA Rapid Quantum Prototyping by qubit-lab.ch" in notebook["cells"][0]["source"]
+    assert "Fixed positions" in notebook["cells"][0]["source"]
+    assert "%pip install qiskit numpy matplotlib" in notebook["cells"][1]["source"]
+    assert "PACKAGE = json.loads" in notebook["cells"][2]["source"]
+    notebook_package_namespace: dict[str, object] = {}
+    exec(notebook["cells"][2]["source"], notebook_package_namespace)
+    assert notebook_package_namespace["PACKAGE"]["qaoa"]["qaoa_shots"] is None
+    assert notebook_package_namespace["PACKAGE"]["qaoa"]["max_export_rows"] == 10
+
+    pennylane_response = client.post(
+        "/exports/code",
+        headers={"X-API-Key": "TESTER-123"},
+        json={"target": "pennylane_notebook", "package": package},
+    )
+    assert pennylane_response.status_code == 200
+    pennylane_text = pennylane_response.get_data(as_text=True)
+    pennylane_notebook = json.loads(pennylane_text)
+    assert "pennylane as qml" in pennylane_text
+    assert "Python 3.11+" in pennylane_text
+    assert '"pennylane>=0.44,<0.45" numpy matplotlib' in pennylane_notebook["cells"][1]["source"]
+
+    cirq_response = client.post(
+        "/exports/code",
+        headers={"X-API-Key": INTERNAL_POWER_KEY},
+        json={"target": "cirq_notebook", "package": package},
+    )
+    assert cirq_response.status_code == 200
+    assert "import cirq" in cirq_response.get_data(as_text=True)
 
 
 def test_qaoa_limited_rejects_over_16_qubit_safety_cap():
@@ -3447,6 +3601,7 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
         headers={"X-API-Key": "TESTER-123"},
         mode="qaoa_limited",
         response_level="full",
+        export_mode="qiskit_export",
         qaoa_p="1",
         qaoa_maxiter="4",
         qaoa_multistart_restarts="1",
@@ -3481,8 +3636,12 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert payload["diagnostics"]["circuit"]["shots_mode"] == "exact"
     assert payload["diagnostics"]["circuit"]["qaoa_shots"] is None
     assert payload["diagnostics"]["circuit"]["qaoa_shots_display"] == "exact"
+    assert payload["diagnostics"]["export_mode"] == "qiskit_export"
+    assert payload["diagnostics"]["effective_settings"]["export_mode"] == "qiskit_export"
+    assert payload["diagnostics"]["circuit"]["export_mode"] == "qiskit_export"
     ibm_circuit = payload["diagnostics"]["circuit"]["ibm"]
     assert ibm_circuit["available"] is True
+    assert ibm_circuit["export_mode"] == "qiskit_export"
     assert ibm_circuit["dry_run"] is True
     assert ibm_circuit["qiskit_available"] is True
     assert ibm_circuit["hardware_submission"] == "not_configured"
@@ -3496,6 +3655,22 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert ibm_circuit["openqasm3"]["preview"].startswith("OPENQASM 3.0;")
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] is None
     assert payload["diagnostics"]["effective_settings"]["qaoa_shots_display"] == "exact"
+    export_package = payload["code_export_package"]
+    assert export_package["schema"] == "qaoa-rqp-code-export-package"
+    assert export_package["schema_version"] == 1
+    assert export_package["generator"]["organization"] == "qubit-lab.ch"
+    assert export_package["use_case"]["source"] == "pre-optimized Excel workbook"
+    assert export_package["use_case"]["n_qubits"] == 7
+    assert export_package["qaoa"]["layers"] == 1
+    assert len(export_package["qaoa"]["gammas"]) == 1
+    assert len(export_package["qaoa"]["betas"]) == 1
+    assert len(export_package["ising"]["h_terms"]) == 7
+    assert export_package["bit_order"]["counts_decoder"] == "reverse_qiskit_count_key"
+    assert "fixed_assets" in export_package["assets"]
+    assert len(export_package["assets"]["variable_assets"]) == 7
+    assert "covariance" in export_package["market_data"]
+    assert "type_budgets" in export_package
+    assert payload["diagnostics"]["code_export_package_available"] is True
 
     reporting = payload["reporting"]
     assert reporting["classical_candidates"]
@@ -3514,15 +3689,32 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert reporting["qaoa_best_qubo"][0]["source"] == "qaoa_lightning_sim"
     assert reporting["qaoa_best_qubo"][0]["selection_scope"] == "qaoa exact probability sample"
     assert reporting["qaoa_best_qubo"][0]["qubo_value"] == min(row["qubo_value"] for row in reporting["qaoa_best_qubo"])
+    second_opinion = reporting["second_opinion"]
+    assert second_opinion["available"] is True
+    assert second_opinion["label"] == "Quantum (2nd opinion) - Qiskit simulation"
+    assert second_opinion["source"] == "qiskit_statevector"
+    assert second_opinion["summary"]["status"] == "Available"
+    assert second_opinion["summary"]["source"] == "Qiskit simulation"
+    assert second_opinion["summary"]["probability"] is not None
+    assert second_opinion["samples"]
+    assert second_opinion["samples"][0]["source"] == "qiskit_statevector_second_opinion"
+    assert second_opinion["best_qubo"]
+    assert second_opinion["portfolio_contents"]
+    assert reporting["summary"]["quantum_second_opinion_summary"]["status"] == "Available"
     assert reporting["solver_comparison"]
     assert {row["solver"] for row in reporting["solver_comparison"]} >= {"Classical Heuristic"}
-    assert any("QAOA" in row["solver"] for row in reporting["solver_comparison"])
+    assert any(row["solver"] == "Quantum / QAOA" for row in reporting["solver_comparison"])
+    assert any(row["solver"] == "Quantum / QAOA (2nd opinion)" for row in reporting["solver_comparison"])
+    assert [row["solver"] for row in reporting["solver_comparison"]].count("Quantum / QAOA (2nd opinion)") == 1
+    assert not any("PennyLane" in row["solver"] for row in reporting["solver_comparison"])
     assert any(row.get("source") == "qaoa_best_qubo" for row in reporting["portfolio_contents"])
     assert reporting["circuit"]["available"] is True
     assert reporting["circuit"]["counts_are_estimated"] is True
     assert reporting["circuit"]["n_qubits"] == 7
     assert reporting["circuit"]["ibm"]["qiskit_available"] is True
     assert reporting["charts"]["qubo_breakdown_quantum"].startswith("data:image/png;base64,")
+    assert reporting["charts"]["qubo_breakdown_second_opinion"].startswith("data:image/png;base64,")
+    assert reporting["charts"]["solver_comparison"].startswith("data:image/png;base64,")
     assert reporting["charts"]["optimization_history"].startswith("data:image/png;base64,")
     assert reporting["charts"]["circuit_overview"].startswith("data:image/png;base64,")
     assert reporting["charts"]["qubo_breakdown_classical"].startswith("data:image/png;base64,")

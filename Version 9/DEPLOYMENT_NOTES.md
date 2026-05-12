@@ -1,4 +1,4 @@
-# Version 9.1.0 Deployment Notes
+# Version 9.2.0 Deployment Notes
 
 Version 9 uses the same container image for two Cloud Run targets:
 
@@ -19,7 +19,7 @@ API_SERVICE_NAME="qaoa-rqp-api-v9"
 WORKER_JOB_SMALL_NAME="qaoa-rqp-worker-small"
 WORKER_JOB_MEDIUM_NAME="qaoa-rqp-worker-medium"
 WORKER_JOB_LARGE_NAME="qaoa-rqp-worker-large"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/qaoa-rqp-api:9.1.0"
+IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/qaoa-rqp-api:9.2.0"
 QAOA_JOB_BUCKET="qaoa-rqp-jobs-v9-$PROJECT_ID"
 
 API_SERVICE_ACCOUNT="qaoa-rqp-api-v9@$PROJECT_ID.iam.gserviceaccount.com"
@@ -172,11 +172,11 @@ variable blocks, then applies the existing budget normalization unchanged. For
 old workbooks, Version 9 can map a legacy `Approx Cost USD` column into
 `Indicative Market Cost USD` for compatibility.
 
-Version 9 workbooks may also define optional exact type-budget constraints:
+Version 9 workbooks may also define optional subtype budget constraints:
 `Additional Type Constraints` in `Settings`, plus `Type A Size` through
 `Type E Size` in `Assets` and the corresponding `Type X Name`, `Type X Budget`,
-and `Type X Budget Penalty` settings. These are V9-only workbook additions;
-Version 8 workbooks without them continue to run unchanged.
+and `Type X Budget Penalty` settings. These exact subtype budgets are V9-only
+workbook additions; Version 8 workbooks without them continue to run unchanged.
 
 ## Service Accounts
 

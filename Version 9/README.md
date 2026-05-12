@@ -1,4 +1,4 @@
-# QAOA RQP API - Version 9.1.0
+# QAOA RQP API - Version 9.2.0
 
 Version 9 creates an asynchronous Cloud Run Jobs backend based on Version 7.
 The optimizer math, QUBO construction, workbook parsing, license policy, HMAC
@@ -50,12 +50,13 @@ old workbooks, Version 9 can map a legacy `Approx Cost USD` column into
 `Indicative Market Cost USD` is used for both the classical and QAOA paths;
 differing legacy values are reported as workbook warnings.
 
-Version 9 also supports 0 to 5 optional exact type-budget constraints. The
+Version 9 also supports 0 to 5 optional subtype budget constraints. The
 Assets sheet may define stable numeric columns `Type A Size` through
 `Type E Size`. The Settings sheet controls them with `Additional Type
 Constraints` plus `Type X Name`, `Type X Budget`, and `Type X Budget Penalty`
-for each active type. These add normalized exact penalties of the form
-`lambda_k * ((fixed_type_exposure_k + sum_i variable_type_size_i * x_i) / budget_k - 1)^2`. See
+for each active type. Subtype budgets are exact normalized targets; fixed
+holdings are included in the exposure before selected variable blocks are added.
+See
 [`docs/excel_format_v9.md`](docs/excel_format_v9.md).
 
 Successful submission returns quickly:

@@ -1,4 +1,4 @@
-# Version 9.1.0 Implementation Summary
+# Version 9.2.0 Implementation Summary
 
 Started a new Version 9 backend from the tagged Version 8 Cloud Run Jobs
 baseline, keeping Version 8 deployable as-is.
@@ -17,14 +17,14 @@ baseline, keeping Version 8 deployable as-is.
 
 ## Version 9 Feature Extension
 
-- Optional exact type-budget constraints, controlled by `Additional Type
+- Optional subtype budget constraints, controlled by `Additional Type
   Constraints` and `Type A` through `Type E` settings.
 - Stable `Assets` columns: `Type A Size`, `Type B Size`, `Type C Size`,
   `Type D Size`, and `Type E Size`.
 - Normalized portfolio-level QUBO penalties:
   `lambda_k * ((fixed_type_exposure_k + sum_i variable_type_size_i * x_i) / budget_k - 1)^2`.
 - Result diagnostics and candidate rows include per-type achieved amounts,
-  deviations, relative deviations, and penalty contributions.
+  deviations, and penalty contributions.
 
 ## Preserved
 

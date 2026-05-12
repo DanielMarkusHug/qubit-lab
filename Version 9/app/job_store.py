@@ -37,11 +37,12 @@ class JobStore:
         extra_updates: dict[str, Any] | None = None,
     ) -> None:
         job = self.get_job(job_id) or {}
+        raw_message = str(message)
         logs_tail = list(job.get("logs_tail") or [])
-        logs_tail.append(str(message))
+        logs_tail.append(_timestamped_log_message(raw_message))
         logs_tail = logs_tail[-LOG_TAIL_LIMIT:]
         updates: dict[str, Any] = {
-            "latest_log": str(message),
+            "latest_log": raw_message,
             "logs_tail": logs_tail,
             "heartbeat_at": _utc_now(),
         }
@@ -178,7 +179,7 @@ def initial_job_document(
                 "eta_seconds_high": None,
             },
             "latest_log": "Job queued.",
-            "logs_tail": ["Job queued."],
+            "logs_tail": [_timestamped_log_message("Job queued.")],
             "result": {
                 "available": False,
                 "storage_path": None,
@@ -236,6 +237,14 @@ def _deep_merge(target: dict[str, Any], updates: dict[str, Any]) -> None:
 
 def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _timestamped_log_message(message: str) -> str:
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%H:%M:%S UTC")
+    text = str(message)
+    if text.startswith("[") and "]" in text[:24]:
+        return text
+    return f"[{stamp}] {text}"
 
 
 @lru_cache(maxsize=1)

@@ -89,6 +89,7 @@ def qaoa_ibm_circuit_metadata(optimizer, *, qasm_preview_chars: int = 2000) -> d
             "available": True,
             "provider": "ibm_quantum",
             "sdk": "qiskit",
+            "export_mode": "qiskit_export",
             "export_format": "QuantumCircuit",
             "dry_run": True,
             "qiskit_available": False,
@@ -145,6 +146,7 @@ def qaoa_ibm_circuit_metadata(optimizer, *, qasm_preview_chars: int = 2000) -> d
             "available": False,
             "provider": "ibm_quantum",
             "sdk": "qiskit",
+            "export_mode": "qiskit_export",
             "reason": f"IBM circuit metadata unavailable: {type(exc).__name__}",
             "hardware_submission": "not_configured",
         }

@@ -38,6 +38,32 @@ QAOA_SIMULATION_BACKENDS = {
 LOCAL_DEV_FALLBACK_SECRET = "qaoa-rqp-local-dev-secret-v1"
 DEFAULT_RESPONSE_LEVEL = "full"
 DEFAULT_QAOA_EXACT_PROBABILITY_MAX_QUBITS = 24
+EXPORT_MODE_INTERNAL_ONLY = "internal_only"
+EXPORT_MODE_QISKIT_EXPORT = "qiskit_export"
+EXPORT_MODE_IBM_EXTERNAL_RUN = "ibm_external_run"
+DEFAULT_EXPORT_MODE = EXPORT_MODE_INTERNAL_ONLY
+EXPORT_MODES = (
+    EXPORT_MODE_INTERNAL_ONLY,
+    EXPORT_MODE_QISKIT_EXPORT,
+    EXPORT_MODE_IBM_EXTERNAL_RUN,
+)
+EXPORT_MODE_LABELS = {
+    EXPORT_MODE_INTERNAL_ONLY: "Internal only / no 2nd opinion",
+    EXPORT_MODE_QISKIT_EXPORT: "Qiskit simulation",
+    EXPORT_MODE_IBM_EXTERNAL_RUN: "Qiskit on IBM Hardware",
+}
+EXPORT_MODE_ALIASES = {
+    "internal": EXPORT_MODE_INTERNAL_ONLY,
+    "none": EXPORT_MODE_INTERNAL_ONLY,
+    "off": EXPORT_MODE_INTERNAL_ONLY,
+    "disabled": EXPORT_MODE_INTERNAL_ONLY,
+    "qiskit": EXPORT_MODE_QISKIT_EXPORT,
+    "qiskit_dry_run": EXPORT_MODE_QISKIT_EXPORT,
+    "ibm": EXPORT_MODE_IBM_EXTERNAL_RUN,
+    "ibm_external": EXPORT_MODE_IBM_EXTERNAL_RUN,
+}
+TESTER_EXPORT_LEVEL_ID = 2
+ULTRA_EXPORT_LEVEL_ID = 5
 
 
 @dataclass(frozen=True)
@@ -108,6 +134,8 @@ class PolicyResult:
     candidate_count: int
     runtime_limit_source: str = "usage_level"
     effective_settings: dict[str, Any] = field(default_factory=dict)
+    export_mode: str = DEFAULT_EXPORT_MODE
+    export_mode_diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def resolve_usage_context(api_key: str | None) -> UsageContext:
@@ -198,6 +226,109 @@ def mode_diagnostics(mode: str | None, effective_mode: str | None = None) -> dic
 
 def simulation_backend_for_mode(mode: str | None) -> str | None:
     return QAOA_SIMULATION_BACKENDS.get(str(mode or "").strip().lower())
+
+
+def normalize_export_mode(value: str | None) -> str:
+    requested = str(value or DEFAULT_EXPORT_MODE).strip().lower()
+    export_mode = EXPORT_MODE_ALIASES.get(requested, requested)
+    if export_mode not in EXPORT_MODES:
+        raise ApiError(
+            400,
+            "invalid_export_mode",
+            "Unsupported export_mode.",
+            {
+                "received_export_mode": requested,
+                "supported_export_modes": list(EXPORT_MODES),
+                "export_mode_aliases": EXPORT_MODE_ALIASES,
+            },
+        )
+    return export_mode
+
+
+def export_mode_diagnostics_for(
+    usage_context: UsageContext | None,
+    export_mode: str | None,
+    *,
+    requested_export_mode: str | None = None,
+) -> dict[str, Any]:
+    effective_export_mode = normalize_export_mode(export_mode)
+    usage_level_name = getattr(usage_context, "usage_level_name", None)
+    usage_level = getattr(usage_context, "usage_level", {}) or {}
+    usage_level_id = _usage_level_id(usage_context)
+    qiskit_allowed = usage_level_id >= TESTER_EXPORT_LEVEL_ID
+    ibm_allowed = usage_level_id >= ULTRA_EXPORT_LEVEL_ID
+    return json_safe(
+        {
+            "requested_export_mode": requested_export_mode or effective_export_mode,
+            "export_mode": effective_export_mode,
+            "export_mode_label": EXPORT_MODE_LABELS.get(effective_export_mode, effective_export_mode),
+            "usage_level": usage_level_name,
+            "usage_level_id": usage_level.get("level_id", usage_level_id),
+            "qiskit_export_allowed": qiskit_allowed,
+            "ibm_external_run_allowed": ibm_allowed,
+            "qiskit_export_requested": effective_export_mode == EXPORT_MODE_QISKIT_EXPORT,
+            "ibm_external_run_requested": effective_export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN,
+            "hardware_submission": "not_configured",
+        }
+    )
+
+
+def validate_export_mode_policy(usage_context: UsageContext, form_data) -> dict[str, Any]:
+    raw_value = _first_form_value(
+        form_data,
+        ("export_mode", "circuit_export_mode", "ibm_export_mode"),
+        DEFAULT_EXPORT_MODE,
+    )
+    export_mode = normalize_export_mode(raw_value)
+    diagnostics = export_mode_diagnostics_for(
+        usage_context,
+        export_mode,
+        requested_export_mode=str(raw_value or DEFAULT_EXPORT_MODE).strip().lower(),
+    )
+    if export_mode == EXPORT_MODE_QISKIT_EXPORT and not diagnostics["qiskit_export_allowed"]:
+        raise ApiError(
+            403,
+            "export_mode_not_allowed",
+            "Qiskit simulation is available for tester level and higher.",
+            {
+                "export_mode": export_mode,
+                "required_level": "tester",
+                "usage_level": usage_context.usage_level_name,
+                "usage_level_id": diagnostics.get("usage_level_id"),
+            },
+        )
+    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
+        if not diagnostics["ibm_external_run_allowed"]:
+            raise ApiError(
+                403,
+                "export_mode_not_allowed",
+                "Qiskit on IBM Hardware is reserved for ultra level.",
+                {
+                    "export_mode": export_mode,
+                    "required_level": "internal_ultra",
+                    "usage_level": usage_context.usage_level_name,
+                    "usage_level_id": diagnostics.get("usage_level_id"),
+                },
+            )
+        raise ApiError(
+            501,
+            "ibm_external_run_not_enabled",
+            "Qiskit on IBM Hardware is not enabled yet.",
+            {
+                "export_mode": export_mode,
+                "required_level": "internal_ultra",
+                "usage_level": usage_context.usage_level_name,
+            },
+        )
+    return diagnostics
+
+
+def apply_export_mode_metadata(optimizer, export_mode_diagnostics: dict[str, Any]) -> None:
+    if optimizer is None:
+        return
+    optimizer.export_mode = export_mode_diagnostics.get("export_mode", DEFAULT_EXPORT_MODE)
+    optimizer.export_mode_label = export_mode_diagnostics.get("export_mode_label")
+    optimizer.export_mode_diagnostics = dict(export_mode_diagnostics)
 
 
 def mode_limits_for(usage_level: dict[str, Any], mode: str) -> dict[str, Any]:
@@ -318,6 +449,9 @@ def validate_problem_policy(usage_context: UsageContext, optimizer, mode: str, f
                 },
             )
 
+    export_mode_diagnostics = validate_export_mode_policy(usage_context, form_data)
+    apply_export_mode_metadata(optimizer, export_mode_diagnostics)
+
     runtime_inputs = extract_runtime_inputs(optimizer, form_data, usage_level=usage_level, mode=mode)
     if mode in QAOA_MODES:
         _validate_qaoa_runtime_limits(usage_context, runtime_inputs, mode, mode_limits)
@@ -328,6 +462,7 @@ def validate_problem_policy(usage_context: UsageContext, optimizer, mode: str, f
         mode,
         runtime_inputs=runtime_inputs,
         form_data=form_data,
+        export_mode_diagnostics=export_mode_diagnostics,
     )
     if not policy_result.within_limit:
         raise ApiError(
@@ -357,6 +492,7 @@ def estimate_policy_result(
     runtime_inputs: RuntimeInputs | None = None,
     candidate_count: int | None = None,
     form_data=None,
+    export_mode_diagnostics: dict[str, Any] | None = None,
 ) -> PolicyResult:
     mode_selection = resolve_run_mode(mode)
     mode = mode_selection.run_mode
@@ -375,7 +511,16 @@ def estimate_policy_result(
     raw_estimated_runtime_sec = estimate_raw_runtime_sec(n_qubits, mode, runtime_inputs, candidate_count)
     estimated_runtime_sec = apply_runtime_estimate_multiplier(raw_estimated_runtime_sec, mode)
     max_runtime, runtime_limit_source = runtime_limit_for(usage_level, mode)
-    effective_settings = build_effective_settings(optimizer, mode, runtime_inputs, form_data)
+    if export_mode_diagnostics is None:
+        export_mode_diagnostics = validate_export_mode_policy(usage_context, form_data or {})
+        apply_export_mode_metadata(optimizer, export_mode_diagnostics)
+    effective_settings = build_effective_settings(
+        optimizer,
+        mode,
+        runtime_inputs,
+        form_data,
+        export_mode_diagnostics=export_mode_diagnostics,
+    )
     return PolicyResult(
         runtime_inputs=runtime_inputs,
         estimated_runtime_sec=estimated_runtime_sec,
@@ -386,6 +531,8 @@ def estimate_policy_result(
         candidate_count=candidate_count,
         runtime_limit_source=runtime_limit_source,
         effective_settings=effective_settings,
+        export_mode=str(export_mode_diagnostics.get("export_mode", DEFAULT_EXPORT_MODE)),
+        export_mode_diagnostics=export_mode_diagnostics,
     )
 
 
@@ -427,6 +574,7 @@ def runtime_estimate_payload(mode: str, policy_result: PolicyResult) -> dict[str
                 "qaoa_shots_display": policy_result.effective_settings.get("qaoa_shots_display"),
                 "shots_mode": policy_result.effective_settings.get("shots_mode"),
                 "random_seed": policy_result.runtime_inputs.random_seed,
+                "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
             },
         }
     )
@@ -476,10 +624,23 @@ def extract_runtime_inputs(optimizer, form_data, usage_level: dict[str, Any] | N
     )
 
 
-def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs, form_data=None) -> dict[str, Any]:
+def build_effective_settings(
+    optimizer,
+    mode: str,
+    runtime_inputs: RuntimeInputs,
+    form_data=None,
+    *,
+    export_mode_diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     settings = getattr(optimizer, "settings", {}) or {}
     n_qubits = int(getattr(optimizer, "n", 0) or 0)
     shots_mode = _shots_mode_for(mode, n_qubits=n_qubits)
+    export_mode_diagnostics = export_mode_diagnostics or getattr(
+        optimizer,
+        "export_mode_diagnostics",
+        export_mode_diagnostics_for(None, DEFAULT_EXPORT_MODE),
+    )
+    export_mode = str(export_mode_diagnostics.get("export_mode", DEFAULT_EXPORT_MODE))
     raw_qaoa_shots = runtime_inputs.qaoa_shots
     if shots_mode == "exact":
         qaoa_shots = None
@@ -517,6 +678,13 @@ def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs
         "qaoa_restart_perturbation": runtime_inputs.restart_perturbation,
         "random_seed": runtime_inputs.random_seed,
         "rng_seed": runtime_inputs.random_seed,
+        "export_mode": export_mode,
+        "export_mode_label": export_mode_diagnostics.get(
+            "export_mode_label",
+            EXPORT_MODE_LABELS.get(export_mode, export_mode),
+        ),
+        "qiskit_export_requested": export_mode == EXPORT_MODE_QISKIT_EXPORT,
+        "ibm_external_run_requested": export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN,
         "sources": {
             "layers": _setting_source(form_data, settings, ("qaoa_p", "layers"), ("qaoa_p",)),
             "iterations": _setting_source(form_data, settings, ("qaoa_maxiter", "iterations"), ("qaoa_maxiter",)),
@@ -558,6 +726,12 @@ def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs
                 ("qaoa_restart_perturbation",),
             ),
             "random_seed": random_seed_source(form_data, settings),
+            "export_mode": _setting_source(
+                form_data,
+                settings,
+                ("export_mode", "circuit_export_mode", "ibm_export_mode"),
+                ("export_mode",),
+            ),
         },
     }
     return json_safe(payload)
@@ -686,6 +860,27 @@ def capabilities_payload() -> dict[str, Any]:
             "qaoa_effective_limits": qaoa_effective_limits,
             "worker_profiles": worker_profiles_payload(),
             "default_worker_profile": "small",
+            "export_modes": [
+                {
+                    "value": EXPORT_MODE_INTERNAL_ONLY,
+                    "label": EXPORT_MODE_LABELS[EXPORT_MODE_INTERNAL_ONLY],
+                    "minimum_level_id": 0,
+                    "enabled": True,
+                },
+                {
+                    "value": EXPORT_MODE_QISKIT_EXPORT,
+                    "label": EXPORT_MODE_LABELS[EXPORT_MODE_QISKIT_EXPORT],
+                    "minimum_level_id": TESTER_EXPORT_LEVEL_ID,
+                    "enabled": True,
+                },
+                {
+                    "value": EXPORT_MODE_IBM_EXTERNAL_RUN,
+                    "label": EXPORT_MODE_LABELS[EXPORT_MODE_IBM_EXTERNAL_RUN],
+                    "minimum_level_id": ULTRA_EXPORT_LEVEL_ID,
+                    "enabled": False,
+                },
+            ],
+            "default_export_mode": DEFAULT_EXPORT_MODE,
         }
     )
 
@@ -973,6 +1168,15 @@ def _response_level_for_effective_settings(form_data) -> str:
     return DEFAULT_RESPONSE_LEVEL
 
 
+def _first_form_value(form_data, keys: tuple[str, ...], default: Any = None) -> Any:
+    if form_data is not None:
+        for key in keys:
+            raw_value = form_data.get(key)
+            if raw_value is not None and str(raw_value).strip() != "":
+                return raw_value
+    return default
+
+
 def _form_has_value(form_data, keys: tuple[str, ...]) -> bool:
     if form_data is None:
         return False
@@ -981,6 +1185,16 @@ def _form_has_value(form_data, keys: tuple[str, ...]) -> bool:
         if raw_value is not None and str(raw_value).strip() != "":
             return True
     return False
+
+
+def _usage_level_id(usage_context: UsageContext | None) -> int:
+    if usage_context is None:
+        return 0
+    raw_value = usage_context.usage_level.get("level_id")
+    try:
+        return int(float(raw_value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _int_or_none(value) -> int | None:

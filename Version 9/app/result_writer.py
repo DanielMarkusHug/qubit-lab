@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import os
 from io import BytesIO
 from typing import Any
 
@@ -14,7 +15,8 @@ import pandas as pd
 
 from app.config import Config
 from app.cost_columns import INDICATIVE_COST_COLUMN, LEGACY_COST_COLUMN, add_indicative_cost_alias_to_frame
-from app.ibm_circuit import qaoa_ibm_circuit_metadata
+from app.code_exports import build_qaoa_code_export_package
+from app.ibm_circuit import build_qiskit_qaoa_circuit_from_optimizer, qaoa_ibm_circuit_metadata
 from app.schemas import json_safe
 from app.type_constraints import (
     achievements_for_bitvec,
@@ -23,7 +25,15 @@ from app.type_constraints import (
     type_candidate_columns,
     type_size_columns,
 )
-from app.usage_policy import mode_diagnostics, runtime_estimate_payload
+from app.usage_policy import (
+    DEFAULT_EXPORT_MODE,
+    EXPORT_MODE_IBM_EXTERNAL_RUN,
+    EXPORT_MODE_INTERNAL_ONLY,
+    EXPORT_MODE_LABELS,
+    EXPORT_MODE_QISKIT_EXPORT,
+    mode_diagnostics,
+    runtime_estimate_payload,
+)
 from app.workbook_diagnostics import candidate_export_diagnostics, workbook_warnings
 
 
@@ -130,6 +140,7 @@ def build_classical_response(
         mode=mode,
         solver=solver,
         include_reporting_charts=response_level == "full",
+        policy_result=policy_result,
     )
     _attach_policy_metadata(full_payload, usage_context, policy_result, license_info, actual_runtime_sec)
     _attach_run_metadata(full_payload, run_metadata)
@@ -167,6 +178,7 @@ def shape_classical_response(full_payload: dict[str, Any], response_level: str) 
         "memory_used_pct": full_payload.get("memory_used_pct"),
         "peak_memory_used_gib": full_payload.get("peak_memory_used_gib"),
         "memory_history": full_payload.get("memory_history"),
+        "code_export_package": full_payload.get("code_export_package"),
         "diagnostics": _compact_diagnostics(full_payload.get("diagnostics", {}), log_limit=20),
         "reporting": _shape_reporting(full_payload.get("reporting", {}), "compact"),
     }
@@ -190,6 +202,7 @@ def _build_full_classical_response(
     mode: str = "classical_only",
     solver: str = "classical_heuristic",
     include_reporting_charts: bool = False,
+    policy_result=None,
 ) -> dict[str, Any]:
     best = optimizer.sort_candidates(optimizer.classical_results).iloc[0]
     bitstring = str(best.get("bitstring", ""))
@@ -237,6 +250,8 @@ def _build_full_classical_response(
             or getattr(optimizer, "qaoa_limited_exact_probabilities", False)
         ),
         "qaoa_runtime_sec": _safe_attr(optimizer, "qaoa_runtime_sec"),
+        "export_mode": _export_mode(optimizer),
+        "export_mode_diagnostics": _export_mode_diagnostics(optimizer),
         "circuit": _circuit_report(optimizer),
         "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
         "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
@@ -252,6 +267,22 @@ def _build_full_classical_response(
         "logs": list(logs or []),
     }
     diagnostics.update(candidate_export_diagnostics(optimizer))
+    export_workbook_summary = build_workbook_summary(optimizer)
+    if workbook_summary:
+        export_workbook_summary.update(
+            {
+                "input_sheet_names": workbook_summary.get("input_sheet_names", []),
+                "ignored_output_sheets": workbook_summary.get("ignored_output_sheets", []),
+            }
+        )
+    code_export_package = build_qaoa_code_export_package(
+        optimizer,
+        mode=mode,
+        solver=solver,
+        workbook_summary=export_workbook_summary,
+        policy_result=policy_result,
+    )
+    diagnostics["code_export_package_available"] = bool(code_export_package)
 
     return json_safe(
         {
@@ -295,6 +326,7 @@ def _build_full_classical_response(
             "best_candidate": {key: _safe_get(best, key) for key in _best_metric_keys(optimizer) if key in best.index},
             "selected_blocks": _records_with_keys(selected_rows, _portfolio_row_keys(optimizer)),
             "top_candidates": _records_with_keys(top_candidates, _best_metric_keys(optimizer)),
+            "code_export_package": code_export_package,
             "reporting": _build_reporting(optimizer, include_charts=include_reporting_charts),
             "diagnostics": diagnostics,
         }
@@ -329,6 +361,12 @@ def _attach_policy_metadata(
         payload["diagnostics"]["eta_seconds_low"] = payload["diagnostics"]["runtime_estimate"].get("eta_seconds_low")
         payload["diagnostics"]["eta_seconds_high"] = payload["diagnostics"]["runtime_estimate"].get("eta_seconds_high")
         payload["diagnostics"]["n_qubits"] = getattr(policy_result, "n_qubits", None)
+        payload["diagnostics"]["export_mode"] = getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE)
+        payload["diagnostics"]["export_mode_diagnostics"] = getattr(
+            policy_result,
+            "export_mode_diagnostics",
+            {},
+        )
         payload["diagnostics"]["candidate_count"] = payload["diagnostics"].get(
             "classical_candidate_count",
             getattr(policy_result, "candidate_count", None),
@@ -343,6 +381,7 @@ def _attach_policy_metadata(
             "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
             "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
             "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
+            "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
         }
         payload["diagnostics"]["effective_settings"] = getattr(policy_result, "effective_settings", {})
         payload["diagnostics"]["random_seed"] = getattr(policy_result.runtime_inputs, "random_seed", None)
@@ -441,6 +480,8 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
         "runtime_inputs",
         "effective_settings",
         "random_seed",
+        "export_mode",
+        "export_mode_diagnostics",
         "usage_level",
         "qaoa_enabled",
         "qaoa_available",
@@ -453,6 +494,7 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
         "qaoa_exact_probabilities",
         "qaoa_runtime_sec",
         "circuit",
+        "code_export_package_available",
     )
     compact = {key: diagnostics.get(key) for key in keys if key in diagnostics}
     if "logs" in diagnostics:
@@ -511,9 +553,12 @@ def build_inspection_response(
             "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
             "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
             "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
+            "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
         },
         "effective_settings": getattr(policy_result, "effective_settings", {}),
         "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
+        "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
+        "export_mode_diagnostics": getattr(policy_result, "export_mode_diagnostics", {}),
         "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
         "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
         "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
@@ -572,6 +617,7 @@ def _shape_reporting(reporting: dict[str, Any], response_level: str) -> dict[str
             "summary": reporting.get("summary", {}),
             "classical_candidates": reporting.get("classical_candidates", []),
             "solver_comparison": reporting.get("solver_comparison", []),
+            "second_opinion": reporting.get("second_opinion", {}),
             "portfolio_contents": reporting.get("portfolio_contents", []),
             "circuit": reporting.get("circuit", {}),
         }
@@ -579,6 +625,11 @@ def _shape_reporting(reporting: dict[str, Any], response_level: str) -> dict[str
 
 
 def _build_reporting(optimizer, include_charts: bool = False) -> dict[str, Any]:
+    second_opinion = _qiskit_second_opinion_report(optimizer)
+    summary = _build_reporting_summary(optimizer)
+    summary["quantum_second_opinion_summary"] = second_opinion.get("summary")
+    summary["second_opinion_available"] = bool(second_opinion.get("available"))
+    summary["second_opinion_label"] = second_opinion.get("label")
     classical_candidates = _candidate_records(
         getattr(optimizer, "classical_results", pd.DataFrame()),
         optimizer=optimizer,
@@ -601,15 +652,16 @@ def _build_reporting(optimizer, include_charts: bool = False) -> dict[str, Any]:
         limit=20,
     )
     reporting = {
-        "summary": _build_reporting_summary(optimizer),
+        "summary": summary,
         "classical_candidates": classical_candidates,
         "quantum_samples": quantum_samples,
         "qaoa_best_qubo": qaoa_best_qubo,
-        "solver_comparison": _records(getattr(optimizer, "solver_comparison_df", pd.DataFrame())),
+        "second_opinion": second_opinion,
+        "solver_comparison": _solver_comparison_records(optimizer, second_opinion),
         "portfolio_contents": _portfolio_content_records(optimizer),
         "optimization_history": _records(_tail_df(getattr(optimizer, "history_df", pd.DataFrame()), 200)),
         "circuit": _circuit_report(optimizer),
-        "charts": _build_reporting_charts(optimizer) if include_charts else {},
+        "charts": _build_reporting_charts(optimizer, second_opinion) if include_charts else {},
     }
     return json_safe(reporting)
 
@@ -638,6 +690,7 @@ def _build_reporting_summary(optimizer) -> dict[str, Any]:
         "qaoa_status": _qaoa_status(optimizer),
         "qaoa_p": _safe_attr(optimizer, "qaoa_p"),
         "qaoa_mode": _safe_attr(optimizer, "qaoa_mode"),
+        "export_mode": _export_mode(optimizer),
         "budget_lambda": _safe_attr(optimizer, "lambda_budget"),
         "risk_lambda": _safe_attr(optimizer, "lambda_variance"),
         "risk_free_rate": _safe_attr(optimizer, "risk_free"),
@@ -763,6 +816,270 @@ def _candidate_summary(
     }
 
 
+def _qiskit_second_opinion_report(optimizer) -> dict[str, Any]:
+    export_mode = _export_mode(optimizer)
+    label = _second_opinion_label(export_mode)
+    source_label = _second_opinion_source_label(export_mode)
+    if export_mode not in {EXPORT_MODE_QISKIT_EXPORT, EXPORT_MODE_IBM_EXTERNAL_RUN}:
+        return json_safe(
+            {
+                "available": False,
+                "enabled": False,
+                "label": label,
+                "source": "not_requested",
+                "reason": "2nd opinion mode was not selected.",
+                "summary": _empty_second_opinion_summary(label, "Not requested", source_label),
+                "samples": [],
+                "best_qubo": [],
+                "portfolio_contents": [],
+            }
+        )
+
+    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
+        return json_safe(
+            {
+                "available": False,
+                "enabled": True,
+                "label": label,
+                "source": "ibm_hardware",
+                "reason": "IBM Hardware execution is reserved for a later backend release.",
+                "summary": _empty_second_opinion_summary(label, "IBM Hardware later", source_label),
+                "samples": [],
+                "best_qubo": [],
+                "portfolio_contents": [],
+            }
+        )
+
+    samples = getattr(optimizer, "samples_df", pd.DataFrame())
+    exact = getattr(optimizer, "qaoa_exact_best_qubo_df", pd.DataFrame())
+    if not bool(getattr(optimizer, "enable_qaoa", False)) or (
+        (not isinstance(samples, pd.DataFrame) or len(samples) == 0)
+        and (not isinstance(exact, pd.DataFrame) or len(exact) == 0)
+    ):
+        return json_safe(
+            {
+                "available": False,
+                "enabled": True,
+                "label": label,
+                "source": "qiskit_statevector",
+                "reason": "QAOA was not executed, so no Qiskit comparison can be built.",
+                "summary": _empty_second_opinion_summary(label, "QAOA not executed", source_label),
+                "samples": [],
+                "best_qubo": [],
+                "portfolio_contents": [],
+            }
+        )
+
+    max_qubits = _qiskit_second_opinion_max_qubits()
+    n_qubits = _safe_int(getattr(optimizer, "n", None)) or 0
+    if n_qubits <= 0 or n_qubits > max_qubits:
+        return json_safe(
+            {
+                "available": False,
+                "enabled": True,
+                "label": label,
+                "source": "qiskit_statevector",
+                "reason": f"Qiskit 2nd opinion statevector is capped at {max_qubits} qubits.",
+                "n_qubits": n_qubits,
+                "max_qubits": max_qubits,
+                "summary": _empty_second_opinion_summary(label, "Qubit cap", source_label),
+                "samples": [],
+                "best_qubo": [],
+                "portfolio_contents": [],
+            }
+        )
+
+    try:
+        probabilities_by_bitstring = _qiskit_statevector_probabilities_by_optimizer_bitstring(optimizer)
+        if not probabilities_by_bitstring:
+            raise ValueError("Qiskit returned no state probabilities.")
+
+        top_probability_rows = []
+        for rank, (bitstring, probability) in enumerate(
+            sorted(probabilities_by_bitstring.items(), key=lambda item: (-item[1], item[0]))[:20],
+            start=1,
+        ):
+            row = _candidate_row_for_bitstring(
+                optimizer,
+                bitstring,
+                probability=probability,
+                source="qiskit_statevector_second_opinion",
+                selection_scope="Qiskit simulation top states by probability",
+            )
+            if row is not None:
+                row["rank"] = rank
+                top_probability_rows.append(row)
+
+        best_source = exact if isinstance(exact, pd.DataFrame) and len(exact) else samples
+        best_rows = []
+        if isinstance(best_source, pd.DataFrame) and len(best_source):
+            for rank, (_, candidate) in enumerate(
+                _sort_df(best_source, optimizer, "qubo_value", True).head(20).iterrows(),
+                start=1,
+            ):
+                bitstring = str(candidate.get("bitstring", "") or "")
+                if not bitstring:
+                    continue
+                row = _candidate_row_for_bitstring(
+                    optimizer,
+                    bitstring,
+                    probability=probabilities_by_bitstring.get(bitstring),
+                    source="qiskit_statevector_second_opinion",
+                    selection_scope="Qiskit simulation over QAOA best-QUBO candidate set",
+                )
+                if row is not None:
+                    row["rank"] = rank
+                    best_rows.append(row)
+
+        sample_df = _sort_df(pd.DataFrame(top_probability_rows), optimizer, "probability", False)
+        best_df = _sort_df(pd.DataFrame(best_rows), optimizer, "qubo_value", True)
+        summary_row = best_df.iloc[0] if len(best_df) else (sample_df.iloc[0] if len(sample_df) else None)
+        summary = (
+            _candidate_summary(
+                summary_row,
+                title=label,
+                status="Available",
+                available=True,
+                source=source_label,
+                solver="Quantum / QAOA (2nd opinion)",
+            )
+            if summary_row is not None
+            else _empty_second_opinion_summary(label, "No candidates", source_label)
+        )
+        portfolio_contents = _portfolio_rows_for_candidate(optimizer, summary_row, "qiskit_statevector_second_opinion") if summary_row is not None else []
+
+        return json_safe(
+            {
+                "available": bool(summary_row is not None),
+                "enabled": True,
+                "label": label,
+                "source": "qiskit_statevector",
+                "provider": "local_simulation",
+                "sdk": "qiskit",
+                "simulation": True,
+                "dry_run": True,
+                "hardware_submission": "not_configured",
+                "n_qubits": n_qubits,
+                "max_qubits": max_qubits,
+                "summary": summary,
+                "samples": _records(sample_df),
+                "best_qubo": _records(best_df),
+                "portfolio_contents": portfolio_contents,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - optional reporting block should not break the run
+        return json_safe(
+            {
+                "available": False,
+                "enabled": True,
+                "label": label,
+                "source": "qiskit_statevector",
+                "reason": f"Qiskit 2nd opinion unavailable: {type(exc).__name__}",
+                "summary": _empty_second_opinion_summary(label, "Unavailable", source_label),
+                "samples": [],
+                "best_qubo": [],
+                "portfolio_contents": [],
+            }
+        )
+
+
+def _second_opinion_label(export_mode: str | None) -> str:
+    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
+        return "Quantum (2nd opinion) - IBM Hardware"
+    if export_mode == EXPORT_MODE_QISKIT_EXPORT:
+        return "Quantum (2nd opinion) - Qiskit simulation"
+    return "Quantum (2nd opinion)"
+
+
+def _second_opinion_source_label(export_mode: str | None) -> str:
+    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
+        return "IBM Hardware"
+    if export_mode == EXPORT_MODE_QISKIT_EXPORT:
+        return "Qiskit simulation"
+    return "Not requested"
+
+
+def _empty_second_opinion_summary(title: str, status: str, source: str = "Qiskit simulation") -> dict[str, Any]:
+    return {
+        "title": title,
+        "status": status,
+        "available": False,
+        "source": source,
+        "solver": "Quantum / QAOA (2nd opinion)",
+        "best_bitstring": None,
+        "objective": None,
+        "qubo_value": None,
+        "selected_usd": None,
+        "budget_gap": None,
+        "abs_budget_gap": None,
+        "return_term": None,
+        "risk_term": None,
+        "budget_term": None,
+        "type_budget_term": None,
+        "portfolio_return": None,
+        "portfolio_vol": None,
+        "sharpe_like": None,
+        "cash_weight": None,
+        "probability": None,
+    }
+
+
+def _qiskit_second_opinion_max_qubits() -> int:
+    raw_value = os.getenv("QAOA_QISKIT_SECOND_OPINION_MAX_QUBITS", "20")
+    try:
+        return max(1, int(float(raw_value)))
+    except (TypeError, ValueError):
+        return 20
+
+
+def _qiskit_statevector_probabilities_by_optimizer_bitstring(optimizer) -> dict[str, float]:
+    from qiskit.quantum_info import Statevector
+
+    circuit = build_qiskit_qaoa_circuit_from_optimizer(optimizer, measure=False, name="qaoa_rqp_second_opinion")
+    n_qubits = int(getattr(optimizer, "n", 0) or 0)
+    probabilities = np.asarray(Statevector.from_instruction(circuit).probabilities(), dtype=float).reshape(-1)
+    total = float(np.sum(probabilities))
+    if total > 0.0 and np.isfinite(total):
+        probabilities = probabilities / total
+
+    result: dict[str, float] = {}
+    for index, probability in enumerate(probabilities):
+        value = float(probability)
+        if value <= 0.0:
+            continue
+        qiskit_key = format(index, f"0{n_qubits}b")
+        optimizer_bitstring = qiskit_key[::-1]
+        result[optimizer_bitstring] = result.get(optimizer_bitstring, 0.0) + value
+    return result
+
+
+def _candidate_row_for_bitstring(
+    optimizer,
+    bitstring: str,
+    *,
+    probability: float | None,
+    source: str,
+    selection_scope: str,
+) -> dict[str, Any] | None:
+    try:
+        bits = np.array(list(map(int, str(bitstring))), dtype=int)
+        stats = optimizer.portfolio_stats(bits)
+        if getattr(optimizer, "qaoa_export_feasible_only", False) and not optimizer.row_is_feasible(stats):
+            return None
+        term_stats = optimizer.qubo_term_breakdown(bits)
+        return {
+            "bitstring": str(bitstring),
+            "source": source,
+            "selection_scope": selection_scope,
+            "probability": None if probability is None else float(probability),
+            "qubo_value": optimizer.qubo_value(bits),
+            **term_stats,
+            **stats,
+        }
+    except Exception:
+        return None
+
+
 def _type_achievements_from_row(row) -> list[dict[str, Any]]:
     achievements = []
     for prefix in ("type_a", "type_b", "type_c", "type_d", "type_e"):
@@ -788,7 +1105,7 @@ def _type_achievements_from_row(row) -> list[dict[str, Any]]:
     return achievements
 
 
-def _build_reporting_charts(optimizer) -> dict[str, str | None]:
+def _build_reporting_charts(optimizer, second_opinion: dict[str, Any] | None = None) -> dict[str, str | None]:
     classical_breakdown = _qubo_breakdown_chart(optimizer)
     circuit = _circuit_report(optimizer)
     return {
@@ -797,9 +1114,10 @@ def _build_reporting_charts(optimizer) -> dict[str, str | None]:
         "qubo_breakdown": classical_breakdown,
         "qubo_breakdown_classical": classical_breakdown,
         "qubo_breakdown_quantum": _quantum_qubo_breakdown_chart(optimizer),
+        "qubo_breakdown_second_opinion": _second_opinion_qubo_breakdown_chart(second_opinion),
         "optimization_history": _optimization_history_chart(optimizer),
         "circuit_overview": _circuit_overview_chart(circuit),
-        "solver_comparison": _solver_comparison_chart(optimizer),
+        "solver_comparison": _solver_comparison_chart(optimizer, second_opinion),
     }
 
 
@@ -894,46 +1212,62 @@ def _qubo_breakdown_chart(optimizer) -> str | None:
 
 
 def _quantum_qubo_breakdown_chart(optimizer) -> str | None:
-    row = _best_qaoa_candidate(optimizer)
-    if row is None:
+    exact = getattr(optimizer, "qaoa_exact_best_qubo_df", pd.DataFrame())
+    samples = getattr(optimizer, "samples_df", pd.DataFrame())
+    source_df = exact if isinstance(exact, pd.DataFrame) and len(exact) else samples
+    df = _sort_df(source_df, optimizer, "qubo_value", True).head(10)
+    if df is None or len(df) == 0:
         return None
-    return _single_qubo_breakdown_chart(row, "QUBO Breakdown - Best Quantum Candidate")
+    return _stacked_qubo_breakdown_chart(df, "QUBO Breakdown - Quantum Top 10", "Q")
 
 
-def _single_qubo_breakdown_chart(row, title: str) -> str | None:
-    terms = ["return_term", "risk_term", "budget_term"]
-    if _series_get(row, "type_budget_term") is not None:
-        terms.append("type_budget_term")
-    values = []
-    for term in terms:
-        value = _series_get(row, term)
-        if value is None:
-            return None
-        values.append(float(value))
-    qubo_value = _series_get(row, "qubo_value")
-    if qubo_value is None:
+def _second_opinion_qubo_breakdown_chart(second_opinion: dict[str, Any] | None) -> str | None:
+    if not isinstance(second_opinion, dict) or not second_opinion.get("available"):
+        return None
+    rows = second_opinion.get("best_qubo") or second_opinion.get("samples") or []
+    df = pd.DataFrame(rows)
+    if df is None or len(df) == 0:
+        return None
+    sort_col = "qubo_value" if "qubo_value" in df.columns else "probability"
+    ascending = sort_col == "qubo_value"
+    df = _sort_df(df, None, sort_col, ascending).head(10)
+    return _stacked_qubo_breakdown_chart(df, "QUBO Breakdown - Quantum 2nd opinion Top 10", "Q2")
+
+
+def _stacked_qubo_breakdown_chart(df: pd.DataFrame, title: str, label_prefix: str) -> str | None:
+    terms = tuple(
+        term
+        for term in ("return_term", "risk_term", "budget_term", "type_budget_term")
+        if term != "type_budget_term" or term in df.columns
+    )
+    if df is None or len(df) == 0 or not all(term in df.columns for term in terms):
         return None
 
-    labels = ["Return", "Risk", "Budget"]
-    if "type_budget_term" in terms:
-        labels.append("Type")
-    labels.append("QUBO")
-    heights = values + [float(qubo_value)]
-    colors = ["#2ED8A3", "#FFB04D", "#FF5E7A"]
-    if "type_budget_term" in terms:
-        colors.append("#A78BFA")
-    colors.append("#1EC8FF")
-    fig, ax = plt.subplots(figsize=(8, 5.2))
+    fig, ax = plt.subplots(figsize=(10, 5.8))
     _style_axis(fig, ax, title)
-    ax.bar(labels, heights, color=colors, alpha=0.9)
-    ax.axhline(0, color="#F8FAFC", linewidth=0.8, alpha=0.65)
-    bitstring = _series_get(row, "bitstring")
-    probability = _series_get(row, "probability")
-    subtitle = f"bitstring={bitstring}"
-    if probability is not None:
-        subtitle += f"  probability={float(probability):.4f}"
-    ax.text(0.01, 0.98, subtitle, transform=ax.transAxes, va="top", ha="left", color="#A9B8D4", fontsize=9)
-    ax.set_ylabel("Contribution / QUBO", color="#E5EEF8")
+    x = np.arange(len(df))
+    labels = [f"{label_prefix}{idx + 1}" for idx in range(len(df))]
+    bottoms_pos = np.zeros(len(df))
+    bottoms_neg = np.zeros(len(df))
+    colors = {
+        "return_term": "#2ED8A3",
+        "risk_term": "#FFB04D",
+        "budget_term": "#FF5E7A",
+        "type_budget_term": "#A78BFA",
+    }
+    for term in terms:
+        values = pd.to_numeric(df[term], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        positive = np.where(values > 0, values, 0.0)
+        negative = np.where(values < 0, values, 0.0)
+        ax.bar(x, positive, bottom=bottoms_pos, color=colors[term], alpha=0.9, label=term)
+        ax.bar(x, negative, bottom=bottoms_neg, color=colors[term], alpha=0.9)
+        bottoms_pos += positive
+        bottoms_neg += negative
+    if "qubo_value" in df.columns:
+        ax.plot(x, pd.to_numeric(df["qubo_value"], errors="coerce").fillna(0.0), color="#F8FAFC", marker="o", label="QUBO")
+    ax.set_xticks(x, labels)
+    ax.set_ylabel("Contribution", color="#E5EEF8")
+    ax.legend(facecolor="#101933", edgecolor="#284061", labelcolor="#E5EEF8", ncol=4)
     fig.tight_layout()
     return _figure_to_data_url(fig)
 
@@ -997,22 +1331,38 @@ def _circuit_overview_chart(circuit: dict[str, Any]) -> str | None:
     return _figure_to_data_url(fig)
 
 
-def _solver_comparison_chart(optimizer) -> str | None:
-    comparison = getattr(optimizer, "solver_comparison_df", pd.DataFrame())
+def _solver_comparison_chart(optimizer, second_opinion: dict[str, Any] | None = None) -> str | None:
+    if second_opinion is None:
+        second_opinion = _qiskit_second_opinion_report(optimizer)
+    comparison = pd.DataFrame(_solver_comparison_records(optimizer, second_opinion))
     metrics = ("qubo_value", "portfolio_return", "portfolio_vol", "sharpe_like")
     if comparison is None or len(comparison) == 0 or "solver" not in comparison.columns:
         return None
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 7))
     fig.patch.set_facecolor("#050816")
-    labels = comparison["solver"].astype(str).tolist()
+    labels = comparison["solver"].map(_display_solver_label).astype(str).tolist()
     for ax, metric in zip(axes.flat, metrics):
         _style_axis(fig, ax, metric)
         if metric not in comparison.columns:
             ax.text(0.5, 0.5, "No data", ha="center", va="center", color="#E5EEF8", transform=ax.transAxes)
             continue
         values = pd.to_numeric(comparison[metric], errors="coerce").fillna(0.0).tolist()
-        ax.bar(labels, values, color=["#1EC8FF", "#7C3AED", "#2ED8A3"][: len(labels)], alpha=0.9)
+        palette = ["#1EC8FF", "#7C3AED", "#D97706", "#2ED8A3", "#FF5E7A"]
+        bars = ax.bar(labels, values, color=palette[: len(labels)], alpha=0.9)
+        for bar, value in zip(bars, values):
+            offset = 3 if value >= 0 else -12
+            va = "bottom" if value >= 0 else "top"
+            ax.annotate(
+                f"{float(value):.3f}",
+                xy=(bar.get_x() + bar.get_width() / 2, value),
+                xytext=(0, offset),
+                textcoords="offset points",
+                ha="center",
+                va=va,
+                color="#E5EEF8",
+                fontsize=8,
+            )
         ax.tick_params(axis="x", rotation=12)
     fig.suptitle("Solver Comparison", color="#E5EEF8", fontsize=14, fontweight="bold")
     fig.tight_layout(rect=(0, 0, 1, 0.96))
@@ -1062,12 +1412,82 @@ def _portfolio_content_records(optimizer) -> list[dict[str, Any]]:
     return json_safe(records)
 
 
+def _export_mode(optimizer) -> str:
+    export_mode = str(getattr(optimizer, "export_mode", DEFAULT_EXPORT_MODE) or DEFAULT_EXPORT_MODE)
+    if export_mode not in {
+        EXPORT_MODE_INTERNAL_ONLY,
+        EXPORT_MODE_QISKIT_EXPORT,
+        EXPORT_MODE_IBM_EXTERNAL_RUN,
+    }:
+        return DEFAULT_EXPORT_MODE
+    return export_mode
+
+
+def _export_mode_diagnostics(optimizer) -> dict[str, Any]:
+    export_mode = _export_mode(optimizer)
+    diagnostics = getattr(optimizer, "export_mode_diagnostics", None)
+    if isinstance(diagnostics, dict) and diagnostics:
+        payload = dict(diagnostics)
+    else:
+        payload = {
+            "requested_export_mode": export_mode,
+            "export_mode": export_mode,
+            "export_mode_label": EXPORT_MODE_LABELS.get(export_mode, export_mode),
+            "qiskit_export_requested": export_mode == EXPORT_MODE_QISKIT_EXPORT,
+            "ibm_external_run_requested": export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN,
+            "hardware_submission": "not_configured",
+        }
+    payload.setdefault("export_mode", export_mode)
+    payload.setdefault("export_mode_label", EXPORT_MODE_LABELS.get(export_mode, export_mode))
+    payload.setdefault("hardware_submission", "not_configured")
+    return json_safe(payload)
+
+
+def _ibm_export_report(optimizer, *, qaoa_executed: bool) -> dict[str, Any]:
+    export_mode = _export_mode(optimizer)
+    diagnostics = _export_mode_diagnostics(optimizer)
+    if not qaoa_executed:
+        return json_safe(
+            {
+                "available": False,
+                "provider": "ibm_quantum",
+                "sdk": "qiskit",
+                "export_mode": export_mode,
+                "export_mode_label": diagnostics.get("export_mode_label"),
+                "reason": "QAOA was not executed for this response.",
+                "hardware_submission": "not_configured",
+            }
+        )
+    if export_mode == EXPORT_MODE_QISKIT_EXPORT:
+        metadata = qaoa_ibm_circuit_metadata(optimizer)
+        metadata["export_mode"] = export_mode
+        metadata["export_mode_label"] = diagnostics.get("export_mode_label")
+        return json_safe(metadata)
+    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
+        reason = "IBM external run is reserved for a later backend release."
+    else:
+        reason = "Qiskit export was not requested for this run."
+    return json_safe(
+        {
+            "available": False,
+            "provider": "ibm_quantum",
+            "sdk": "qiskit",
+            "export_mode": export_mode,
+            "export_mode_label": diagnostics.get("export_mode_label"),
+            "reason": reason,
+            "hardware_submission": "not_configured",
+        }
+    )
+
+
 def _circuit_report(optimizer) -> dict[str, Any]:
     n_qubits = _safe_int(getattr(optimizer, "n", None))
     layers = _safe_int(getattr(optimizer, "qaoa_p", None))
     qubo = getattr(optimizer, "Q", np.array([]))
     qaoa_configured = bool(getattr(optimizer, "enable_qaoa", False))
     qaoa_available = bool(len(getattr(optimizer, "samples_df", [])))
+    export_mode = _export_mode(optimizer)
+    export_diagnostics = _export_mode_diagnostics(optimizer)
     if not qaoa_configured and not qaoa_available:
         return json_safe(
             {
@@ -1075,6 +1495,8 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "reason": "QAOA circuit metrics are unavailable because QAOA was not executed for this response.",
                 "n_qubits": n_qubits,
                 "layers": layers,
+                "export_mode": export_mode,
+                "export_mode_label": export_diagnostics.get("export_mode_label"),
                 "mixer_type": "x_mixer",
                 "cost_terms": _qubo_nonzero_count(qubo),
                 "qubo_nonzero_entries": _qubo_nonzero_count(qubo),
@@ -1082,13 +1504,7 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "shots_mode": "disabled",
                 "qaoa_shots": _safe_int(getattr(optimizer, "qaoa_shots", None)),
                 "qaoa_shots_display": "not_applicable",
-                "ibm": {
-                    "available": False,
-                    "provider": "ibm_quantum",
-                    "sdk": "qiskit",
-                    "reason": "QAOA was not executed for this response.",
-                    "hardware_submission": "not_configured",
-                },
+                "ibm": _ibm_export_report(optimizer, qaoa_executed=False),
             }
         )
 
@@ -1118,6 +1534,8 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "available": True,
                 "n_qubits": n_qubits_int,
                 "layers": layers_int,
+                "export_mode": export_mode,
+                "export_mode_label": export_diagnostics.get("export_mode_label"),
                 "mixer_type": "x_mixer",
                 "cost_terms": int(one_qubit_cost_terms + two_qubit_cost_terms),
                 "qubo_nonzero_entries": int(qubo_nonzero_entries),
@@ -1132,7 +1550,7 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "qaoa_shots": None if shots_mode == "exact" else qaoa_shots,
                 "qaoa_shots_display": "exact" if shots_mode == "exact" else (str(qaoa_shots) if qaoa_shots is not None else None),
                 "counts_are_estimated": True,
-                "ibm": qaoa_ibm_circuit_metadata(optimizer),
+                "ibm": _ibm_export_report(optimizer, qaoa_executed=True),
             }
         )
     except Exception as exc:
@@ -1142,10 +1560,13 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "reason": f"Circuit metrics could not be computed: {type(exc).__name__}",
                 "n_qubits": n_qubits,
                 "layers": layers,
+                "export_mode": export_mode,
+                "export_mode_label": export_diagnostics.get("export_mode_label"),
                 "counts_are_estimated": False,
                 "shots_mode": "unknown",
                 "qaoa_shots": _safe_int(getattr(optimizer, "qaoa_shots", None)),
                 "qaoa_shots_display": None,
+                "ibm": _ibm_export_report(optimizer, qaoa_executed=False),
             }
         )
 
@@ -1186,6 +1607,67 @@ def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
         return []
     df = add_indicative_cost_alias_to_frame(df)
     return json_safe(df.replace({np.inf: np.nan, -np.inf: np.nan}).to_dict(orient="records"))
+
+
+def _solver_comparison_records(optimizer, second_opinion: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    comparison = getattr(optimizer, "solver_comparison_df", pd.DataFrame())
+    if comparison is None or len(comparison) == 0:
+        comparison = pd.DataFrame()
+    else:
+        comparison = comparison.copy()
+        if "solver" in comparison.columns:
+            comparison["solver"] = comparison["solver"].map(_display_solver_label)
+
+    rows = _dedupe_solver_rows(_records(comparison))
+    summary = (second_opinion or {}).get("summary") if isinstance(second_opinion, dict) else None
+    if isinstance(summary, dict) and summary.get("available"):
+        second_opinion_row = json_safe(
+            {
+                "solver": "Quantum / QAOA (2nd opinion)",
+                "bitstring": summary.get("best_bitstring"),
+                "selection_scope": f"{summary.get('source') or 'Qiskit simulation'} comparison",
+                "qubo_value": summary.get("qubo_value"),
+                "return_term": summary.get("return_term"),
+                "risk_term": summary.get("risk_term"),
+                "budget_term": summary.get("budget_term"),
+                "type_budget_term": summary.get("type_budget_term"),
+                "selected_usd": summary.get("selected_usd"),
+                "budget_gap": summary.get("budget_gap"),
+                "abs_budget_gap": summary.get("abs_budget_gap"),
+                "portfolio_return": summary.get("portfolio_return"),
+                "portfolio_vol": summary.get("portfolio_vol"),
+                "sharpe_like": summary.get("sharpe_like"),
+                "cash_weight": summary.get("cash_weight"),
+                "probability": summary.get("probability"),
+            }
+        )
+        if not any(_display_solver_label(row.get("solver")) == "Quantum / QAOA (2nd opinion)" for row in rows):
+            rows.append(second_opinion_row)
+    return _dedupe_solver_rows(rows)
+
+
+def _display_solver_label(value: Any) -> str:
+    text = str(value or "")
+    lowered = text.lower()
+    if "qiskit" in lowered or "second_opinion" in lowered or "second opinion" in lowered or "2nd opinion" in lowered:
+        return "Quantum / QAOA (2nd opinion)"
+    if "qaoa" in lowered or "pennylane" in lowered:
+        return "Quantum / QAOA"
+    return text or "n/a"
+
+
+def _dedupe_solver_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        solver = _display_solver_label(row.get("solver"))
+        if solver in seen:
+            continue
+        copy = dict(row)
+        copy["solver"] = solver
+        deduped.append(copy)
+        seen.add(solver)
+    return deduped
 
 
 def _tail_df(df: pd.DataFrame, limit: int) -> pd.DataFrame:

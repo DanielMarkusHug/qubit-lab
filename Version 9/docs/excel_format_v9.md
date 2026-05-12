@@ -1,7 +1,7 @@
 # Version 9 Excel Format Additions
 
-Version 9 keeps the Version 8 workbook format and adds optional exact
-type-budget constraints.
+Version 9 keeps the Version 8 workbook format and adds optional subtype budget
+constraints.
 
 ## Assets Sheet
 
@@ -46,7 +46,5 @@ For each active type constraint:
 lambda_k * ((fixed_type_exposure_k + sum_i variable_type_size_i * x_i) / budget_k - 1)^2
 ```
 
-This is an exact normalized portfolio-level target penalty. Fixed rows
-contribute to the offset, and selected variable rows contribute through the
-binary decision vector. Version 9 does not implement `<=` or `>=`
-slack-variable variants for these additional type budgets.
+Fixed rows contribute to the offset, and selected variable rows contribute
+through the binary decision vector. Subtype budgets are exact normalized targets.

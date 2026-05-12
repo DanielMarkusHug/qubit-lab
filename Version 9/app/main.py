@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 try:
@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - optional local-dev dependency
 
 from app.classical_solver import run_classical_optimizer
 from app.cloud_run_jobs import trigger_cloud_run_job
+from app.code_exports import code_export_targets_payload, extract_code_export_package, render_code_export
 from app.config import Config
 from app.excel_io import (
     cleanup_temp_file,
@@ -90,6 +91,9 @@ def create_app() -> Flask:
                     "POST",
                     "OPTIONS",
                 ],
+                "expose_headers": [
+                    "Content-Disposition",
+                ],
             }
         },
     )
@@ -120,6 +124,28 @@ def register_routes(flask_app: Flask) -> None:
     @flask_app.get("/capabilities")
     def capabilities():
         return jsonify(capabilities_payload())
+
+    @flask_app.get("/exports/code-targets")
+    def code_export_targets():
+        return jsonify({"targets": code_export_targets_payload()})
+
+    @flask_app.post("/exports/code")
+    def code_export():
+        usage_context = resolve_usage_context(request.headers.get(Config.API_KEY_HEADER))
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            raise ApiError(400, "invalid_json_payload", "A JSON object payload is required.")
+        target = str(payload.get("target") or "")
+        package = extract_code_export_package(payload)
+        rendered = render_code_export(package, target, usage_context=usage_context)
+        return Response(
+            rendered.content,
+            content_type=rendered.content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{rendered.filename}"',
+                "X-QAOA-RQP-Code-Export-Target": target,
+            },
+        )
 
     @flask_app.get("/license-status")
     def license_status():
@@ -915,6 +941,10 @@ def _job_settings_from_request(mode: str, response_level: str, form_data, policy
         "simulation_backend",
         "legacy_run_mode_alias",
         "hardware_replay",
+        "export_mode",
+        "export_mode_label",
+        "qiskit_export_requested",
+        "ibm_external_run_requested",
     ):
         if key in policy_result.effective_settings:
             settings[key] = policy_result.effective_settings[key]

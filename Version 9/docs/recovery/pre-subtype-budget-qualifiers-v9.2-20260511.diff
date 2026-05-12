@@ -1,0 +1,3592 @@
+diff --git a/Version 9/DEPLOYMENT_NOTES.md b/Version 9/DEPLOYMENT_NOTES.md
+index f8ea208..5f15eaa 100644
+--- a/Version 9/DEPLOYMENT_NOTES.md	
++++ b/Version 9/DEPLOYMENT_NOTES.md	
+@@ -1,4 +1,4 @@
+-# Version 9.1.0 Deployment Notes
++# Version 9.2.0 Deployment Notes
+ 
+ Version 9 uses the same container image for two Cloud Run targets:
+ 
+@@ -19,7 +19,7 @@ API_SERVICE_NAME="qaoa-rqp-api-v9"
+ WORKER_JOB_SMALL_NAME="qaoa-rqp-worker-small"
+ WORKER_JOB_MEDIUM_NAME="qaoa-rqp-worker-medium"
+ WORKER_JOB_LARGE_NAME="qaoa-rqp-worker-large"
+-IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/qaoa-rqp-api:9.1.0"
++IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/qaoa-rqp-api:9.2.0"
+ QAOA_JOB_BUCKET="qaoa-rqp-jobs-v9-$PROJECT_ID"
+ 
+ API_SERVICE_ACCOUNT="qaoa-rqp-api-v9@$PROJECT_ID.iam.gserviceaccount.com"
+diff --git a/Version 9/IMPLEMENTATION_SUMMARY.md b/Version 9/IMPLEMENTATION_SUMMARY.md
+index 2186c69..07def5e 100644
+--- a/Version 9/IMPLEMENTATION_SUMMARY.md	
++++ b/Version 9/IMPLEMENTATION_SUMMARY.md	
+@@ -1,4 +1,4 @@
+-# Version 9.1.0 Implementation Summary
++# Version 9.2.0 Implementation Summary
+ 
+ Started a new Version 9 backend from the tagged Version 8 Cloud Run Jobs
+ baseline, keeping Version 8 deployable as-is.
+diff --git a/Version 9/README.md b/Version 9/README.md
+index 989727e..09ddf62 100644
+--- a/Version 9/README.md	
++++ b/Version 9/README.md	
+@@ -1,4 +1,4 @@
+-# QAOA RQP API - Version 9.1.0
++# QAOA RQP API - Version 9.2.0
+ 
+ Version 9 creates an asynchronous Cloud Run Jobs backend based on Version 7.
+ The optimizer math, QUBO construction, workbook parsing, license policy, HMAC
+diff --git a/Version 9/app/config.py b/Version 9/app/config.py
+index 84393ef..5d592b5 100644
+--- a/Version 9/app/config.py	
++++ b/Version 9/app/config.py	
+@@ -12,8 +12,8 @@ os.environ.setdefault("MPLCONFIGDIR", str(_matplotlib_cache))
+ 
+ class Config:
+     SERVICE_NAME = "qaoa-rqp-api-v9"
+-    VERSION = "9.1.0"
+-    MODEL_VERSION = "9.1.0"
++    VERSION = "9.2.0"
++    MODEL_VERSION = "9.2.0"
+ 
+     API_KEY_HEADER = "X-API-Key"
+     VERSION_DIR = Path(__file__).resolve().parents[1]
+diff --git a/Version 9/app/ibm_circuit.py b/Version 9/app/ibm_circuit.py
+index 4f3933d..6da1a51 100644
+--- a/Version 9/app/ibm_circuit.py	
++++ b/Version 9/app/ibm_circuit.py	
+@@ -89,6 +89,7 @@ def qaoa_ibm_circuit_metadata(optimizer, *, qasm_preview_chars: int = 2000) -> d
+             "available": True,
+             "provider": "ibm_quantum",
+             "sdk": "qiskit",
++            "export_mode": "qiskit_export",
+             "export_format": "QuantumCircuit",
+             "dry_run": True,
+             "qiskit_available": False,
+@@ -145,6 +146,7 @@ def qaoa_ibm_circuit_metadata(optimizer, *, qasm_preview_chars: int = 2000) -> d
+             "available": False,
+             "provider": "ibm_quantum",
+             "sdk": "qiskit",
++            "export_mode": "qiskit_export",
+             "reason": f"IBM circuit metadata unavailable: {type(exc).__name__}",
+             "hardware_submission": "not_configured",
+         }
+diff --git a/Version 9/app/job_store.py b/Version 9/app/job_store.py
+index 5987a54..aa3000d 100644
+--- a/Version 9/app/job_store.py	
++++ b/Version 9/app/job_store.py	
+@@ -37,11 +37,12 @@ class JobStore:
+         extra_updates: dict[str, Any] | None = None,
+     ) -> None:
+         job = self.get_job(job_id) or {}
++        raw_message = str(message)
+         logs_tail = list(job.get("logs_tail") or [])
+-        logs_tail.append(str(message))
++        logs_tail.append(_timestamped_log_message(raw_message))
+         logs_tail = logs_tail[-LOG_TAIL_LIMIT:]
+         updates: dict[str, Any] = {
+-            "latest_log": str(message),
++            "latest_log": raw_message,
+             "logs_tail": logs_tail,
+             "heartbeat_at": _utc_now(),
+         }
+@@ -178,7 +179,7 @@ def initial_job_document(
+                 "eta_seconds_high": None,
+             },
+             "latest_log": "Job queued.",
+-            "logs_tail": ["Job queued."],
++            "logs_tail": [_timestamped_log_message("Job queued.")],
+             "result": {
+                 "available": False,
+                 "storage_path": None,
+@@ -238,6 +239,14 @@ def _utc_now() -> str:
+     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+ 
+ 
++def _timestamped_log_message(message: str) -> str:
++    stamp = dt.datetime.now(dt.timezone.utc).strftime("%H:%M:%S UTC")
++    text = str(message)
++    if text.startswith("[") and "]" in text[:24]:
++        return text
++    return f"[{stamp}] {text}"
++
++
+ @lru_cache(maxsize=1)
+ def _firestore_client():
+     try:
+diff --git a/Version 9/app/main.py b/Version 9/app/main.py
+index 9140395..1b7c0d8 100644
+--- a/Version 9/app/main.py	
++++ b/Version 9/app/main.py	
+@@ -6,7 +6,7 @@ import logging
+ import os
+ import time
+ 
+-from flask import Flask, jsonify, request
++from flask import Flask, Response, jsonify, request
+ from werkzeug.exceptions import HTTPException
+ 
+ try:
+@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - optional local-dev dependency
+ 
+ from app.classical_solver import run_classical_optimizer
+ from app.cloud_run_jobs import trigger_cloud_run_job
++from app.code_exports import code_export_targets_payload, extract_code_export_package, render_code_export
+ from app.config import Config
+ from app.excel_io import (
+     cleanup_temp_file,
+@@ -90,6 +91,9 @@ def create_app() -> Flask:
+                     "POST",
+                     "OPTIONS",
+                 ],
++                "expose_headers": [
++                    "Content-Disposition",
++                ],
+             }
+         },
+     )
+@@ -121,6 +125,28 @@ def register_routes(flask_app: Flask) -> None:
+     def capabilities():
+         return jsonify(capabilities_payload())
+ 
++    @flask_app.get("/exports/code-targets")
++    def code_export_targets():
++        return jsonify({"targets": code_export_targets_payload()})
++
++    @flask_app.post("/exports/code")
++    def code_export():
++        usage_context = resolve_usage_context(request.headers.get(Config.API_KEY_HEADER))
++        payload = request.get_json(silent=True) or {}
++        if not isinstance(payload, dict):
++            raise ApiError(400, "invalid_json_payload", "A JSON object payload is required.")
++        target = str(payload.get("target") or "")
++        package = extract_code_export_package(payload)
++        rendered = render_code_export(package, target, usage_context=usage_context)
++        return Response(
++            rendered.content,
++            content_type=rendered.content_type,
++            headers={
++                "Content-Disposition": f'attachment; filename="{rendered.filename}"',
++                "X-QAOA-RQP-Code-Export-Target": target,
++            },
++        )
++
+     @flask_app.get("/license-status")
+     def license_status():
+         usage_context = resolve_usage_context(request.headers.get(Config.API_KEY_HEADER))
+@@ -915,6 +941,10 @@ def _job_settings_from_request(mode: str, response_level: str, form_data, policy
+         "simulation_backend",
+         "legacy_run_mode_alias",
+         "hardware_replay",
++        "export_mode",
++        "export_mode_label",
++        "qiskit_export_requested",
++        "ibm_external_run_requested",
+     ):
+         if key in policy_result.effective_settings:
+             settings[key] = policy_result.effective_settings[key]
+diff --git a/Version 9/app/result_writer.py b/Version 9/app/result_writer.py
+index a323780..1fb8a8e 100644
+--- a/Version 9/app/result_writer.py	
++++ b/Version 9/app/result_writer.py	
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ import base64
++import os
+ from io import BytesIO
+ from typing import Any
+ 
+@@ -14,7 +15,8 @@ import pandas as pd
+ 
+ from app.config import Config
+ from app.cost_columns import INDICATIVE_COST_COLUMN, LEGACY_COST_COLUMN, add_indicative_cost_alias_to_frame
+-from app.ibm_circuit import qaoa_ibm_circuit_metadata
++from app.code_exports import build_qaoa_code_export_package
++from app.ibm_circuit import build_qiskit_qaoa_circuit_from_optimizer, qaoa_ibm_circuit_metadata
+ from app.schemas import json_safe
+ from app.type_constraints import (
+     achievements_for_bitvec,
+@@ -23,7 +25,15 @@ from app.type_constraints import (
+     type_candidate_columns,
+     type_size_columns,
+ )
+-from app.usage_policy import mode_diagnostics, runtime_estimate_payload
++from app.usage_policy import (
++    DEFAULT_EXPORT_MODE,
++    EXPORT_MODE_IBM_EXTERNAL_RUN,
++    EXPORT_MODE_INTERNAL_ONLY,
++    EXPORT_MODE_LABELS,
++    EXPORT_MODE_QISKIT_EXPORT,
++    mode_diagnostics,
++    runtime_estimate_payload,
++)
+ from app.workbook_diagnostics import candidate_export_diagnostics, workbook_warnings
+ 
+ 
+@@ -130,6 +140,7 @@ def build_classical_response(
+         mode=mode,
+         solver=solver,
+         include_reporting_charts=response_level == "full",
++        policy_result=policy_result,
+     )
+     _attach_policy_metadata(full_payload, usage_context, policy_result, license_info, actual_runtime_sec)
+     _attach_run_metadata(full_payload, run_metadata)
+@@ -167,6 +178,7 @@ def shape_classical_response(full_payload: dict[str, Any], response_level: str)
+         "memory_used_pct": full_payload.get("memory_used_pct"),
+         "peak_memory_used_gib": full_payload.get("peak_memory_used_gib"),
+         "memory_history": full_payload.get("memory_history"),
++        "code_export_package": full_payload.get("code_export_package"),
+         "diagnostics": _compact_diagnostics(full_payload.get("diagnostics", {}), log_limit=20),
+         "reporting": _shape_reporting(full_payload.get("reporting", {}), "compact"),
+     }
+@@ -190,6 +202,7 @@ def _build_full_classical_response(
+     mode: str = "classical_only",
+     solver: str = "classical_heuristic",
+     include_reporting_charts: bool = False,
++    policy_result=None,
+ ) -> dict[str, Any]:
+     best = optimizer.sort_candidates(optimizer.classical_results).iloc[0]
+     bitstring = str(best.get("bitstring", ""))
+@@ -237,6 +250,8 @@ def _build_full_classical_response(
+             or getattr(optimizer, "qaoa_limited_exact_probabilities", False)
+         ),
+         "qaoa_runtime_sec": _safe_attr(optimizer, "qaoa_runtime_sec"),
++        "export_mode": _export_mode(optimizer),
++        "export_mode_diagnostics": _export_mode_diagnostics(optimizer),
+         "circuit": _circuit_report(optimizer),
+         "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
+         "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
+@@ -252,6 +267,22 @@ def _build_full_classical_response(
+         "logs": list(logs or []),
+     }
+     diagnostics.update(candidate_export_diagnostics(optimizer))
++    export_workbook_summary = build_workbook_summary(optimizer)
++    if workbook_summary:
++        export_workbook_summary.update(
++            {
++                "input_sheet_names": workbook_summary.get("input_sheet_names", []),
++                "ignored_output_sheets": workbook_summary.get("ignored_output_sheets", []),
++            }
++        )
++    code_export_package = build_qaoa_code_export_package(
++        optimizer,
++        mode=mode,
++        solver=solver,
++        workbook_summary=export_workbook_summary,
++        policy_result=policy_result,
++    )
++    diagnostics["code_export_package_available"] = bool(code_export_package)
+ 
+     return json_safe(
+         {
+@@ -295,6 +326,7 @@ def _build_full_classical_response(
+             "best_candidate": {key: _safe_get(best, key) for key in _best_metric_keys(optimizer) if key in best.index},
+             "selected_blocks": _records_with_keys(selected_rows, _portfolio_row_keys(optimizer)),
+             "top_candidates": _records_with_keys(top_candidates, _best_metric_keys(optimizer)),
++            "code_export_package": code_export_package,
+             "reporting": _build_reporting(optimizer, include_charts=include_reporting_charts),
+             "diagnostics": diagnostics,
+         }
+@@ -329,6 +361,12 @@ def _attach_policy_metadata(
+         payload["diagnostics"]["eta_seconds_low"] = payload["diagnostics"]["runtime_estimate"].get("eta_seconds_low")
+         payload["diagnostics"]["eta_seconds_high"] = payload["diagnostics"]["runtime_estimate"].get("eta_seconds_high")
+         payload["diagnostics"]["n_qubits"] = getattr(policy_result, "n_qubits", None)
++        payload["diagnostics"]["export_mode"] = getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE)
++        payload["diagnostics"]["export_mode_diagnostics"] = getattr(
++            policy_result,
++            "export_mode_diagnostics",
++            {},
++        )
+         payload["diagnostics"]["candidate_count"] = payload["diagnostics"].get(
+             "classical_candidate_count",
+             getattr(policy_result, "candidate_count", None),
+@@ -343,6 +381,7 @@ def _attach_policy_metadata(
+             "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
+             "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
+             "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
++            "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
+         }
+         payload["diagnostics"]["effective_settings"] = getattr(policy_result, "effective_settings", {})
+         payload["diagnostics"]["random_seed"] = getattr(policy_result.runtime_inputs, "random_seed", None)
+@@ -441,6 +480,8 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
+         "runtime_inputs",
+         "effective_settings",
+         "random_seed",
++        "export_mode",
++        "export_mode_diagnostics",
+         "usage_level",
+         "qaoa_enabled",
+         "qaoa_available",
+@@ -453,6 +494,7 @@ def _compact_diagnostics(diagnostics: dict[str, Any], log_limit: int = 20) -> di
+         "qaoa_exact_probabilities",
+         "qaoa_runtime_sec",
+         "circuit",
++        "code_export_package_available",
+     )
+     compact = {key: diagnostics.get(key) for key in keys if key in diagnostics}
+     if "logs" in diagnostics:
+@@ -511,9 +553,12 @@ def build_inspection_response(
+             "shots_mode": getattr(policy_result, "effective_settings", {}).get("shots_mode"),
+             "restart_perturbation": getattr(policy_result.runtime_inputs, "restart_perturbation", None),
+             "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
++            "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
+         },
+         "effective_settings": getattr(policy_result, "effective_settings", {}),
+         "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
++        "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
++        "export_mode_diagnostics": getattr(policy_result, "export_mode_diagnostics", {}),
+         "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
+         "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
+         "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
+@@ -572,6 +617,7 @@ def _shape_reporting(reporting: dict[str, Any], response_level: str) -> dict[str
+             "summary": reporting.get("summary", {}),
+             "classical_candidates": reporting.get("classical_candidates", []),
+             "solver_comparison": reporting.get("solver_comparison", []),
++            "second_opinion": reporting.get("second_opinion", {}),
+             "portfolio_contents": reporting.get("portfolio_contents", []),
+             "circuit": reporting.get("circuit", {}),
+         }
+@@ -579,6 +625,11 @@ def _shape_reporting(reporting: dict[str, Any], response_level: str) -> dict[str
+ 
+ 
+ def _build_reporting(optimizer, include_charts: bool = False) -> dict[str, Any]:
++    second_opinion = _qiskit_second_opinion_report(optimizer)
++    summary = _build_reporting_summary(optimizer)
++    summary["quantum_second_opinion_summary"] = second_opinion.get("summary")
++    summary["second_opinion_available"] = bool(second_opinion.get("available"))
++    summary["second_opinion_label"] = second_opinion.get("label")
+     classical_candidates = _candidate_records(
+         getattr(optimizer, "classical_results", pd.DataFrame()),
+         optimizer=optimizer,
+@@ -601,15 +652,16 @@ def _build_reporting(optimizer, include_charts: bool = False) -> dict[str, Any]:
+         limit=20,
+     )
+     reporting = {
+-        "summary": _build_reporting_summary(optimizer),
++        "summary": summary,
+         "classical_candidates": classical_candidates,
+         "quantum_samples": quantum_samples,
+         "qaoa_best_qubo": qaoa_best_qubo,
+-        "solver_comparison": _records(getattr(optimizer, "solver_comparison_df", pd.DataFrame())),
++        "second_opinion": second_opinion,
++        "solver_comparison": _solver_comparison_records(optimizer, second_opinion),
+         "portfolio_contents": _portfolio_content_records(optimizer),
+         "optimization_history": _records(_tail_df(getattr(optimizer, "history_df", pd.DataFrame()), 200)),
+         "circuit": _circuit_report(optimizer),
+-        "charts": _build_reporting_charts(optimizer) if include_charts else {},
++        "charts": _build_reporting_charts(optimizer, second_opinion) if include_charts else {},
+     }
+     return json_safe(reporting)
+ 
+@@ -638,6 +690,7 @@ def _build_reporting_summary(optimizer) -> dict[str, Any]:
+         "qaoa_status": _qaoa_status(optimizer),
+         "qaoa_p": _safe_attr(optimizer, "qaoa_p"),
+         "qaoa_mode": _safe_attr(optimizer, "qaoa_mode"),
++        "export_mode": _export_mode(optimizer),
+         "budget_lambda": _safe_attr(optimizer, "lambda_budget"),
+         "risk_lambda": _safe_attr(optimizer, "lambda_variance"),
+         "risk_free_rate": _safe_attr(optimizer, "risk_free"),
+@@ -763,6 +816,270 @@ def _candidate_summary(
+     }
+ 
+ 
++def _qiskit_second_opinion_report(optimizer) -> dict[str, Any]:
++    export_mode = _export_mode(optimizer)
++    label = _second_opinion_label(export_mode)
++    source_label = _second_opinion_source_label(export_mode)
++    if export_mode not in {EXPORT_MODE_QISKIT_EXPORT, EXPORT_MODE_IBM_EXTERNAL_RUN}:
++        return json_safe(
++            {
++                "available": False,
++                "enabled": False,
++                "label": label,
++                "source": "not_requested",
++                "reason": "2nd opinion mode was not selected.",
++                "summary": _empty_second_opinion_summary(label, "Not requested", source_label),
++                "samples": [],
++                "best_qubo": [],
++                "portfolio_contents": [],
++            }
++        )
++
++    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
++        return json_safe(
++            {
++                "available": False,
++                "enabled": True,
++                "label": label,
++                "source": "ibm_hardware",
++                "reason": "IBM Hardware execution is reserved for a later backend release.",
++                "summary": _empty_second_opinion_summary(label, "IBM Hardware later", source_label),
++                "samples": [],
++                "best_qubo": [],
++                "portfolio_contents": [],
++            }
++        )
++
++    samples = getattr(optimizer, "samples_df", pd.DataFrame())
++    exact = getattr(optimizer, "qaoa_exact_best_qubo_df", pd.DataFrame())
++    if not bool(getattr(optimizer, "enable_qaoa", False)) or (
++        (not isinstance(samples, pd.DataFrame) or len(samples) == 0)
++        and (not isinstance(exact, pd.DataFrame) or len(exact) == 0)
++    ):
++        return json_safe(
++            {
++                "available": False,
++                "enabled": True,
++                "label": label,
++                "source": "qiskit_statevector",
++                "reason": "QAOA was not executed, so no Qiskit comparison can be built.",
++                "summary": _empty_second_opinion_summary(label, "QAOA not executed", source_label),
++                "samples": [],
++                "best_qubo": [],
++                "portfolio_contents": [],
++            }
++        )
++
++    max_qubits = _qiskit_second_opinion_max_qubits()
++    n_qubits = _safe_int(getattr(optimizer, "n", None)) or 0
++    if n_qubits <= 0 or n_qubits > max_qubits:
++        return json_safe(
++            {
++                "available": False,
++                "enabled": True,
++                "label": label,
++                "source": "qiskit_statevector",
++                "reason": f"Qiskit 2nd opinion statevector is capped at {max_qubits} qubits.",
++                "n_qubits": n_qubits,
++                "max_qubits": max_qubits,
++                "summary": _empty_second_opinion_summary(label, "Qubit cap", source_label),
++                "samples": [],
++                "best_qubo": [],
++                "portfolio_contents": [],
++            }
++        )
++
++    try:
++        probabilities_by_bitstring = _qiskit_statevector_probabilities_by_optimizer_bitstring(optimizer)
++        if not probabilities_by_bitstring:
++            raise ValueError("Qiskit returned no state probabilities.")
++
++        top_probability_rows = []
++        for rank, (bitstring, probability) in enumerate(
++            sorted(probabilities_by_bitstring.items(), key=lambda item: (-item[1], item[0]))[:20],
++            start=1,
++        ):
++            row = _candidate_row_for_bitstring(
++                optimizer,
++                bitstring,
++                probability=probability,
++                source="qiskit_statevector_second_opinion",
++                selection_scope="Qiskit simulation top states by probability",
++            )
++            if row is not None:
++                row["rank"] = rank
++                top_probability_rows.append(row)
++
++        best_source = exact if isinstance(exact, pd.DataFrame) and len(exact) else samples
++        best_rows = []
++        if isinstance(best_source, pd.DataFrame) and len(best_source):
++            for rank, (_, candidate) in enumerate(
++                _sort_df(best_source, optimizer, "qubo_value", True).head(20).iterrows(),
++                start=1,
++            ):
++                bitstring = str(candidate.get("bitstring", "") or "")
++                if not bitstring:
++                    continue
++                row = _candidate_row_for_bitstring(
++                    optimizer,
++                    bitstring,
++                    probability=probabilities_by_bitstring.get(bitstring),
++                    source="qiskit_statevector_second_opinion",
++                    selection_scope="Qiskit simulation over QAOA best-QUBO candidate set",
++                )
++                if row is not None:
++                    row["rank"] = rank
++                    best_rows.append(row)
++
++        sample_df = _sort_df(pd.DataFrame(top_probability_rows), optimizer, "probability", False)
++        best_df = _sort_df(pd.DataFrame(best_rows), optimizer, "qubo_value", True)
++        summary_row = best_df.iloc[0] if len(best_df) else (sample_df.iloc[0] if len(sample_df) else None)
++        summary = (
++            _candidate_summary(
++                summary_row,
++                title=label,
++                status="Available",
++                available=True,
++                source=source_label,
++                solver="Quantum / QAOA (2nd opinion)",
++            )
++            if summary_row is not None
++            else _empty_second_opinion_summary(label, "No candidates", source_label)
++        )
++        portfolio_contents = _portfolio_rows_for_candidate(optimizer, summary_row, "qiskit_statevector_second_opinion") if summary_row is not None else []
++
++        return json_safe(
++            {
++                "available": bool(summary_row is not None),
++                "enabled": True,
++                "label": label,
++                "source": "qiskit_statevector",
++                "provider": "local_simulation",
++                "sdk": "qiskit",
++                "simulation": True,
++                "dry_run": True,
++                "hardware_submission": "not_configured",
++                "n_qubits": n_qubits,
++                "max_qubits": max_qubits,
++                "summary": summary,
++                "samples": _records(sample_df),
++                "best_qubo": _records(best_df),
++                "portfolio_contents": portfolio_contents,
++            }
++        )
++    except Exception as exc:  # noqa: BLE001 - optional reporting block should not break the run
++        return json_safe(
++            {
++                "available": False,
++                "enabled": True,
++                "label": label,
++                "source": "qiskit_statevector",
++                "reason": f"Qiskit 2nd opinion unavailable: {type(exc).__name__}",
++                "summary": _empty_second_opinion_summary(label, "Unavailable", source_label),
++                "samples": [],
++                "best_qubo": [],
++                "portfolio_contents": [],
++            }
++        )
++
++
++def _second_opinion_label(export_mode: str | None) -> str:
++    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
++        return "Quantum (2nd opinion) - IBM Hardware"
++    if export_mode == EXPORT_MODE_QISKIT_EXPORT:
++        return "Quantum (2nd opinion) - Qiskit simulation"
++    return "Quantum (2nd opinion)"
++
++
++def _second_opinion_source_label(export_mode: str | None) -> str:
++    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
++        return "IBM Hardware"
++    if export_mode == EXPORT_MODE_QISKIT_EXPORT:
++        return "Qiskit simulation"
++    return "Not requested"
++
++
++def _empty_second_opinion_summary(title: str, status: str, source: str = "Qiskit simulation") -> dict[str, Any]:
++    return {
++        "title": title,
++        "status": status,
++        "available": False,
++        "source": source,
++        "solver": "Quantum / QAOA (2nd opinion)",
++        "best_bitstring": None,
++        "objective": None,
++        "qubo_value": None,
++        "selected_usd": None,
++        "budget_gap": None,
++        "abs_budget_gap": None,
++        "return_term": None,
++        "risk_term": None,
++        "budget_term": None,
++        "type_budget_term": None,
++        "portfolio_return": None,
++        "portfolio_vol": None,
++        "sharpe_like": None,
++        "cash_weight": None,
++        "probability": None,
++    }
++
++
++def _qiskit_second_opinion_max_qubits() -> int:
++    raw_value = os.getenv("QAOA_QISKIT_SECOND_OPINION_MAX_QUBITS", "20")
++    try:
++        return max(1, int(float(raw_value)))
++    except (TypeError, ValueError):
++        return 20
++
++
++def _qiskit_statevector_probabilities_by_optimizer_bitstring(optimizer) -> dict[str, float]:
++    from qiskit.quantum_info import Statevector
++
++    circuit = build_qiskit_qaoa_circuit_from_optimizer(optimizer, measure=False, name="qaoa_rqp_second_opinion")
++    n_qubits = int(getattr(optimizer, "n", 0) or 0)
++    probabilities = np.asarray(Statevector.from_instruction(circuit).probabilities(), dtype=float).reshape(-1)
++    total = float(np.sum(probabilities))
++    if total > 0.0 and np.isfinite(total):
++        probabilities = probabilities / total
++
++    result: dict[str, float] = {}
++    for index, probability in enumerate(probabilities):
++        value = float(probability)
++        if value <= 0.0:
++            continue
++        qiskit_key = format(index, f"0{n_qubits}b")
++        optimizer_bitstring = qiskit_key[::-1]
++        result[optimizer_bitstring] = result.get(optimizer_bitstring, 0.0) + value
++    return result
++
++
++def _candidate_row_for_bitstring(
++    optimizer,
++    bitstring: str,
++    *,
++    probability: float | None,
++    source: str,
++    selection_scope: str,
++) -> dict[str, Any] | None:
++    try:
++        bits = np.array(list(map(int, str(bitstring))), dtype=int)
++        stats = optimizer.portfolio_stats(bits)
++        if getattr(optimizer, "qaoa_export_feasible_only", False) and not optimizer.row_is_feasible(stats):
++            return None
++        term_stats = optimizer.qubo_term_breakdown(bits)
++        return {
++            "bitstring": str(bitstring),
++            "source": source,
++            "selection_scope": selection_scope,
++            "probability": None if probability is None else float(probability),
++            "qubo_value": optimizer.qubo_value(bits),
++            **term_stats,
++            **stats,
++        }
++    except Exception:
++        return None
++
++
+ def _type_achievements_from_row(row) -> list[dict[str, Any]]:
+     achievements = []
+     for prefix in ("type_a", "type_b", "type_c", "type_d", "type_e"):
+@@ -788,7 +1105,7 @@ def _type_achievements_from_row(row) -> list[dict[str, Any]]:
+     return achievements
+ 
+ 
+-def _build_reporting_charts(optimizer) -> dict[str, str | None]:
++def _build_reporting_charts(optimizer, second_opinion: dict[str, Any] | None = None) -> dict[str, str | None]:
+     classical_breakdown = _qubo_breakdown_chart(optimizer)
+     circuit = _circuit_report(optimizer)
+     return {
+@@ -797,9 +1114,10 @@ def _build_reporting_charts(optimizer) -> dict[str, str | None]:
+         "qubo_breakdown": classical_breakdown,
+         "qubo_breakdown_classical": classical_breakdown,
+         "qubo_breakdown_quantum": _quantum_qubo_breakdown_chart(optimizer),
++        "qubo_breakdown_second_opinion": _second_opinion_qubo_breakdown_chart(second_opinion),
+         "optimization_history": _optimization_history_chart(optimizer),
+         "circuit_overview": _circuit_overview_chart(circuit),
+-        "solver_comparison": _solver_comparison_chart(optimizer),
++        "solver_comparison": _solver_comparison_chart(optimizer, second_opinion),
+     }
+ 
+ 
+@@ -894,46 +1212,62 @@ def _qubo_breakdown_chart(optimizer) -> str | None:
+ 
+ 
+ def _quantum_qubo_breakdown_chart(optimizer) -> str | None:
+-    row = _best_qaoa_candidate(optimizer)
+-    if row is None:
++    exact = getattr(optimizer, "qaoa_exact_best_qubo_df", pd.DataFrame())
++    samples = getattr(optimizer, "samples_df", pd.DataFrame())
++    source_df = exact if isinstance(exact, pd.DataFrame) and len(exact) else samples
++    df = _sort_df(source_df, optimizer, "qubo_value", True).head(10)
++    if df is None or len(df) == 0:
+         return None
+-    return _single_qubo_breakdown_chart(row, "QUBO Breakdown - Best Quantum Candidate")
++    return _stacked_qubo_breakdown_chart(df, "QUBO Breakdown - Quantum Top 10", "Q")
+ 
+ 
+-def _single_qubo_breakdown_chart(row, title: str) -> str | None:
+-    terms = ["return_term", "risk_term", "budget_term"]
+-    if _series_get(row, "type_budget_term") is not None:
+-        terms.append("type_budget_term")
+-    values = []
+-    for term in terms:
+-        value = _series_get(row, term)
+-        if value is None:
+-            return None
+-        values.append(float(value))
+-    qubo_value = _series_get(row, "qubo_value")
+-    if qubo_value is None:
++def _second_opinion_qubo_breakdown_chart(second_opinion: dict[str, Any] | None) -> str | None:
++    if not isinstance(second_opinion, dict) or not second_opinion.get("available"):
++        return None
++    rows = second_opinion.get("best_qubo") or second_opinion.get("samples") or []
++    df = pd.DataFrame(rows)
++    if df is None or len(df) == 0:
+         return None
++    sort_col = "qubo_value" if "qubo_value" in df.columns else "probability"
++    ascending = sort_col == "qubo_value"
++    df = _sort_df(df, None, sort_col, ascending).head(10)
++    return _stacked_qubo_breakdown_chart(df, "QUBO Breakdown - Quantum 2nd opinion Top 10", "Q2")
+ 
+-    labels = ["Return", "Risk", "Budget"]
+-    if "type_budget_term" in terms:
+-        labels.append("Type")
+-    labels.append("QUBO")
+-    heights = values + [float(qubo_value)]
+-    colors = ["#2ED8A3", "#FFB04D", "#FF5E7A"]
+-    if "type_budget_term" in terms:
+-        colors.append("#A78BFA")
+-    colors.append("#1EC8FF")
+-    fig, ax = plt.subplots(figsize=(8, 5.2))
++
++def _stacked_qubo_breakdown_chart(df: pd.DataFrame, title: str, label_prefix: str) -> str | None:
++    terms = tuple(
++        term
++        for term in ("return_term", "risk_term", "budget_term", "type_budget_term")
++        if term != "type_budget_term" or term in df.columns
++    )
++    if df is None or len(df) == 0 or not all(term in df.columns for term in terms):
++        return None
++
++    fig, ax = plt.subplots(figsize=(10, 5.8))
+     _style_axis(fig, ax, title)
+-    ax.bar(labels, heights, color=colors, alpha=0.9)
+-    ax.axhline(0, color="#F8FAFC", linewidth=0.8, alpha=0.65)
+-    bitstring = _series_get(row, "bitstring")
+-    probability = _series_get(row, "probability")
+-    subtitle = f"bitstring={bitstring}"
+-    if probability is not None:
+-        subtitle += f"  probability={float(probability):.4f}"
+-    ax.text(0.01, 0.98, subtitle, transform=ax.transAxes, va="top", ha="left", color="#A9B8D4", fontsize=9)
+-    ax.set_ylabel("Contribution / QUBO", color="#E5EEF8")
++    x = np.arange(len(df))
++    labels = [f"{label_prefix}{idx + 1}" for idx in range(len(df))]
++    bottoms_pos = np.zeros(len(df))
++    bottoms_neg = np.zeros(len(df))
++    colors = {
++        "return_term": "#2ED8A3",
++        "risk_term": "#FFB04D",
++        "budget_term": "#FF5E7A",
++        "type_budget_term": "#A78BFA",
++    }
++    for term in terms:
++        values = pd.to_numeric(df[term], errors="coerce").fillna(0.0).to_numpy(dtype=float)
++        positive = np.where(values > 0, values, 0.0)
++        negative = np.where(values < 0, values, 0.0)
++        ax.bar(x, positive, bottom=bottoms_pos, color=colors[term], alpha=0.9, label=term)
++        ax.bar(x, negative, bottom=bottoms_neg, color=colors[term], alpha=0.9)
++        bottoms_pos += positive
++        bottoms_neg += negative
++    if "qubo_value" in df.columns:
++        ax.plot(x, pd.to_numeric(df["qubo_value"], errors="coerce").fillna(0.0), color="#F8FAFC", marker="o", label="QUBO")
++    ax.set_xticks(x, labels)
++    ax.set_ylabel("Contribution", color="#E5EEF8")
++    ax.legend(facecolor="#101933", edgecolor="#284061", labelcolor="#E5EEF8", ncol=4)
+     fig.tight_layout()
+     return _figure_to_data_url(fig)
+ 
+@@ -997,22 +1331,38 @@ def _circuit_overview_chart(circuit: dict[str, Any]) -> str | None:
+     return _figure_to_data_url(fig)
+ 
+ 
+-def _solver_comparison_chart(optimizer) -> str | None:
+-    comparison = getattr(optimizer, "solver_comparison_df", pd.DataFrame())
++def _solver_comparison_chart(optimizer, second_opinion: dict[str, Any] | None = None) -> str | None:
++    if second_opinion is None:
++        second_opinion = _qiskit_second_opinion_report(optimizer)
++    comparison = pd.DataFrame(_solver_comparison_records(optimizer, second_opinion))
+     metrics = ("qubo_value", "portfolio_return", "portfolio_vol", "sharpe_like")
+     if comparison is None or len(comparison) == 0 or "solver" not in comparison.columns:
+         return None
+ 
+     fig, axes = plt.subplots(2, 2, figsize=(10, 7))
+     fig.patch.set_facecolor("#050816")
+-    labels = comparison["solver"].astype(str).tolist()
++    labels = comparison["solver"].map(_display_solver_label).astype(str).tolist()
+     for ax, metric in zip(axes.flat, metrics):
+         _style_axis(fig, ax, metric)
+         if metric not in comparison.columns:
+             ax.text(0.5, 0.5, "No data", ha="center", va="center", color="#E5EEF8", transform=ax.transAxes)
+             continue
+         values = pd.to_numeric(comparison[metric], errors="coerce").fillna(0.0).tolist()
+-        ax.bar(labels, values, color=["#1EC8FF", "#7C3AED", "#2ED8A3"][: len(labels)], alpha=0.9)
++        palette = ["#1EC8FF", "#7C3AED", "#D97706", "#2ED8A3", "#FF5E7A"]
++        bars = ax.bar(labels, values, color=palette[: len(labels)], alpha=0.9)
++        for bar, value in zip(bars, values):
++            offset = 3 if value >= 0 else -12
++            va = "bottom" if value >= 0 else "top"
++            ax.annotate(
++                f"{float(value):.3f}",
++                xy=(bar.get_x() + bar.get_width() / 2, value),
++                xytext=(0, offset),
++                textcoords="offset points",
++                ha="center",
++                va=va,
++                color="#E5EEF8",
++                fontsize=8,
++            )
+         ax.tick_params(axis="x", rotation=12)
+     fig.suptitle("Solver Comparison", color="#E5EEF8", fontsize=14, fontweight="bold")
+     fig.tight_layout(rect=(0, 0, 1, 0.96))
+@@ -1062,12 +1412,82 @@ def _portfolio_content_records(optimizer) -> list[dict[str, Any]]:
+     return json_safe(records)
+ 
+ 
++def _export_mode(optimizer) -> str:
++    export_mode = str(getattr(optimizer, "export_mode", DEFAULT_EXPORT_MODE) or DEFAULT_EXPORT_MODE)
++    if export_mode not in {
++        EXPORT_MODE_INTERNAL_ONLY,
++        EXPORT_MODE_QISKIT_EXPORT,
++        EXPORT_MODE_IBM_EXTERNAL_RUN,
++    }:
++        return DEFAULT_EXPORT_MODE
++    return export_mode
++
++
++def _export_mode_diagnostics(optimizer) -> dict[str, Any]:
++    export_mode = _export_mode(optimizer)
++    diagnostics = getattr(optimizer, "export_mode_diagnostics", None)
++    if isinstance(diagnostics, dict) and diagnostics:
++        payload = dict(diagnostics)
++    else:
++        payload = {
++            "requested_export_mode": export_mode,
++            "export_mode": export_mode,
++            "export_mode_label": EXPORT_MODE_LABELS.get(export_mode, export_mode),
++            "qiskit_export_requested": export_mode == EXPORT_MODE_QISKIT_EXPORT,
++            "ibm_external_run_requested": export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN,
++            "hardware_submission": "not_configured",
++        }
++    payload.setdefault("export_mode", export_mode)
++    payload.setdefault("export_mode_label", EXPORT_MODE_LABELS.get(export_mode, export_mode))
++    payload.setdefault("hardware_submission", "not_configured")
++    return json_safe(payload)
++
++
++def _ibm_export_report(optimizer, *, qaoa_executed: bool) -> dict[str, Any]:
++    export_mode = _export_mode(optimizer)
++    diagnostics = _export_mode_diagnostics(optimizer)
++    if not qaoa_executed:
++        return json_safe(
++            {
++                "available": False,
++                "provider": "ibm_quantum",
++                "sdk": "qiskit",
++                "export_mode": export_mode,
++                "export_mode_label": diagnostics.get("export_mode_label"),
++                "reason": "QAOA was not executed for this response.",
++                "hardware_submission": "not_configured",
++            }
++        )
++    if export_mode == EXPORT_MODE_QISKIT_EXPORT:
++        metadata = qaoa_ibm_circuit_metadata(optimizer)
++        metadata["export_mode"] = export_mode
++        metadata["export_mode_label"] = diagnostics.get("export_mode_label")
++        return json_safe(metadata)
++    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
++        reason = "IBM external run is reserved for a later backend release."
++    else:
++        reason = "Qiskit export was not requested for this run."
++    return json_safe(
++        {
++            "available": False,
++            "provider": "ibm_quantum",
++            "sdk": "qiskit",
++            "export_mode": export_mode,
++            "export_mode_label": diagnostics.get("export_mode_label"),
++            "reason": reason,
++            "hardware_submission": "not_configured",
++        }
++    )
++
++
+ def _circuit_report(optimizer) -> dict[str, Any]:
+     n_qubits = _safe_int(getattr(optimizer, "n", None))
+     layers = _safe_int(getattr(optimizer, "qaoa_p", None))
+     qubo = getattr(optimizer, "Q", np.array([]))
+     qaoa_configured = bool(getattr(optimizer, "enable_qaoa", False))
+     qaoa_available = bool(len(getattr(optimizer, "samples_df", [])))
++    export_mode = _export_mode(optimizer)
++    export_diagnostics = _export_mode_diagnostics(optimizer)
+     if not qaoa_configured and not qaoa_available:
+         return json_safe(
+             {
+@@ -1075,6 +1495,8 @@ def _circuit_report(optimizer) -> dict[str, Any]:
+                 "reason": "QAOA circuit metrics are unavailable because QAOA was not executed for this response.",
+                 "n_qubits": n_qubits,
+                 "layers": layers,
++                "export_mode": export_mode,
++                "export_mode_label": export_diagnostics.get("export_mode_label"),
+                 "mixer_type": "x_mixer",
+                 "cost_terms": _qubo_nonzero_count(qubo),
+                 "qubo_nonzero_entries": _qubo_nonzero_count(qubo),
+@@ -1082,13 +1504,7 @@ def _circuit_report(optimizer) -> dict[str, Any]:
+                 "shots_mode": "disabled",
+                 "qaoa_shots": _safe_int(getattr(optimizer, "qaoa_shots", None)),
+                 "qaoa_shots_display": "not_applicable",
+-                "ibm": {
+-                    "available": False,
+-                    "provider": "ibm_quantum",
+-                    "sdk": "qiskit",
+-                    "reason": "QAOA was not executed for this response.",
+-                    "hardware_submission": "not_configured",
+-                },
++                "ibm": _ibm_export_report(optimizer, qaoa_executed=False),
+             }
+         )
+ 
+@@ -1118,6 +1534,8 @@ def _circuit_report(optimizer) -> dict[str, Any]:
+                 "available": True,
+                 "n_qubits": n_qubits_int,
+                 "layers": layers_int,
++                "export_mode": export_mode,
++                "export_mode_label": export_diagnostics.get("export_mode_label"),
+                 "mixer_type": "x_mixer",
+                 "cost_terms": int(one_qubit_cost_terms + two_qubit_cost_terms),
+                 "qubo_nonzero_entries": int(qubo_nonzero_entries),
+@@ -1132,7 +1550,7 @@ def _circuit_report(optimizer) -> dict[str, Any]:
+                 "qaoa_shots": None if shots_mode == "exact" else qaoa_shots,
+                 "qaoa_shots_display": "exact" if shots_mode == "exact" else (str(qaoa_shots) if qaoa_shots is not None else None),
+                 "counts_are_estimated": True,
+-                "ibm": qaoa_ibm_circuit_metadata(optimizer),
++                "ibm": _ibm_export_report(optimizer, qaoa_executed=True),
+             }
+         )
+     except Exception as exc:
+@@ -1142,10 +1560,13 @@ def _circuit_report(optimizer) -> dict[str, Any]:
+                 "reason": f"Circuit metrics could not be computed: {type(exc).__name__}",
+                 "n_qubits": n_qubits,
+                 "layers": layers,
++                "export_mode": export_mode,
++                "export_mode_label": export_diagnostics.get("export_mode_label"),
+                 "counts_are_estimated": False,
+                 "shots_mode": "unknown",
+                 "qaoa_shots": _safe_int(getattr(optimizer, "qaoa_shots", None)),
+                 "qaoa_shots_display": None,
++                "ibm": _ibm_export_report(optimizer, qaoa_executed=False),
+             }
+         )
+ 
+@@ -1188,6 +1609,67 @@ def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
+     return json_safe(df.replace({np.inf: np.nan, -np.inf: np.nan}).to_dict(orient="records"))
+ 
+ 
++def _solver_comparison_records(optimizer, second_opinion: dict[str, Any] | None = None) -> list[dict[str, Any]]:
++    comparison = getattr(optimizer, "solver_comparison_df", pd.DataFrame())
++    if comparison is None or len(comparison) == 0:
++        comparison = pd.DataFrame()
++    else:
++        comparison = comparison.copy()
++        if "solver" in comparison.columns:
++            comparison["solver"] = comparison["solver"].map(_display_solver_label)
++
++    rows = _dedupe_solver_rows(_records(comparison))
++    summary = (second_opinion or {}).get("summary") if isinstance(second_opinion, dict) else None
++    if isinstance(summary, dict) and summary.get("available"):
++        second_opinion_row = json_safe(
++            {
++                "solver": "Quantum / QAOA (2nd opinion)",
++                "bitstring": summary.get("best_bitstring"),
++                "selection_scope": f"{summary.get('source') or 'Qiskit simulation'} comparison",
++                "qubo_value": summary.get("qubo_value"),
++                "return_term": summary.get("return_term"),
++                "risk_term": summary.get("risk_term"),
++                "budget_term": summary.get("budget_term"),
++                "type_budget_term": summary.get("type_budget_term"),
++                "selected_usd": summary.get("selected_usd"),
++                "budget_gap": summary.get("budget_gap"),
++                "abs_budget_gap": summary.get("abs_budget_gap"),
++                "portfolio_return": summary.get("portfolio_return"),
++                "portfolio_vol": summary.get("portfolio_vol"),
++                "sharpe_like": summary.get("sharpe_like"),
++                "cash_weight": summary.get("cash_weight"),
++                "probability": summary.get("probability"),
++            }
++        )
++        if not any(_display_solver_label(row.get("solver")) == "Quantum / QAOA (2nd opinion)" for row in rows):
++            rows.append(second_opinion_row)
++    return _dedupe_solver_rows(rows)
++
++
++def _display_solver_label(value: Any) -> str:
++    text = str(value or "")
++    lowered = text.lower()
++    if "qiskit" in lowered or "second_opinion" in lowered or "second opinion" in lowered or "2nd opinion" in lowered:
++        return "Quantum / QAOA (2nd opinion)"
++    if "qaoa" in lowered or "pennylane" in lowered:
++        return "Quantum / QAOA"
++    return text or "n/a"
++
++
++def _dedupe_solver_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
++    deduped: list[dict[str, Any]] = []
++    seen: set[str] = set()
++    for row in rows:
++        solver = _display_solver_label(row.get("solver"))
++        if solver in seen:
++            continue
++        copy = dict(row)
++        copy["solver"] = solver
++        deduped.append(copy)
++        seen.add(solver)
++    return deduped
++
++
+ def _tail_df(df: pd.DataFrame, limit: int) -> pd.DataFrame:
+     if df is None or len(df) == 0:
+         return pd.DataFrame()
+diff --git a/Version 9/app/usage_policy.py b/Version 9/app/usage_policy.py
+index 4db4209..482eec3 100644
+--- a/Version 9/app/usage_policy.py	
++++ b/Version 9/app/usage_policy.py	
+@@ -38,6 +38,32 @@ QAOA_SIMULATION_BACKENDS = {
+ LOCAL_DEV_FALLBACK_SECRET = "qaoa-rqp-local-dev-secret-v1"
+ DEFAULT_RESPONSE_LEVEL = "full"
+ DEFAULT_QAOA_EXACT_PROBABILITY_MAX_QUBITS = 24
++EXPORT_MODE_INTERNAL_ONLY = "internal_only"
++EXPORT_MODE_QISKIT_EXPORT = "qiskit_export"
++EXPORT_MODE_IBM_EXTERNAL_RUN = "ibm_external_run"
++DEFAULT_EXPORT_MODE = EXPORT_MODE_INTERNAL_ONLY
++EXPORT_MODES = (
++    EXPORT_MODE_INTERNAL_ONLY,
++    EXPORT_MODE_QISKIT_EXPORT,
++    EXPORT_MODE_IBM_EXTERNAL_RUN,
++)
++EXPORT_MODE_LABELS = {
++    EXPORT_MODE_INTERNAL_ONLY: "Internal only / no 2nd opinion",
++    EXPORT_MODE_QISKIT_EXPORT: "Qiskit simulation",
++    EXPORT_MODE_IBM_EXTERNAL_RUN: "Qiskit on IBM Hardware",
++}
++EXPORT_MODE_ALIASES = {
++    "internal": EXPORT_MODE_INTERNAL_ONLY,
++    "none": EXPORT_MODE_INTERNAL_ONLY,
++    "off": EXPORT_MODE_INTERNAL_ONLY,
++    "disabled": EXPORT_MODE_INTERNAL_ONLY,
++    "qiskit": EXPORT_MODE_QISKIT_EXPORT,
++    "qiskit_dry_run": EXPORT_MODE_QISKIT_EXPORT,
++    "ibm": EXPORT_MODE_IBM_EXTERNAL_RUN,
++    "ibm_external": EXPORT_MODE_IBM_EXTERNAL_RUN,
++}
++TESTER_EXPORT_LEVEL_ID = 2
++ULTRA_EXPORT_LEVEL_ID = 5
+ 
+ 
+ @dataclass(frozen=True)
+@@ -108,6 +134,8 @@ class PolicyResult:
+     candidate_count: int
+     runtime_limit_source: str = "usage_level"
+     effective_settings: dict[str, Any] = field(default_factory=dict)
++    export_mode: str = DEFAULT_EXPORT_MODE
++    export_mode_diagnostics: dict[str, Any] = field(default_factory=dict)
+ 
+ 
+ def resolve_usage_context(api_key: str | None) -> UsageContext:
+@@ -200,6 +228,109 @@ def simulation_backend_for_mode(mode: str | None) -> str | None:
+     return QAOA_SIMULATION_BACKENDS.get(str(mode or "").strip().lower())
+ 
+ 
++def normalize_export_mode(value: str | None) -> str:
++    requested = str(value or DEFAULT_EXPORT_MODE).strip().lower()
++    export_mode = EXPORT_MODE_ALIASES.get(requested, requested)
++    if export_mode not in EXPORT_MODES:
++        raise ApiError(
++            400,
++            "invalid_export_mode",
++            "Unsupported export_mode.",
++            {
++                "received_export_mode": requested,
++                "supported_export_modes": list(EXPORT_MODES),
++                "export_mode_aliases": EXPORT_MODE_ALIASES,
++            },
++        )
++    return export_mode
++
++
++def export_mode_diagnostics_for(
++    usage_context: UsageContext | None,
++    export_mode: str | None,
++    *,
++    requested_export_mode: str | None = None,
++) -> dict[str, Any]:
++    effective_export_mode = normalize_export_mode(export_mode)
++    usage_level_name = getattr(usage_context, "usage_level_name", None)
++    usage_level = getattr(usage_context, "usage_level", {}) or {}
++    usage_level_id = _usage_level_id(usage_context)
++    qiskit_allowed = usage_level_id >= TESTER_EXPORT_LEVEL_ID
++    ibm_allowed = usage_level_id >= ULTRA_EXPORT_LEVEL_ID
++    return json_safe(
++        {
++            "requested_export_mode": requested_export_mode or effective_export_mode,
++            "export_mode": effective_export_mode,
++            "export_mode_label": EXPORT_MODE_LABELS.get(effective_export_mode, effective_export_mode),
++            "usage_level": usage_level_name,
++            "usage_level_id": usage_level.get("level_id", usage_level_id),
++            "qiskit_export_allowed": qiskit_allowed,
++            "ibm_external_run_allowed": ibm_allowed,
++            "qiskit_export_requested": effective_export_mode == EXPORT_MODE_QISKIT_EXPORT,
++            "ibm_external_run_requested": effective_export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN,
++            "hardware_submission": "not_configured",
++        }
++    )
++
++
++def validate_export_mode_policy(usage_context: UsageContext, form_data) -> dict[str, Any]:
++    raw_value = _first_form_value(
++        form_data,
++        ("export_mode", "circuit_export_mode", "ibm_export_mode"),
++        DEFAULT_EXPORT_MODE,
++    )
++    export_mode = normalize_export_mode(raw_value)
++    diagnostics = export_mode_diagnostics_for(
++        usage_context,
++        export_mode,
++        requested_export_mode=str(raw_value or DEFAULT_EXPORT_MODE).strip().lower(),
++    )
++    if export_mode == EXPORT_MODE_QISKIT_EXPORT and not diagnostics["qiskit_export_allowed"]:
++        raise ApiError(
++            403,
++            "export_mode_not_allowed",
++            "Qiskit simulation is available for tester level and higher.",
++            {
++                "export_mode": export_mode,
++                "required_level": "tester",
++                "usage_level": usage_context.usage_level_name,
++                "usage_level_id": diagnostics.get("usage_level_id"),
++            },
++        )
++    if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
++        if not diagnostics["ibm_external_run_allowed"]:
++            raise ApiError(
++                403,
++                "export_mode_not_allowed",
++                "Qiskit on IBM Hardware is reserved for ultra level.",
++                {
++                    "export_mode": export_mode,
++                    "required_level": "internal_ultra",
++                    "usage_level": usage_context.usage_level_name,
++                    "usage_level_id": diagnostics.get("usage_level_id"),
++                },
++            )
++        raise ApiError(
++            501,
++            "ibm_external_run_not_enabled",
++            "Qiskit on IBM Hardware is not enabled yet.",
++            {
++                "export_mode": export_mode,
++                "required_level": "internal_ultra",
++                "usage_level": usage_context.usage_level_name,
++            },
++        )
++    return diagnostics
++
++
++def apply_export_mode_metadata(optimizer, export_mode_diagnostics: dict[str, Any]) -> None:
++    if optimizer is None:
++        return
++    optimizer.export_mode = export_mode_diagnostics.get("export_mode", DEFAULT_EXPORT_MODE)
++    optimizer.export_mode_label = export_mode_diagnostics.get("export_mode_label")
++    optimizer.export_mode_diagnostics = dict(export_mode_diagnostics)
++
++
+ def mode_limits_for(usage_level: dict[str, Any], mode: str) -> dict[str, Any]:
+     return _mode_limits(usage_level, normalize_mode(mode))
+ 
+@@ -318,6 +449,9 @@ def validate_problem_policy(usage_context: UsageContext, optimizer, mode: str, f
+                 },
+             )
+ 
++    export_mode_diagnostics = validate_export_mode_policy(usage_context, form_data)
++    apply_export_mode_metadata(optimizer, export_mode_diagnostics)
++
+     runtime_inputs = extract_runtime_inputs(optimizer, form_data, usage_level=usage_level, mode=mode)
+     if mode in QAOA_MODES:
+         _validate_qaoa_runtime_limits(usage_context, runtime_inputs, mode, mode_limits)
+@@ -328,6 +462,7 @@ def validate_problem_policy(usage_context: UsageContext, optimizer, mode: str, f
+         mode,
+         runtime_inputs=runtime_inputs,
+         form_data=form_data,
++        export_mode_diagnostics=export_mode_diagnostics,
+     )
+     if not policy_result.within_limit:
+         raise ApiError(
+@@ -357,6 +492,7 @@ def estimate_policy_result(
+     runtime_inputs: RuntimeInputs | None = None,
+     candidate_count: int | None = None,
+     form_data=None,
++    export_mode_diagnostics: dict[str, Any] | None = None,
+ ) -> PolicyResult:
+     mode_selection = resolve_run_mode(mode)
+     mode = mode_selection.run_mode
+@@ -375,7 +511,16 @@ def estimate_policy_result(
+     raw_estimated_runtime_sec = estimate_raw_runtime_sec(n_qubits, mode, runtime_inputs, candidate_count)
+     estimated_runtime_sec = apply_runtime_estimate_multiplier(raw_estimated_runtime_sec, mode)
+     max_runtime, runtime_limit_source = runtime_limit_for(usage_level, mode)
+-    effective_settings = build_effective_settings(optimizer, mode, runtime_inputs, form_data)
++    if export_mode_diagnostics is None:
++        export_mode_diagnostics = validate_export_mode_policy(usage_context, form_data or {})
++        apply_export_mode_metadata(optimizer, export_mode_diagnostics)
++    effective_settings = build_effective_settings(
++        optimizer,
++        mode,
++        runtime_inputs,
++        form_data,
++        export_mode_diagnostics=export_mode_diagnostics,
++    )
+     return PolicyResult(
+         runtime_inputs=runtime_inputs,
+         estimated_runtime_sec=estimated_runtime_sec,
+@@ -386,6 +531,8 @@ def estimate_policy_result(
+         candidate_count=candidate_count,
+         runtime_limit_source=runtime_limit_source,
+         effective_settings=effective_settings,
++        export_mode=str(export_mode_diagnostics.get("export_mode", DEFAULT_EXPORT_MODE)),
++        export_mode_diagnostics=export_mode_diagnostics,
+     )
+ 
+ 
+@@ -427,6 +574,7 @@ def runtime_estimate_payload(mode: str, policy_result: PolicyResult) -> dict[str
+                 "qaoa_shots_display": policy_result.effective_settings.get("qaoa_shots_display"),
+                 "shots_mode": policy_result.effective_settings.get("shots_mode"),
+                 "random_seed": policy_result.runtime_inputs.random_seed,
++                "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
+             },
+         }
+     )
+@@ -476,10 +624,23 @@ def extract_runtime_inputs(optimizer, form_data, usage_level: dict[str, Any] | N
+     )
+ 
+ 
+-def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs, form_data=None) -> dict[str, Any]:
++def build_effective_settings(
++    optimizer,
++    mode: str,
++    runtime_inputs: RuntimeInputs,
++    form_data=None,
++    *,
++    export_mode_diagnostics: dict[str, Any] | None = None,
++) -> dict[str, Any]:
+     settings = getattr(optimizer, "settings", {}) or {}
+     n_qubits = int(getattr(optimizer, "n", 0) or 0)
+     shots_mode = _shots_mode_for(mode, n_qubits=n_qubits)
++    export_mode_diagnostics = export_mode_diagnostics or getattr(
++        optimizer,
++        "export_mode_diagnostics",
++        export_mode_diagnostics_for(None, DEFAULT_EXPORT_MODE),
++    )
++    export_mode = str(export_mode_diagnostics.get("export_mode", DEFAULT_EXPORT_MODE))
+     raw_qaoa_shots = runtime_inputs.qaoa_shots
+     if shots_mode == "exact":
+         qaoa_shots = None
+@@ -517,6 +678,13 @@ def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs
+         "qaoa_restart_perturbation": runtime_inputs.restart_perturbation,
+         "random_seed": runtime_inputs.random_seed,
+         "rng_seed": runtime_inputs.random_seed,
++        "export_mode": export_mode,
++        "export_mode_label": export_mode_diagnostics.get(
++            "export_mode_label",
++            EXPORT_MODE_LABELS.get(export_mode, export_mode),
++        ),
++        "qiskit_export_requested": export_mode == EXPORT_MODE_QISKIT_EXPORT,
++        "ibm_external_run_requested": export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN,
+         "sources": {
+             "layers": _setting_source(form_data, settings, ("qaoa_p", "layers"), ("qaoa_p",)),
+             "iterations": _setting_source(form_data, settings, ("qaoa_maxiter", "iterations"), ("qaoa_maxiter",)),
+@@ -558,6 +726,12 @@ def build_effective_settings(optimizer, mode: str, runtime_inputs: RuntimeInputs
+                 ("qaoa_restart_perturbation",),
+             ),
+             "random_seed": random_seed_source(form_data, settings),
++            "export_mode": _setting_source(
++                form_data,
++                settings,
++                ("export_mode", "circuit_export_mode", "ibm_export_mode"),
++                ("export_mode",),
++            ),
+         },
+     }
+     return json_safe(payload)
+@@ -686,6 +860,27 @@ def capabilities_payload() -> dict[str, Any]:
+             "qaoa_effective_limits": qaoa_effective_limits,
+             "worker_profiles": worker_profiles_payload(),
+             "default_worker_profile": "small",
++            "export_modes": [
++                {
++                    "value": EXPORT_MODE_INTERNAL_ONLY,
++                    "label": EXPORT_MODE_LABELS[EXPORT_MODE_INTERNAL_ONLY],
++                    "minimum_level_id": 0,
++                    "enabled": True,
++                },
++                {
++                    "value": EXPORT_MODE_QISKIT_EXPORT,
++                    "label": EXPORT_MODE_LABELS[EXPORT_MODE_QISKIT_EXPORT],
++                    "minimum_level_id": TESTER_EXPORT_LEVEL_ID,
++                    "enabled": True,
++                },
++                {
++                    "value": EXPORT_MODE_IBM_EXTERNAL_RUN,
++                    "label": EXPORT_MODE_LABELS[EXPORT_MODE_IBM_EXTERNAL_RUN],
++                    "minimum_level_id": ULTRA_EXPORT_LEVEL_ID,
++                    "enabled": False,
++                },
++            ],
++            "default_export_mode": DEFAULT_EXPORT_MODE,
+         }
+     )
+ 
+@@ -973,6 +1168,15 @@ def _response_level_for_effective_settings(form_data) -> str:
+     return DEFAULT_RESPONSE_LEVEL
+ 
+ 
++def _first_form_value(form_data, keys: tuple[str, ...], default: Any = None) -> Any:
++    if form_data is not None:
++        for key in keys:
++            raw_value = form_data.get(key)
++            if raw_value is not None and str(raw_value).strip() != "":
++                return raw_value
++    return default
++
++
+ def _form_has_value(form_data, keys: tuple[str, ...]) -> bool:
+     if form_data is None:
+         return False
+@@ -983,6 +1187,16 @@ def _form_has_value(form_data, keys: tuple[str, ...]) -> bool:
+     return False
+ 
+ 
++def _usage_level_id(usage_context: UsageContext | None) -> int:
++    if usage_context is None:
++        return 0
++    raw_value = usage_context.usage_level.get("level_id")
++    try:
++        return int(float(raw_value))
++    except (TypeError, ValueError):
++        return 0
++
++
+ def _int_or_none(value) -> int | None:
+     if value is None:
+         return None
+diff --git a/Version 9/tests/test_api.py b/Version 9/tests/test_api.py
+index 25f6d4e..b81d56e 100644
+--- a/Version 9/tests/test_api.py	
++++ b/Version 9/tests/test_api.py	
+@@ -60,6 +60,53 @@ INTERNAL_POWER_KEY_ID = "demo-internal-power-001"
+ INTERNAL_POWER_KEY = "INTERNAL-POWER-123"
+ 
+ 
++def _minimal_code_export_package(qubits: int = 2) -> dict:
++    return {
++        "schema": "qaoa-rqp-code-export-package",
++        "schema_version": 1,
++        "generator": {
++            "tool": "QAOA Rapid Quantum Prototyping",
++            "organization": "qubit-lab.ch",
++            "model_version": "9.2.0",
++            "service": "qaoa-rqp-api-v9",
++            "legal_url": "https://qubit-lab.ch/legal",
++        },
++        "use_case": {
++            "source": "pre-optimized Excel workbook",
++            "mode": "qaoa_lightning_sim",
++            "solver": "classical_heuristic+qaoa_lightning_sim",
++            "n_qubits": qubits,
++            "fixed_positions": 1,
++            "variable_positions": qubits,
++            "budget_usd": 1000000.0,
++            "lambda_budget": 50.0,
++            "lambda_variance": 6.0,
++            "workbook_summary": {"decision_variables": qubits},
++        },
++        "qaoa": {
++            "layers": 1,
++            "gammas": [0.1],
++            "betas": [0.2],
++            "best_bitstring": "10"[:qubits],
++            "shots_mode": "exact",
++            "qaoa_shots": None,
++            "max_export_rows": 10,
++            "export_sort_by": "probability",
++        },
++        "ising": {
++            "h_terms": [0.4 for _ in range(qubits)],
++            "j_terms": [[0, 1, -0.3]] if qubits >= 2 else [],
++            "offset": 0.0,
++        },
++        "bit_order": {
++            "optimizer_bitstring_order": "q0...qN-1",
++            "qiskit_counts_key_order": "cN-1...c0",
++            "counts_decoder": "reverse_qiskit_count_key",
++        },
++        "decision_variables": [],
++    }
++
++
+ @pytest.fixture(autouse=True)
+ def _default_env(monkeypatch):
+     monkeypatch.setenv("QAOA_RQP_LOCAL_DEV", "1")
+@@ -598,7 +645,7 @@ def _patch_fast_run(monkeypatch, ledger: _RouteLockLedger, *, fail_execution: bo
+         lambda run_id, *_args, **_kwargs: {
+             "status": "completed",
+             "run_id": run_id,
+-            "model_version": "9.1.0",
++            "model_version": "9.2.0",
+             "mode": "classical_only",
+         },
+     )
+@@ -617,7 +664,7 @@ def test_root_reports_current_version():
+ 
+     assert response.status_code == 200
+     assert payload["service"] == "qaoa-rqp-api-v9"
+-    assert payload["version"] == "9.1.0"
++    assert payload["version"] == "9.2.0"
+ 
+ 
+ def test_capabilities():
+@@ -626,7 +673,7 @@ def test_capabilities():
+ 
+     assert response.status_code == 200
+     assert payload["service"] == "qaoa-rqp-api-v9"
+-    assert payload["version"] == "9.1.0"
++    assert payload["version"] == "9.2.0"
+     assert payload["supported_modes"] == ["classical_only", "qaoa_lightning_sim", "qaoa_tensor_sim"]
+     assert payload["disabled_modes"] == []
+     assert payload["mode_aliases"]["qaoa_limited"] == "qaoa_lightning_sim"
+@@ -1017,7 +1064,7 @@ def test_worker_marks_completed_and_releases_public_lock(monkeypatch, tmp_path):
+         lambda run_id, *_args, **_kwargs: {
+             "status": "completed",
+             "run_id": run_id,
+-            "model_version": "9.1.0",
++            "model_version": "9.2.0",
+             "mode": "classical_only",
+             "binary_variables": 3,
+             "objective": 1.23,
+@@ -1083,7 +1130,7 @@ def test_worker_final_result_includes_worker_profile_and_memory(monkeypatch, tmp
+         return {
+             "status": "completed",
+             "run_id": run_id,
+-            "model_version": "9.1.0",
++            "model_version": "9.2.0",
+             "mode": "classical_only",
+             **metadata,
+             "diagnostics": dict(metadata),
+@@ -1226,7 +1273,7 @@ def test_worker_preserves_random_seed_in_final_result(monkeypatch, tmp_path):
+         return {
+             "status": "completed",
+             "run_id": run_id,
+-            "model_version": "9.1.0",
++            "model_version": "9.2.0",
+             "mode": "classical_only",
+             "diagnostics": {
+                 "random_seed": policy.runtime_inputs.random_seed,
+@@ -1449,7 +1496,7 @@ def test_firestore_ledger_consumes_success_atomically_and_records_run():
+     assert run_record["n_qubits"] == 3
+     assert run_record["candidate_count"] == 8
+     assert run_record["runtime_ratio"] == 0.5
+-    assert run_record["service_version"] == "9.1.0"
++    assert run_record["service_version"] == "9.2.0"
+     assert "timestamp" in run_record
+ 
+ 
+@@ -3223,7 +3270,7 @@ def test_demo_key_gets_qualified_demo_full_response_by_default():
+ 
+     assert response.status_code == 200
+     assert payload["status"] == "completed"
+-    assert payload["model_version"] == "9.1.0"
++    assert payload["model_version"] == "9.2.0"
+     assert payload["mode"] == "classical_only"
+     assert payload["license"]["usage_level"] == "qualified_demo"
+     assert payload["license"]["max_runs"] == 1000
+@@ -3414,7 +3461,114 @@ def test_public_demo_qaoa_limited_runs_within_small_limits(tmp_path):
+     assert payload["diagnostics"]["qaoa_enabled"] is True
+     assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] is None
+     assert payload["diagnostics"]["effective_settings"]["qaoa_shots_display"] == "exact"
++    assert payload["diagnostics"]["effective_settings"]["export_mode"] == "internal_only"
++    assert payload["diagnostics"]["export_mode"] == "internal_only"
+     assert payload["diagnostics"]["circuit"]["shots_mode"] == "exact"
++    assert payload["diagnostics"]["circuit"]["ibm"]["available"] is False
++    assert payload["diagnostics"]["circuit"]["ibm"]["export_mode"] == "internal_only"
++
++
++def test_public_demo_qiskit_export_requires_tester_level(tmp_path):
++    workbook_path = _limited_workbook(tmp_path, qubits=3)
++    response = _post_run_file(
++        workbook_path,
++        mode="qaoa_limited",
++        response_level="compact",
++        export_mode="qiskit_export",
++        qaoa_p="1",
++        qaoa_maxiter="2",
++        qaoa_multistart_restarts="1",
++    )
++    payload = response.get_json()
++
++    assert response.status_code == 403
++    assert payload["error"]["code"] == "export_mode_not_allowed"
++    assert payload["error"]["details"]["export_mode"] == "qiskit_export"
++    assert payload["error"]["details"]["required_level"] == "tester"
++
++
++def test_code_export_requires_tester_level():
++    response = app.test_client().post(
++        "/exports/code",
++        json={
++            "target": "qiskit_notebook",
++            "package": _minimal_code_export_package(),
++        },
++    )
++    payload = response.get_json()
++
++    assert response.status_code == 403
++    assert payload["error"]["code"] == "code_export_not_allowed"
++    assert payload["error"]["details"]["required_min_level_id"] == 2
++
++
++def test_tester_can_render_qiskit_code_export_files():
++    package = _minimal_code_export_package()
++    client = app.test_client()
++
++    py_response = client.post(
++        "/exports/code",
++        headers={"X-API-Key": "TESTER-123"},
++        json={"target": "qiskit_py", "package": package},
++    )
++    py_text = py_response.get_data(as_text=True)
++
++    assert py_response.status_code == 200
++    assert py_response.headers["Content-Disposition"] == 'attachment; filename="qaoa_rqp_qiskit.py"'
++    assert "QAOA Rapid Quantum Prototyping by qubit-lab.ch" in py_text
++    assert "Legal terms: https://qubit-lab.ch/legal" in py_text
++    assert "build_qaoa_circuit" in py_text
++    assert "print_circuit_summary" in py_text
++    assert "Full text circuit diagram skipped" in py_text
++    assert "reconstructed_qubo_value" in py_text
++    assert "Top simulated states by reconstructed QUBO objective" in py_text
++    assert "qubo_value" in py_text
++    assert "pre-optimized Excel use case" in py_text
++    assert "PACKAGE = json.loads" in py_text
++    py_package_namespace: dict[str, object] = {}
++    exec(py_text.split("import numpy as np", 1)[0], py_package_namespace)
++    assert py_package_namespace["PACKAGE"]["qaoa"]["qaoa_shots"] is None
++    assert py_package_namespace["PACKAGE"]["qaoa"]["max_export_rows"] == 10
++
++    notebook_response = client.post(
++        "/exports/code",
++        headers={"X-API-Key": "TESTER-123"},
++        json={"target": "qiskit_notebook", "package": package},
++    )
++    notebook = json.loads(notebook_response.get_data(as_text=True))
++
++    assert notebook_response.status_code == 200
++    assert notebook_response.headers["Content-Disposition"] == 'attachment; filename="qaoa_rqp_qiskit.ipynb"'
++    assert notebook["nbformat"] == 4
++    assert notebook["cells"][0]["cell_type"] == "markdown"
++    assert "QAOA Rapid Quantum Prototyping by qubit-lab.ch" in notebook["cells"][0]["source"]
++    assert "Fixed positions" in notebook["cells"][0]["source"]
++    assert "%pip install qiskit numpy matplotlib" in notebook["cells"][1]["source"]
++    assert "PACKAGE = json.loads" in notebook["cells"][2]["source"]
++    notebook_package_namespace: dict[str, object] = {}
++    exec(notebook["cells"][2]["source"], notebook_package_namespace)
++    assert notebook_package_namespace["PACKAGE"]["qaoa"]["qaoa_shots"] is None
++    assert notebook_package_namespace["PACKAGE"]["qaoa"]["max_export_rows"] == 10
++
++    pennylane_response = client.post(
++        "/exports/code",
++        headers={"X-API-Key": "TESTER-123"},
++        json={"target": "pennylane_notebook", "package": package},
++    )
++    assert pennylane_response.status_code == 200
++    pennylane_text = pennylane_response.get_data(as_text=True)
++    pennylane_notebook = json.loads(pennylane_text)
++    assert "pennylane as qml" in pennylane_text
++    assert "Python 3.11+" in pennylane_text
++    assert '"pennylane>=0.44,<0.45" numpy matplotlib' in pennylane_notebook["cells"][1]["source"]
++
++    cirq_response = client.post(
++        "/exports/code",
++        headers={"X-API-Key": INTERNAL_POWER_KEY},
++        json={"target": "cirq_notebook", "package": package},
++    )
++    assert cirq_response.status_code == 200
++    assert "import cirq" in cirq_response.get_data(as_text=True)
+ 
+ 
+ def test_qaoa_limited_rejects_over_16_qubit_safety_cap():
+@@ -3447,6 +3601,7 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
+         headers={"X-API-Key": "TESTER-123"},
+         mode="qaoa_limited",
+         response_level="full",
++        export_mode="qiskit_export",
+         qaoa_p="1",
+         qaoa_maxiter="4",
+         qaoa_multistart_restarts="1",
+@@ -3481,8 +3636,12 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
+     assert payload["diagnostics"]["circuit"]["shots_mode"] == "exact"
+     assert payload["diagnostics"]["circuit"]["qaoa_shots"] is None
+     assert payload["diagnostics"]["circuit"]["qaoa_shots_display"] == "exact"
++    assert payload["diagnostics"]["export_mode"] == "qiskit_export"
++    assert payload["diagnostics"]["effective_settings"]["export_mode"] == "qiskit_export"
++    assert payload["diagnostics"]["circuit"]["export_mode"] == "qiskit_export"
+     ibm_circuit = payload["diagnostics"]["circuit"]["ibm"]
+     assert ibm_circuit["available"] is True
++    assert ibm_circuit["export_mode"] == "qiskit_export"
+     assert ibm_circuit["dry_run"] is True
+     assert ibm_circuit["qiskit_available"] is True
+     assert ibm_circuit["hardware_submission"] == "not_configured"
+@@ -3496,6 +3655,22 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
+     assert ibm_circuit["openqasm3"]["preview"].startswith("OPENQASM 3.0;")
+     assert payload["diagnostics"]["effective_settings"]["qaoa_shots"] is None
+     assert payload["diagnostics"]["effective_settings"]["qaoa_shots_display"] == "exact"
++    export_package = payload["code_export_package"]
++    assert export_package["schema"] == "qaoa-rqp-code-export-package"
++    assert export_package["schema_version"] == 1
++    assert export_package["generator"]["organization"] == "qubit-lab.ch"
++    assert export_package["use_case"]["source"] == "pre-optimized Excel workbook"
++    assert export_package["use_case"]["n_qubits"] == 7
++    assert export_package["qaoa"]["layers"] == 1
++    assert len(export_package["qaoa"]["gammas"]) == 1
++    assert len(export_package["qaoa"]["betas"]) == 1
++    assert len(export_package["ising"]["h_terms"]) == 7
++    assert export_package["bit_order"]["counts_decoder"] == "reverse_qiskit_count_key"
++    assert "fixed_assets" in export_package["assets"]
++    assert len(export_package["assets"]["variable_assets"]) == 7
++    assert "covariance" in export_package["market_data"]
++    assert "type_budgets" in export_package
++    assert payload["diagnostics"]["code_export_package_available"] is True
+ 
+     reporting = payload["reporting"]
+     assert reporting["classical_candidates"]
+@@ -3514,15 +3689,32 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
+     assert reporting["qaoa_best_qubo"][0]["source"] == "qaoa_lightning_sim"
+     assert reporting["qaoa_best_qubo"][0]["selection_scope"] == "qaoa exact probability sample"
+     assert reporting["qaoa_best_qubo"][0]["qubo_value"] == min(row["qubo_value"] for row in reporting["qaoa_best_qubo"])
++    second_opinion = reporting["second_opinion"]
++    assert second_opinion["available"] is True
++    assert second_opinion["label"] == "Quantum (2nd opinion) - Qiskit simulation"
++    assert second_opinion["source"] == "qiskit_statevector"
++    assert second_opinion["summary"]["status"] == "Available"
++    assert second_opinion["summary"]["source"] == "Qiskit simulation"
++    assert second_opinion["summary"]["probability"] is not None
++    assert second_opinion["samples"]
++    assert second_opinion["samples"][0]["source"] == "qiskit_statevector_second_opinion"
++    assert second_opinion["best_qubo"]
++    assert second_opinion["portfolio_contents"]
++    assert reporting["summary"]["quantum_second_opinion_summary"]["status"] == "Available"
+     assert reporting["solver_comparison"]
+     assert {row["solver"] for row in reporting["solver_comparison"]} >= {"Classical Heuristic"}
+-    assert any("QAOA" in row["solver"] for row in reporting["solver_comparison"])
++    assert any(row["solver"] == "Quantum / QAOA" for row in reporting["solver_comparison"])
++    assert any(row["solver"] == "Quantum / QAOA (2nd opinion)" for row in reporting["solver_comparison"])
++    assert [row["solver"] for row in reporting["solver_comparison"]].count("Quantum / QAOA (2nd opinion)") == 1
++    assert not any("PennyLane" in row["solver"] for row in reporting["solver_comparison"])
+     assert any(row.get("source") == "qaoa_best_qubo" for row in reporting["portfolio_contents"])
+     assert reporting["circuit"]["available"] is True
+     assert reporting["circuit"]["counts_are_estimated"] is True
+     assert reporting["circuit"]["n_qubits"] == 7
+     assert reporting["circuit"]["ibm"]["qiskit_available"] is True
+     assert reporting["charts"]["qubo_breakdown_quantum"].startswith("data:image/png;base64,")
++    assert reporting["charts"]["qubo_breakdown_second_opinion"].startswith("data:image/png;base64,")
++    assert reporting["charts"]["solver_comparison"].startswith("data:image/png;base64,")
+     assert reporting["charts"]["optimization_history"].startswith("data:image/png;base64,")
+     assert reporting["charts"]["circuit_overview"].startswith("data:image/png;base64,")
+     assert reporting["charts"]["qubo_breakdown_classical"].startswith("data:image/png;base64,")
+diff --git a/frontend/page.tsx b/frontend/page.tsx
+index 313d989..e2eeb6f 100644
+--- a/frontend/page.tsx
++++ b/frontend/page.tsx
+@@ -20,6 +20,10 @@ type EffectiveSettings = {
+   simulation_backend?: string | null;
+   legacy_run_mode_alias?: boolean | null;
+   hardware_replay?: boolean | null;
++  export_mode?: string | null;
++  export_mode_label?: string | null;
++  qiskit_export_requested?: boolean | null;
++  ibm_external_run_requested?: boolean | null;
+   layers?: number | null;
+   p?: number | null;
+   iterations?: number | null;
+@@ -39,6 +43,17 @@ type EffectiveSettings = {
+ };
+ 
+ type WorkerProfileId = "small" | "medium" | "large";
++type ExportMode = "internal_only" | "qiskit_export" | "ibm_external_run";
++type CodeExportTargetValue =
++  | "qiskit_notebook"
++  | "qiskit_py"
++  | "pennylane_notebook"
++  | "cirq_notebook"
++  | "quantinuum_notebook";
++type CodeExportPackage = Record<string, unknown> & {
++  schema?: string;
++  schema_version?: number;
++};
+ 
+ type WorkerProfileMetadata = {
+   label?: string;
+@@ -163,6 +178,7 @@ type LicenseStatus = {
+   organization?: string;
+   display_name?: string;
+   usage_level?: string;
++  usage_level_id?: number;
+   status?: string;
+   expires_at?: string;
+   max_runs?: number;
+@@ -211,10 +227,25 @@ type ReportingSummaryBlock = {
+   additional_type_budget_penalty?: number | null;
+ };
+ 
++type SecondOpinionReporting = {
++  available?: boolean;
++  enabled?: boolean;
++  label?: string;
++  source?: string;
++  reason?: string;
++  summary?: ReportingSummaryBlock;
++  samples?: CandidateRow[];
++  best_qubo?: CandidateRow[];
++  portfolio_contents?: CandidateRow[];
++};
++
+ type Reporting = {
+   summary?: {
+     classical_result_summary?: ReportingSummaryBlock;
+     quantum_result_summary?: ReportingSummaryBlock;
++    quantum_second_opinion_summary?: ReportingSummaryBlock;
++    second_opinion_available?: boolean;
++    second_opinion_label?: string;
+ 
+     currency_code?: string;
+     decision_variables?: number;
+@@ -233,6 +264,7 @@ type Reporting = {
+     qaoa_status?: string;
+     qaoa_mode?: string;
+     qaoa_p?: number;
++    export_mode?: string | null;
+ 
+     budget_lambda?: number;
+     risk_lambda?: number;
+@@ -251,6 +283,7 @@ type Reporting = {
+   classical_candidates?: CandidateRow[];
+   quantum_samples?: CandidateRow[];
+   qaoa_best_qubo?: CandidateRow[];
++  second_opinion?: SecondOpinionReporting;
+   solver_comparison?: CandidateRow[];
+   portfolio_contents?: CandidateRow[];
+   optimization_history?: CandidateRow[];
+@@ -293,6 +326,7 @@ type RunResult = {
+   memory_used_pct?: number | null;
+   peak_memory_used_gib?: number | null;
+   memory_history?: MemoryHistoryPoint[];
++  code_export_package?: CodeExportPackage | null;
+   components?: Record<string, unknown>;
+   best_candidate?: Record<string, unknown>;
+   top_candidates?: CandidateRow[];
+@@ -450,6 +484,7 @@ type SavedQaoaSnapshot = {
+   original_filename?: string | null;
+   ui_state: {
+     mode: string;
++    export_mode?: ExportMode;
+     response_level: string;
+     layers: number;
+     iterations: number;
+@@ -484,6 +519,7 @@ type RawJsonDataDownload = {
+   inspect_result?: InspectResult | null;
+   result?: RunResult | null;
+   job_status?: JobStatus | null;
++  code_export_package?: CodeExportPackage | null;
+ };
+ 
+ const API_URL =
+@@ -508,6 +544,10 @@ const QAOA_TENSOR_SIM_MODE = "qaoa_tensor_sim";
+ const LEGACY_QAOA_LIMITED_MODE = "qaoa_limited";
+ const DEFAULT_RUN_MODE = QAOA_LIGHTNING_SIM_MODE;
+ const DEFAULT_WORKER_PROFILE: WorkerProfileId = "small";
++const EXPORT_MODE_INTERNAL_ONLY: ExportMode = "internal_only";
++const EXPORT_MODE_QISKIT_EXPORT: ExportMode = "qiskit_export";
++const EXPORT_MODE_IBM_EXTERNAL_RUN: ExportMode = "ibm_external_run";
++const DEFAULT_EXPORT_MODE: ExportMode = EXPORT_MODE_INTERNAL_ONLY;
+ 
+ const RUN_MODE_OPTIONS = [
+   {
+@@ -531,6 +571,79 @@ const RUN_MODE_LABELS: Record<string, string> = {
+   [LEGACY_QAOA_LIMITED_MODE]: "QAOA Lightning Sim (legacy alias)",
+ };
+ 
++const EXPORT_MODE_OPTIONS: Array<{
++  value: ExportMode;
++  label: string;
++  description: string;
++  requiredLevel?: string;
++  enabled: boolean;
++}> = [
++  {
++    value: EXPORT_MODE_INTERNAL_ONLY,
++    label: "Internal only / no 2nd opinion",
++    description: "Use only the internal optimizer result.",
++    enabled: true,
++  },
++  {
++    value: EXPORT_MODE_QISKIT_EXPORT,
++    label: "Qiskit simulation",
++    description: "Adds a Qiskit simulation comparison from the optimized circuit.",
++    requiredLevel: "tester",
++    enabled: true,
++  },
++  {
++    value: EXPORT_MODE_IBM_EXTERNAL_RUN,
++    label: "Qiskit on IBM Hardware",
++    description: "Reserved for a later IBM hardware comparison path.",
++    requiredLevel: "internal ultra",
++    enabled: false,
++  },
++];
++
++const CODE_EXPORT_TARGET_OPTIONS: Array<{
++  value: CodeExportTargetValue;
++  label: string;
++  filename: string;
++  minLevelId: number;
++  enabled: boolean;
++}> = [
++  {
++    value: "qiskit_notebook",
++    label: "Qiskit Notebook",
++    filename: "qaoa_rqp_qiskit.ipynb",
++    minLevelId: 2,
++    enabled: true,
++  },
++  {
++    value: "qiskit_py",
++    label: "Qiskit .py",
++    filename: "qaoa_rqp_qiskit.py",
++    minLevelId: 2,
++    enabled: true,
++  },
++  {
++    value: "pennylane_notebook",
++    label: "PennyLane Notebook",
++    filename: "qaoa_rqp_pennylane.ipynb",
++    minLevelId: 2,
++    enabled: true,
++  },
++  {
++    value: "cirq_notebook",
++    label: "Google Cirq Notebook",
++    filename: "qaoa_rqp_cirq.ipynb",
++    minLevelId: 3,
++    enabled: true,
++  },
++  {
++    value: "quantinuum_notebook",
++    label: "Quantinuum Notebook",
++    filename: "qaoa_rqp_quantinuum.ipynb",
++    minLevelId: 5,
++    enabled: false,
++  },
++];
++
+ const WORKER_PROFILE_OPTIONS: Array<{
+   value: WorkerProfileId;
+   label: string;
+@@ -647,11 +760,35 @@ function formatText(value: unknown, fallback = "n/a") {
+   return String(value);
+ }
+ 
++function formatCandidateSource(value: unknown, fallback = "n/a") {
++  const text = formatText(value, fallback);
++  const lowered = text.toLowerCase();
++  if (
++    lowered.includes("qiskit") ||
++    lowered.includes("second_opinion") ||
++    lowered.includes("second opinion") ||
++    lowered.includes("2nd opinion")
++  ) {
++    return "Quantum / QAOA (2nd opinion)";
++  }
++  if (lowered.includes("qaoa") || lowered.includes("pennylane")) {
++    return "Quantum / QAOA";
++  }
++  return text;
++}
++
+ function displayRunMode(value: unknown, fallback = "n/a") {
+   if (typeof value !== "string" || value === "") return fallback;
+   return RUN_MODE_LABELS[value] ?? value;
+ }
+ 
++function displaySecondOpinionSource(exportMode: ExportMode | string | undefined) {
++  const normalized = normalizeExportMode(exportMode ?? EXPORT_MODE_INTERNAL_ONLY);
++  if (normalized === EXPORT_MODE_QISKIT_EXPORT) return "Qiskit simulation";
++  if (normalized === EXPORT_MODE_IBM_EXTERNAL_RUN) return "IBM Hardware";
++  return "No 2nd opinion";
++}
++
+ function formatAllowedRunModes(value: unknown) {
+   if (!Array.isArray(value)) return formatText(value);
+   if (value.length === 0) return "n/a";
+@@ -764,6 +901,37 @@ function rawJsonFilename(workbookName: string | null) {
+   return `qaoa-rqp-v9-raw-json_${safeFileStem(workbookName)}_${timestampForFilename()}.json`;
+ }
+ 
++function codeExportFilename(target: CodeExportTargetValue, workbookName?: string | null) {
++  const option = CODE_EXPORT_TARGET_OPTIONS.find((item) => item.value === target);
++  const extension = option?.filename.endsWith(".py") ? "py" : "ipynb";
++  return `qaoa-rqp-v9-${target}_${safeFileStem(workbookName)}_${timestampForFilename()}.${extension}`;
++}
++
++function getFilenameFromContentDisposition(value: string | null) {
++  if (!value) return null;
++  const match = value.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
++  const raw = match?.[1] ?? match?.[2];
++  if (!raw) return null;
++  try {
++    return decodeURIComponent(raw);
++  } catch {
++    return raw;
++  }
++}
++
++function getCodeExportPackage(result?: RunResult | null): CodeExportPackage | null {
++  const direct = result?.code_export_package;
++  if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
++  return null;
++}
++
++function isCodeExportTargetAllowed(
++  license: LicenseStatus | null | undefined,
++  target: { minLevelId: number; enabled: boolean }
++) {
++  return target.enabled && usageLevelId(license) >= target.minLevelId;
++}
++
+ function getGeneralLimits(license?: LicenseStatus | null): LimitBlock | undefined {
+   return license?.general_limits ?? license?.limits;
+ }
+@@ -800,6 +968,48 @@ function isRunModeAllowed(license: LicenseStatus | null | undefined, selectedMod
+   return allowedModes.some((allowedMode) => normalizeRunMode(allowedMode) === effectiveMode);
+ }
+ 
++function normalizeExportMode(value?: string | null): ExportMode {
++  if (value === EXPORT_MODE_QISKIT_EXPORT || value === EXPORT_MODE_IBM_EXTERNAL_RUN) {
++    return value;
++  }
++  return DEFAULT_EXPORT_MODE;
++}
++
++function usageLevelId(license: LicenseStatus | null | undefined) {
++  const direct = getNumber(license?.usage_level_id);
++  if (direct !== undefined) return direct;
++
++  const level = String(license?.usage_level ?? "").toLowerCase();
++  const fallback: Record<string, number> = {
++    public_demo: 0,
++    qualified_demo: 1,
++    tester: 2,
++    internal_power: 3,
++    internal_qaoa_30: 4,
++    internal_ultra: 5,
++  };
++  return fallback[level] ?? 0;
++}
++
++function isExportModeAllowed(
++  license: LicenseStatus | null | undefined,
++  selectedExportMode: ExportMode
++) {
++  if (selectedExportMode === EXPORT_MODE_INTERNAL_ONLY) return true;
++  if (selectedExportMode === EXPORT_MODE_IBM_EXTERNAL_RUN) return false;
++  return usageLevelId(license) >= 2;
++}
++
++function requiredExportModeText(option: { requiredLevel?: string; enabled: boolean }) {
++  if (!option.enabled) return "later";
++  return option.requiredLevel ? `${option.requiredLevel}+` : "";
++}
++
++function displayExportMode(value?: string | null) {
++  const mode = normalizeExportMode(value);
++  return EXPORT_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode;
++}
++
+ function normalizeWorkerProfile(value?: string | null): WorkerProfileId {
+   return value === "medium" || value === "large" || value === "small"
+     ? value
+@@ -941,6 +1151,14 @@ function getCircuitValue(circuit: unknown, key: string) {
+   return (circuit as Record<string, unknown>)[key];
+ }
+ 
++function getIbmCircuitMetadata(circuit: unknown): Record<string, unknown> | undefined {
++  const metadata = getCircuitValue(circuit, "ibm");
++  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
++    return undefined;
++  }
++  return metadata as Record<string, unknown>;
++}
++
+ function getRecordValue(record: unknown, key: string) {
+   if (!record || typeof record !== "object" || Array.isArray(record)) {
+     return undefined;
+@@ -948,6 +1166,15 @@ function getRecordValue(record: unknown, key: string) {
+   return (record as Record<string, unknown>)[key];
+ }
+ 
++function formatGateCounts(value: unknown) {
++  if (!value || typeof value !== "object" || Array.isArray(value)) return "n/a";
++  const entries = Object.entries(value as Record<string, unknown>)
++    .filter(([, count]) => getNumber(count) !== undefined)
++    .sort(([left], [right]) => left.localeCompare(right));
++  if (entries.length === 0) return "n/a";
++  return entries.map(([gate, count]) => `${gate}: ${formatNumber(count, 0)}`).join(", ");
++}
++
+ function getEffectiveSetting(diagnostics: Diagnostics | undefined, key: string) {
+   return getRecordValue(diagnostics?.effective_settings, key);
+ }
+@@ -1472,11 +1699,18 @@ function Panel({
+   title: string;
+   children: React.ReactNode;
+   className?: string;
+-  tone?: "cyan" | "amber";
++  tone?: "cyan" | "amber" | "secondOpinion";
+ }) {
+-  const titleClass = tone === "amber" ? "text-amber-300" : "text-cyan-200";
++  const titleClass =
++    tone === "secondOpinion"
++      ? "text-amber-500"
++      : tone === "amber"
++        ? "text-amber-300"
++        : "text-cyan-200";
+   const borderClass =
+-    tone === "amber" ? "border-amber-900/60" : "border-cyan-900/60";
++    tone === "secondOpinion" || tone === "amber"
++      ? "border-amber-900/60"
++      : "border-cyan-900/60";
+ 
+   return (
+     <div
+@@ -1596,6 +1830,197 @@ function MemoryDiagnosticsChart({
+   );
+ }
+ 
++function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown> }) {
++  if (!metadata) {
++    return (
++      <QuantumPlaceholder title="Export metadata not in this result">
++        Select Qiskit simulation before running a QAOA job to add
++        <span className="font-mono"> circuit.ibm </span> diagnostics.
++      </QuantumPlaceholder>
++    );
++  }
++
++  const openqasm = getRecordValue(metadata, "openqasm3");
++  const qasmPreview =
++    openqasm && typeof openqasm === "object" && !Array.isArray(openqasm)
++      ? (openqasm as Record<string, unknown>)
++      : undefined;
++  const previewText = formatText(getRecordValue(qasmPreview, "preview"), "");
++  const reason =
++    formatText(getRecordValue(metadata, "reason"), "") ||
++    formatText(getRecordValue(metadata, "qiskit_unavailable_reason"), "");
++
++  return (
++    <div className="space-y-3 text-xs">
++      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6">
++        <div>
++          <InfoRow
++            label="Available"
++            value={formatText(getRecordValue(metadata, "available"))}
++          />
++          <InfoRow
++            label="2nd opinion"
++            value={formatText(
++              getRecordValue(metadata, "export_mode_label") ??
++                getRecordValue(metadata, "export_mode")
++            )}
++          />
++          <InfoRow
++            label="Provider"
++            value={formatText(getRecordValue(metadata, "provider"))}
++          />
++          <InfoRow label="SDK" value={formatText(getRecordValue(metadata, "sdk"))} />
++          <InfoRow
++            label="Simulation"
++            value={formatText(getRecordValue(metadata, "dry_run"))}
++          />
++          <InfoRow
++            label="Hardware submission"
++            value={formatText(getRecordValue(metadata, "hardware_submission"))}
++          />
++          <InfoRow
++            label="Qiskit available"
++            value={formatText(getRecordValue(metadata, "qiskit_available"))}
++          />
++        </div>
++
++        <div>
++          <InfoRow
++            label="Qiskit version"
++            value={formatText(getRecordValue(metadata, "qiskit_version"))}
++          />
++          <InfoRow
++            label="Runtime version"
++            value={formatText(getRecordValue(metadata, "qiskit_ibm_runtime_version"))}
++          />
++          <InfoRow
++            label="Qubits"
++            value={formatText(getRecordValue(metadata, "n_qubits"))}
++          />
++          <InfoRow
++            label="Layers"
++            value={formatText(getRecordValue(metadata, "layers"))}
++          />
++          <InfoRow
++            label="Classical bits"
++            value={formatText(getRecordValue(metadata, "classical_bits"))}
++          />
++          <InfoRow
++            label="Operation count"
++            value={formatText(getRecordValue(metadata, "operation_count"))}
++          />
++        </div>
++
++        <div>
++          <InfoRow
++            label="Depth without measurements"
++            value={formatText(
++              getRecordValue(metadata, "qiskit_depth_without_measurements")
++            )}
++          />
++          <InfoRow
++            label="Depth with measurements"
++            value={formatText(getRecordValue(metadata, "qiskit_depth_with_measurements"))}
++          />
++          <InfoRow
++            label="Size without measurements"
++            value={formatText(
++              getRecordValue(metadata, "qiskit_size_without_measurements")
++            )}
++          />
++          <InfoRow
++            label="Size with measurements"
++            value={formatText(getRecordValue(metadata, "qiskit_size_with_measurements"))}
++          />
++          <InfoRow
++            label="Sampler measurements"
++            value={formatText(getRecordValue(metadata, "measurement_required_for_sampler"))}
++          />
++          <InfoRow
++            label="Counts decoder"
++            value={formatText(getRecordValue(metadata, "counts_decoder"))}
++          />
++        </div>
++      </div>
++
++      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
++        <div className="font-semibold text-amber-100 mb-2">Gate counts</div>
++        <InfoRow
++          label="Export plan"
++          value={formatGateCounts(getRecordValue(metadata, "gate_counts"))}
++        />
++        <InfoRow
++          label="Qiskit no measurements"
++          value={formatGateCounts(
++            getRecordValue(metadata, "qiskit_gate_counts_without_measurements")
++          )}
++        />
++        <InfoRow
++          label="Qiskit with measurements"
++          value={formatGateCounts(
++            getRecordValue(metadata, "qiskit_gate_counts_with_measurements")
++          )}
++        />
++      </div>
++
++      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
++        <div className="font-semibold text-amber-100 mb-2">Bit ordering</div>
++        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
++          <InfoRow
++            label="Optimizer bitstring order"
++            value={formatText(getRecordValue(metadata, "optimizer_bitstring_order"))}
++          />
++          <InfoRow
++            label="Qiskit counts key order"
++            value={formatText(getRecordValue(metadata, "qiskit_counts_key_order"))}
++          />
++          <InfoRow
++            label="Measurement map"
++            value={formatText(getRecordValue(metadata, "measurement_qubit_to_clbit"))}
++          />
++          <InfoRow
++            label="Export format"
++            value={formatText(getRecordValue(metadata, "export_format"))}
++          />
++        </div>
++      </div>
++
++      {reason !== "" && (
++        <div className="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-amber-100/80">
++          {reason}
++        </div>
++      )}
++
++      {qasmPreview && (
++        <details className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
++          <summary className="cursor-pointer font-semibold text-amber-100">
++            OpenQASM 3 preview
++          </summary>
++          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-x-6">
++            <InfoRow
++              label="Available"
++              value={formatText(getRecordValue(qasmPreview, "available"))}
++            />
++            <InfoRow
++              label="Length"
++              value={formatText(getRecordValue(qasmPreview, "length"))}
++            />
++            <InfoRow
++              label="Truncated"
++              value={formatText(getRecordValue(qasmPreview, "truncated"))}
++            />
++          </div>
++          {previewText !== "" && (
++            <pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-black/40 p-3 text-[11px] leading-relaxed text-gray-300">
++              {previewText}
++            </pre>
++          )}
++        </details>
++      )}
++    </div>
++  );
++}
++
+ function WorkbookWarnings({ warnings }: { warnings: string[] }) {
+   if (warnings.length === 0) return null;
+ 
+@@ -1627,7 +2052,7 @@ function TypeConstraintsPanel({
+   if (constraints.length === 0 && achievements.length === 0) {
+     return (
+       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs text-gray-400">
+-        No additional type-budget constraints detected. V9.1 supports up to five
++        No additional type-budget constraints detected. V9.2 supports up to five
+         optional exact type budgets: Type A through Type E.
+       </div>
+     );
+@@ -2126,7 +2551,7 @@ function CandidateTable({
+                 {formatText(candidate.rank ?? idx + 1)}
+               </td>
+               <td className="py-1.5 pr-3 text-gray-400">
+-                {formatText(candidate.source ?? candidate.solver)}
++                {formatCandidateSource(candidate.source ?? candidate.solver)}
+               </td>
+               <td className="py-1.5 pr-3 font-mono text-cyan-200">
+                 {formatText(candidate.bitstring)}
+@@ -2188,6 +2613,7 @@ export default function QaoaRqpV9Page() {
+   const [workbookFilename, setWorkbookFilename] = useState<string | null>(null);
+ 
+   const [mode, setMode] = useState(DEFAULT_RUN_MODE);
++  const [exportMode, setExportMode] = useState<ExportMode>(DEFAULT_EXPORT_MODE);
+   const [responseLevel, setResponseLevel] = useState("full");
+   const [workerProfile, setWorkerProfile] =
+     useState<WorkerProfileId>(DEFAULT_WORKER_PROFILE);
+@@ -2219,6 +2645,8 @@ export default function QaoaRqpV9Page() {
+   const [jobError, setJobError] = useState<AsyncSubmitResponse["error"] | null>(null);
+   const [reviewFileMessage, setReviewFileMessage] = useState<string | null>(null);
+   const [reviewFileError, setReviewFileError] = useState<string | null>(null);
++  const [codeExportLoading, setCodeExportLoading] =
++    useState<CodeExportTargetValue | null>(null);
+ 
+   const diagnostics = useMemo<Diagnostics>(() => result?.diagnostics ?? {}, [result]);
+   const inspectDiagnostics = useMemo<Diagnostics>(
+@@ -2257,6 +2685,7 @@ export default function QaoaRqpV9Page() {
+     !Array.isArray(diagnostics.circuit)
+       ? (diagnostics.circuit as Record<string, unknown>)
+       : undefined);
++  const ibmCircuit = useMemo(() => getIbmCircuitMetadata(circuit), [circuit]);
+ 
+   const classicalCandidates =
+     reporting?.classical_candidates ?? result?.top_candidates ?? [];
+@@ -2273,6 +2702,67 @@ export default function QaoaRqpV9Page() {
+   const solverComparison = reporting?.solver_comparison ?? [];
+   const quantumSamples = reporting?.quantum_samples ?? [];
+   const qaoaBestQubo = reporting?.qaoa_best_qubo ?? [];
++  const secondOpinion = reporting?.second_opinion;
++  const secondOpinionSummary =
++    reportingSummary?.quantum_second_opinion_summary ?? secondOpinion?.summary;
++  const activeResultExportModeValue =
++    (diagnostics.export_mode as string | undefined) ??
++      (reportingSummary?.export_mode as string | undefined) ??
++      getEffectiveSetting(diagnostics, "export_mode") ??
++      exportMode;
++  const activeResultExportMode = normalizeExportMode(
++    typeof activeResultExportModeValue === "string" ? activeResultExportModeValue : null
++  );
++  const secondOpinionModeChosen = activeResultExportMode !== EXPORT_MODE_INTERNAL_ONLY;
++  const hasSecondOpinionAvailable = hasQuantumResult(secondOpinionSummary);
++  const secondOpinionPortfolioContents = uniquePortfolioRows(
++    secondOpinion?.portfolio_contents ?? []
++  );
++  const fallbackSecondOpinionPortfolioContents = buildPortfolioFromBitstring(
++    portfolioContents,
++    secondOpinionSummary?.best_bitstring
++  );
++  const secondOpinionBestQubo = secondOpinion?.best_qubo ?? [];
++  const secondOpinionSamples = secondOpinion?.samples ?? [];
++  const secondOpinionSourceLabel = displaySecondOpinionSource(activeResultExportMode);
++  const secondOpinionPanelSuffix = secondOpinionModeChosen
++    ? ` - ${secondOpinionSourceLabel}`
++    : "";
++  const displayedSolverComparison = useMemo(() => {
++    if (!secondOpinionModeChosen || !hasSecondOpinionAvailable || !secondOpinionSummary) {
++      return solverComparison;
++    }
++    const alreadyIncluded = solverComparison.some((row) =>
++      formatCandidateSource(row.solver ?? row.source).includes("2nd opinion")
++    );
++    if (alreadyIncluded) return solverComparison;
++    return [
++      ...solverComparison,
++      {
++        solver: "Quantum / QAOA (2nd opinion)",
++        bitstring: secondOpinionSummary.best_bitstring,
++        qubo_value: secondOpinionSummary.qubo_value,
++        selected_usd: secondOpinionSummary.selected_usd,
++        budget_gap: secondOpinionSummary.budget_gap,
++        portfolio_return: secondOpinionSummary.portfolio_return,
++        portfolio_vol: secondOpinionSummary.portfolio_vol,
++        sharpe_like: secondOpinionSummary.sharpe_like,
++        probability: secondOpinionSummary.probability,
++      },
++    ];
++  }, [
++    solverComparison,
++    secondOpinionModeChosen,
++    hasSecondOpinionAvailable,
++    secondOpinionSummary,
++  ]);
++  const comparisonGridClass = secondOpinionModeChosen
++    ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
++    : "grid grid-cols-1 xl:grid-cols-2 gap-4";
++  const summaryGridClass = secondOpinionModeChosen
++    ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
++    : "grid grid-cols-1 xl:grid-cols-2 gap-4";
++  const codeExportPackage = useMemo(() => getCodeExportPackage(result), [result]);
+ 
+   const backendOptimizationLogs =
+     backendJobLogs.length > 0
+@@ -2303,6 +2793,14 @@ export default function QaoaRqpV9Page() {
+     () => isWorkerProfileAllowed(license, workerProfile),
+     [license, workerProfile]
+   );
++  const selectedExportModeAllowed = useMemo(
++    () => isExportModeAllowed(license, exportMode),
++    [license, exportMode]
++  );
++  const selectedExportModeInfo = useMemo(
++    () => EXPORT_MODE_OPTIONS.find((option) => option.value === exportMode),
++    [exportMode]
++  );
+   const selectedWorkerProfileInfo = useMemo(
+     () => workerProfileInfo(license, workerProfile),
+     [license, workerProfile]
+@@ -2340,7 +2838,11 @@ export default function QaoaRqpV9Page() {
+       "QUBO Breakdown - Classical",
+       charts.qubo_breakdown_classical ?? charts.qubo_breakdown,
+     ],
+-    ["QUBO Breakdown - Quantum by QUBO", charts.qubo_breakdown_quantum],
++    ["QUBO Breakdown - Quantum", charts.qubo_breakdown_quantum],
++    [
++      "QUBO Breakdown - Quantum 2nd opinion",
++      charts.qubo_breakdown_second_opinion,
++    ],
+     ["Optimization History", charts.optimization_history],
+     ["Circuit Overview", charts.circuit_overview],
+     ["Solver Comparison", charts.solver_comparison],
+@@ -2350,8 +2852,22 @@ export default function QaoaRqpV9Page() {
+   ][];
+ 
+   const canRun = useMemo(() => {
+-    return !!file && !loading && !inspecting && selectedModeAllowed && selectedWorkerProfileAllowed;
+-  }, [file, loading, inspecting, selectedModeAllowed, selectedWorkerProfileAllowed]);
++    return (
++      !!file &&
++      !loading &&
++      !inspecting &&
++      selectedModeAllowed &&
++      selectedWorkerProfileAllowed &&
++      selectedExportModeAllowed
++    );
++  }, [
++    file,
++    loading,
++    inspecting,
++    selectedModeAllowed,
++    selectedWorkerProfileAllowed,
++    selectedExportModeAllowed,
++  ]);
+ 
+   const canSaveReview = useMemo(() => {
+     return Boolean(result || inspectResult || jobStatus || backendJobLogs.length > 0);
+@@ -2361,6 +2877,16 @@ export default function QaoaRqpV9Page() {
+     return Boolean(result || inspectResult || jobStatus);
+   }, [result, inspectResult, jobStatus]);
+ 
++  const canRequestCodeExport = useMemo(() => {
++    return Boolean(
++      codeExportPackage &&
++        result?.status === "completed" &&
++        apiKey.trim().length > 0 &&
++        !loading &&
++        !inspecting
++    );
++  }, [apiKey, codeExportPackage, result, loading, inspecting]);
++
+   const knownQubits = useMemo(() => {
+     return getNumber(
+       reportingSummary?.decision_variables ??
+@@ -2471,6 +2997,7 @@ export default function QaoaRqpV9Page() {
+     const nextQaoaShots = getNumber(effectiveSettings.qaoa_shots);
+     const nextRestartPerturbation = getNumber(effectiveSettings.restart_perturbation);
+     const nextRandomSeed = getNumber(effectiveSettings.random_seed);
++    const nextExportMode = formatText(effectiveSettings.export_mode, "");
+ 
+     let changed = false;
+ 
+@@ -2514,6 +3041,10 @@ export default function QaoaRqpV9Page() {
+       setRandomSeed(nextRandomSeed);
+       changed = true;
+     }
++    if (nextExportMode !== "") {
++      setExportMode(normalizeExportMode(nextExportMode));
++      changed = true;
++    }
+ 
+     setSettingsLoadedFromWorkbook(changed);
+   }
+@@ -2564,6 +3095,16 @@ export default function QaoaRqpV9Page() {
+     }
+   }, [license, workerProfile, selectedWorkerProfileAllowed]);
+ 
++  useEffect(() => {
++    if (selectedExportModeAllowed) return;
++    setExportMode(DEFAULT_EXPORT_MODE);
++    addLog(
++      `Selected 2nd opinion mode is not available for this key. Switched to ${displayExportMode(
++        DEFAULT_EXPORT_MODE
++      )}.`
++    );
++  }, [selectedExportModeAllowed]);
++
+   function saveReviewFile() {
+     setReviewFileError(null);
+     setReviewFileMessage(null);
+@@ -2579,6 +3120,7 @@ export default function QaoaRqpV9Page() {
+       original_filename: workbookFilename ?? file?.name ?? inspectResult?.filename ?? null,
+       ui_state: {
+         mode,
++        export_mode: exportMode,
+         response_level: responseLevel,
+         layers,
+         iterations,
+@@ -2636,6 +3178,7 @@ export default function QaoaRqpV9Page() {
+       inspect_result: inspectResult,
+       result,
+       job_status: jobStatus,
++      code_export_package: codeExportPackage,
+     };
+ 
+     const filename = rawJsonFilename(payload.original_filename ?? null);
+@@ -2657,6 +3200,71 @@ export default function QaoaRqpV9Page() {
+     addLog(`Raw JSON data downloaded: ${filename}`);
+   }
+ 
++  async function downloadCodeExport(target: CodeExportTargetValue) {
++    if (!codeExportPackage) {
++      setReviewFileError("No code export package is available yet. Run QAOA or load a completed review file.");
++      return;
++    }
++
++    const targetInfo = CODE_EXPORT_TARGET_OPTIONS.find((option) => option.value === target);
++    if (!targetInfo || !isCodeExportTargetAllowed(license, targetInfo)) {
++      setReviewFileError("This code export is not available for the current key level.");
++      return;
++    }
++
++    setReviewFileError(null);
++    setReviewFileMessage(null);
++    setCodeExportLoading(target);
++
++    try {
++      const res = await fetch(`${API_URL}/exports/code`, {
++        method: "POST",
++        headers: {
++          "Content-Type": "application/json",
++          ...(apiKey ? { "X-API-Key": apiKey } : {}),
++        },
++        body: JSON.stringify({
++          target,
++          package: codeExportPackage,
++        }),
++      });
++
++      if (!res.ok) {
++        let message = res.statusText;
++        try {
++          const payload = await res.json();
++          message = payload?.error?.message ?? message;
++        } catch {
++          // Keep the HTTP status text.
++        }
++        throw new Error(message);
++      }
++
++      const blob = await res.blob();
++      const filename =
++        getFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
++        codeExportFilename(target, workbookFilename ?? file?.name ?? inspectResult?.filename);
++      const url = URL.createObjectURL(blob);
++      const a = document.createElement("a");
++
++      a.href = url;
++      a.download = filename;
++      document.body.appendChild(a);
++      a.click();
++      a.remove();
++      URL.revokeObjectURL(url);
++
++      setReviewFileMessage(`Downloaded ${filename}`);
++      addLog(`Code export downloaded: ${filename}`);
++    } catch (err) {
++      const message = err instanceof Error ? err.message : String(err);
++      setReviewFileError(`Code export failed: ${message}`);
++      addLog(`Code export failed: ${message}`);
++    } finally {
++      setCodeExportLoading(null);
++    }
++  }
++
+   async function loadReviewFileFromInput(event: React.ChangeEvent<HTMLInputElement>) {
+     const selectedFile = event.target.files?.[0];
+ 
+@@ -2667,12 +3275,57 @@ export default function QaoaRqpV9Page() {
+ 
+     try {
+       const text = await selectedFile.text();
+-      const snapshot = JSON.parse(text) as SavedQaoaSnapshot;
++      const parsed = JSON.parse(text) as SavedQaoaSnapshot | RawJsonDataDownload;
++
++      if (parsed.schema === "qaoa-rqp-v9-raw-json-data" && parsed.schema_version === 1) {
++        const raw = parsed as RawJsonDataDownload;
++        const loadedResult =
++          raw.result ??
++          (raw.code_export_package
++            ? ({
++                status: "completed",
++                code_export_package: raw.code_export_package,
++              } as RunResult)
++            : null);
++        const resultDiagnostics = loadedResult?.diagnostics ?? {};
++        const requestedMode =
++          String(resultDiagnostics.run_mode ?? loadedResult?.mode ?? DEFAULT_RUN_MODE);
++
++        clearPollInterval();
++        setFile(null);
++        setWorkbookFilename(raw.original_filename ?? selectedFile.name);
++        setMode(toSelectableRunMode(requestedMode));
++        setExportMode(
++          normalizeExportMode(
++            String(
++              resultDiagnostics.export_mode ??
++                getEffectiveSetting(resultDiagnostics, "export_mode") ??
++                DEFAULT_EXPORT_MODE
++            )
++          )
++        );
++        setInspectResult(raw.inspect_result ?? null);
++        setResult(loadedResult);
++        setJobStatus(raw.job_status ?? null);
++        setLicense(loadedResult?.license ?? raw.inspect_result?.license ?? raw.job_status?.license ?? null);
++        setActiveJobId(raw.job_status?.job_id ?? null);
++        setBackendJobLogs([]);
++        setLogs([]);
++        setLoading(false);
++        setProgress(undefined);
++        setProgressMessage("");
++        setJobError(null);
++        settingsTouchedRef.current = true;
++        setSettingsLoadedFromWorkbook(false);
++
++        const msg = `Loaded raw JSON data: ${selectedFile.name}`;
++        setReviewFileMessage(msg);
++        addLog(msg);
++        return;
++      }
+ 
+-      if (
+-        snapshot.schema !== "qaoa-rqp-review-snapshot" ||
+-        snapshot.schema_version !== 1
+-      ) {
++      const snapshot = parsed as SavedQaoaSnapshot;
++      if (snapshot.schema !== "qaoa-rqp-review-snapshot" || snapshot.schema_version !== 1) {
+         throw new Error("Unsupported review file format.");
+       }
+ 
+@@ -2685,6 +3338,7 @@ export default function QaoaRqpV9Page() {
+       setFile(null);
+       setWorkbookFilename(snapshot.original_filename ?? selectedFile.name);
+       setMode(reviewMode);
++      setExportMode(normalizeExportMode(snapshot.ui_state?.export_mode));
+       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
+       setWorkerProfile(normalizeWorkerProfile(snapshot.ui_state?.worker_profile));
+       setLayers(snapshot.ui_state?.layers ?? 1);
+@@ -2890,6 +3544,7 @@ export default function QaoaRqpV9Page() {
+       const formData = new FormData();
+       formData.append("file", file);
+       formData.append("mode", mode);
++      formData.append("export_mode", exportMode);
+       formData.append("response_level", responseLevel);
+       formData.append("worker_profile", workerProfile);
+ 
+@@ -3012,6 +3667,7 @@ export default function QaoaRqpV9Page() {
+     file,
+     apiKey,
+     mode,
++    exportMode,
+     responseLevel,
+     workerProfile,
+     layers,
+@@ -3031,7 +3687,7 @@ export default function QaoaRqpV9Page() {
+       const storedJobId = window.localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
+       if (storedJobId) {
+         setActiveJobId(storedJobId);
+-        addLog(`Found previous V9.1 job ${storedJobId}. You can reconnect if it is still active.`);
++        addLog(`Found previous V9.2 job ${storedJobId}. You can reconnect if it is still active.`);
+       }
+     } catch {
+       // Ignore localStorage failures.
+@@ -3109,11 +3765,12 @@ export default function QaoaRqpV9Page() {
+     setProgressMessage("Uploading Excel file and submitting backend job...");
+ 
+     try {
+-      addLog("Submitting optimization job to V9.1 backend...");
++      addLog("Submitting optimization job to V9.2 backend...");
+ 
+       const formData = new FormData();
+       formData.append("file", file);
+       formData.append("mode", mode);
++      formData.append("export_mode", exportMode);
+       formData.append("response_level", responseLevel);
+       formData.append("worker_profile", workerProfile);
+       formData.append("layers", String(layers));
+@@ -3180,6 +3837,19 @@ export default function QaoaRqpV9Page() {
+       "Model version",
+       result?.model_version ?? inspectResult?.model_version ?? "9.0.0",
+     ],
++    [
++      "2nd opinion",
++      displayExportMode(
++        formatText(
++          diagnostics.export_mode ??
++            inspectDiagnostics.export_mode ??
++            getEffectiveSetting(diagnostics, "export_mode") ??
++            getEffectiveSetting(inspectDiagnostics, "export_mode") ??
++            exportMode,
++          exportMode
++        )
++      ),
++    ],
+     ["Worker profile", activeWorkerMetadata.worker_profile_label],
+     [
+       "Configured worker resources",
+@@ -3272,28 +3942,24 @@ export default function QaoaRqpV9Page() {
+         </p>
+ 
+         <h1 className="text-3xl font-bold text-cyan-300 mb-2">
+-          QAOA RQP Pro V9.1
++          QAOA RQP Pro V9.2
+         </h1>
+ 
+         <p className="text-cyan-100 text-base font-semibold mb-3">
+-          Excel-to-Quantum portfolio optimization with optional exact type-budget constraints.
++          Advanced QAOA portfolio optimization with exact type-budget constraints,
++          selectable worker profiles, live logs, memory telemetry, tensor simulation,
++          opt-in second opinion comparison, and multi-framework circuit extraction.
+         </p>
+ 
+         <div className="max-w-7xl mb-5 space-y-3">
+           <p className="text-gray-200 text-base font-semibold leading-relaxed">
+-            This hidden V9.1 test page uses the separate V9 backend. It supports the
+-            existing QAOA RQP workflow plus up to five optional exact type budgets,
+-            for example Bond, Equity, Alternatives, Region, or Rating buckets.
++            V9.2 adds pro-level controls, diagnostics, and execution options beyond
++            the current public V8 release.
+           </p>
+ 
+-          <div className="rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">
+-            V9.1 test route. Not yet linked from the public site navigation. The current
+-            public QAOA RQP page remains on V8.
+-          </div>
+-
+           <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-gray-300">
+             Best used on a desktop or laptop screen. Use browser zoom to fit the workspace
+-            comfortably. Mobile screens are supported only for basic review.
++            comfortably. Mobile screens are supported for basic review only.
+           </div>
+ 
+           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+@@ -3342,7 +4008,7 @@ export default function QaoaRqpV9Page() {
+ 
+         {activeJobId && !loading && !result && (
+           <div className="mb-4 rounded-2xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-100">
+-            <div className="font-semibold text-amber-200">Previous V9.1 job found</div>
++            <div className="font-semibold text-amber-200">Previous V9.2 job found</div>
+             <div className="mt-1">
+               Job ID: <span className="font-mono">{activeJobId}</span>
+             </div>
+@@ -3563,7 +4229,7 @@ export default function QaoaRqpV9Page() {
+ 
+             <Panel title="Additional Type Budgets" tone="amber">
+               <p className="mb-3 text-xs leading-relaxed text-amber-100/80">
+-                V9.1 supports up to five exact type budgets. In Excel, use
++                V9.2 supports up to five exact type budgets. In Excel, use
+                 Additional Type Constraints plus Type A-E Size, Name, Budget,
+                 and Budget Penalty fields.
+               </p>
+@@ -3623,6 +4289,43 @@ export default function QaoaRqpV9Page() {
+                 </div>
+               )}
+ 
++              <label className="block text-xs text-gray-300 mb-1.5">
++                2nd opinion / comparison
++              </label>
++              <select
++                value={exportMode}
++                onChange={(e) => {
++                  markSettingsTouched();
++                  setExportMode(normalizeExportMode(e.target.value));
++                }}
++                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-2"
++              >
++                {EXPORT_MODE_OPTIONS.map((option) => {
++                  const allowed = option.enabled && isExportModeAllowed(license, option.value);
++
++                  return (
++                    <option key={option.value} value={option.value} disabled={!allowed}>
++                      {option.label}
++                      {allowed ? "" : ` (${requiredExportModeText(option)})`}
++                    </option>
++                  );
++                })}
++              </select>
++
++              <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs">
++                <div className="font-semibold text-cyan-100">
++                  {selectedExportModeInfo?.label ?? displayExportMode(exportMode)}
++                </div>
++                <div className="mt-1 text-gray-400">
++                  {selectedExportModeInfo?.description ?? "No external export payload."}
++                </div>
++                {!selectedExportModeAllowed && (
++                  <div className="mt-2 rounded-lg border border-red-800 bg-red-950/30 p-2 text-red-100">
++                    This 2nd opinion mode is not available for the current key.
++                  </div>
++                )}
++              </div>
++
+               <label className="block text-xs text-gray-300 mb-1.5">
+                 Response level
+               </label>
+@@ -3954,7 +4657,7 @@ export default function QaoaRqpV9Page() {
+                 disabled={!canRun}
+                 className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2.5 text-sm"
+               >
+-                {loading ? "Running..." : "Run Optimization on V9.1"}
++                {loading ? "Running..." : "Run Optimization on V9.2"}
+               </button>
+ 
+               {activeJobId && loading && (
+@@ -3969,7 +4672,7 @@ export default function QaoaRqpV9Page() {
+ 
+             <Panel title="Review File">
+               <p className="mb-3 text-xs leading-relaxed text-gray-400">
+-                Save the current V9.1 result, charts, logs, settings, and workbook filename
++                Save the current V9.2 result, charts, logs, settings, and workbook filename
+                 as a local JSON review file. Loading a review file restores the view
+                 without rerunning the backend.
+               </p>
+@@ -3990,11 +4693,49 @@ export default function QaoaRqpV9Page() {
+                 Download Raw JSON Data
+               </button>
+ 
++              <div className="mt-3 border-t border-slate-800 pt-3">
++                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
++                  Code Exports
++                </div>
++                <div className="grid grid-cols-1 gap-2">
++                  {CODE_EXPORT_TARGET_OPTIONS.map((option) => {
++                    const allowed = isCodeExportTargetAllowed(license, option);
++                    const disabled = !canRequestCodeExport || !allowed || codeExportLoading !== null;
++                    const suffix = !option.enabled
++                      ? "later"
++                      : usageLevelId(license) < option.minLevelId
++                        ? `level ${option.minLevelId}+`
++                        : !apiKey.trim()
++                          ? "key required"
++                          : !codeExportPackage
++                            ? "no QAOA package"
++                            : "";
++
++                    return (
++                      <button
++                        key={option.value}
++                        onClick={() => downloadCodeExport(option.value)}
++                        disabled={disabled}
++                        className="w-full rounded-lg border border-cyan-800 bg-slate-950/80 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-slate-900 disabled:border-slate-800 disabled:bg-slate-900/60 disabled:text-slate-500"
++                      >
++                        {codeExportLoading === option.value
++                          ? "Preparing..."
++                          : `${option.label}${suffix ? ` (${suffix})` : ""}`}
++                      </button>
++                    );
++                  })}
++                </div>
++                <p className="mt-2 text-xs leading-relaxed text-gray-500">
++                  Exports use the optimization package inside the saved result JSON. Load
++                  a completed review or raw JSON file, then use a key at the required level.
++                </p>
++              </div>
++
+               <button
+                 onClick={() => reviewFileInputRef.current?.click()}
+                 className="mt-2 w-full rounded-lg border border-cyan-800 bg-slate-950/80 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-slate-900"
+               >
+-                Load Review File
++                Load Review / Raw JSON File
+               </button>
+ 
+               <input
+@@ -4024,7 +4765,7 @@ export default function QaoaRqpV9Page() {
+               <ErrorBox error={jobError} onReconnect={(jobId) => startPolling(jobId)} />
+             )}
+ 
+-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
++            <div className={summaryGridClass}>
+               <Panel title="Classical Result Summary">
+                 {!result && (
+                   <p className="text-gray-400 text-sm">
+@@ -4160,6 +4901,70 @@ export default function QaoaRqpV9Page() {
+                     : "This block displays the best QUBO result from exported quantum samples when a QAOA simulator run completes successfully."}
+                 </p>
+               </Panel>
++
++              {secondOpinionModeChosen && (
++                <Panel
++                  title={`Quantum Result Summary (2nd opinion)${secondOpinionPanelSuffix}`}
++                  tone="secondOpinion"
++                >
++                  <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
++                    <MetricCard
++                      label="QUBO value"
++                      value={formatNumber(secondOpinionSummary?.qubo_value, 6)}
++                      subtle={!hasSecondOpinionAvailable}
++                    />
++                    <MetricCard
++                      label="Selected amount"
++                      value={formatCurrency(secondOpinionSummary?.selected_usd, currencyCode)}
++                      subtle={!hasSecondOpinionAvailable}
++                    />
++                    <MetricCard
++                      label="Budget gap"
++                      value={formatCurrency(secondOpinionSummary?.budget_gap, currencyCode)}
++                      subtle={!hasSecondOpinionAvailable}
++                    />
++                    <MetricCard
++                      label="Return proxy"
++                      value={formatNumber(secondOpinionSummary?.portfolio_return, 3)}
++                      subtle={!hasSecondOpinionAvailable}
++                    />
++                    <MetricCard
++                      label="Volatility"
++                      value={formatNumber(secondOpinionSummary?.portfolio_vol, 3)}
++                      subtle={!hasSecondOpinionAvailable}
++                    />
++                    <MetricCard
++                      label="Sharpe ratio"
++                      value={formatNumber(secondOpinionSummary?.sharpe_like, 3)}
++                      subtle={!hasSecondOpinionAvailable}
++                    />
++                    <MetricCard
++                      label="Bitstring"
++                      value={formatText(secondOpinionSummary?.best_bitstring)}
++                      subtle={!hasSecondOpinionAvailable}
++                      kind="text"
++                    />
++                    <MetricCard
++                      label="Source"
++                      value={formatText(secondOpinionSummary?.source ?? secondOpinionSourceLabel)}
++                      subtle={!hasSecondOpinionAvailable}
++                      kind="text"
++                    />
++                    <MetricCard
++                      label="Probability"
++                      value={formatProbability(secondOpinionSummary?.probability)}
++                      subtle={!hasSecondOpinionAvailable}
++                    />
++                  </div>
++
++                  <p className="mt-3 text-xs leading-relaxed text-gray-400">
++                    {hasSecondOpinionAvailable
++                      ? `This block displays the comparison result from ${secondOpinionSourceLabel}.`
++                      : secondOpinion?.reason ??
++                        `No ${secondOpinionSourceLabel} comparison result is available for this run yet.`}
++                  </p>
++                </Panel>
++              )}
+             </div>
+ 
+             <Panel title="Client Log" className="w-full">
+@@ -4232,15 +5037,13 @@ export default function QaoaRqpV9Page() {
+                   </div>
+                 ) : (
+                   backendOptimizationLogsLatestFirst.map((line, idx) => (
+-                    <div key={idx}>
+-                      <span className="text-gray-500">{idx + 1}.</span> {line}
+-                    </div>
++                    <div key={idx}>{line}</div>
+                   ))
+                 )}
+               </div>
+             </Panel>
+ 
+-            <Panel title="V9.1 Type-Budget Diagnostics" tone="amber">
++            <Panel title="V9.2 Type-Budget Diagnostics" tone="amber">
+               <TypeConstraintsPanel
+                 constraints={typeConstraints}
+                 achievements={typeAchievements}
+@@ -4259,9 +5062,15 @@ export default function QaoaRqpV9Page() {
+             )}
+ 
+             {result && !result.error && (
+-              <Panel title="Memory Diagnostics">
+-                <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
+-              </Panel>
++              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
++                <Panel title="Memory Diagnostics">
++                  <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
++                </Panel>
++
++                <Panel title="IBM / Qiskit Dry Run" tone="amber">
++                  <IbmCircuitDiagnostics metadata={ibmCircuit} />
++                </Panel>
++              </div>
+             )}
+ 
+             {result && !result.error && circuit !== undefined && (
+@@ -4288,6 +5097,13 @@ export default function QaoaRqpV9Page() {
+                       label="Shots mode"
+                       value={formatText(getCircuitValue(circuit, "shots_mode"))}
+                     />
++                    <InfoRow
++                      label="2nd opinion"
++                      value={formatText(
++                        getCircuitValue(circuit, "export_mode_label") ??
++                          getCircuitValue(circuit, "export_mode")
++                      )}
++                    />
+                     <InfoRow
+                       label="QAOA shots"
+                       value={
+@@ -4354,193 +5170,287 @@ export default function QaoaRqpV9Page() {
+             )}
+ 
+             {result && !result.error && (
+-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+-                <Panel title="Classical Portfolio Metrics">
+-                  <InfoRow
+-                    label="Cash weight"
+-                    value={formatPercent(
+-                      classicalSummary?.cash_weight ?? metrics.cash_weight,
+-                      3
+-                    )}
+-                  />
+-                  <InfoRow
+-                    label="Fixed amount"
+-                    value={formatCurrency(metrics.fixed_usd, currencyCode)}
+-                  />
+-                  <InfoRow
+-                    label="Variable selected amount"
+-                    value={formatCurrency(metrics.variable_selected_usd, currencyCode)}
+-                  />
+-                  <InfoRow
+-                    label="Max position amount"
+-                    value={formatCurrency(metrics.max_position_usd, currencyCode)}
+-                  />
+-                  <InfoRow
+-                    label="Portfolio return"
+-                    value={formatNumber(
+-                      classicalSummary?.portfolio_return ?? metrics.portfolio_return,
+-                      4
+-                    )}
+-                  />
+-                  <InfoRow
+-                    label="Portfolio volatility"
+-                    value={formatNumber(
+-                      classicalSummary?.portfolio_vol ?? metrics.portfolio_vol,
+-                      4
+-                    )}
+-                  />
+-                  <InfoRow
+-                    label="Sharpe ratio"
+-                    value={formatNumber(
+-                      classicalSummary?.sharpe_like ?? metrics.sharpe_like,
+-                      4
++              <>
++                <div className={comparisonGridClass}>
++                  <Panel title="Classical Portfolio Metrics">
++                    <InfoRow
++                      label="Cash weight"
++                      value={formatPercent(
++                        classicalSummary?.cash_weight ?? metrics.cash_weight,
++                        3
++                      )}
++                    />
++                    <InfoRow
++                      label="Fixed amount"
++                      value={formatCurrency(metrics.fixed_usd, currencyCode)}
++                    />
++                    <InfoRow
++                      label="Variable selected amount"
++                      value={formatCurrency(metrics.variable_selected_usd, currencyCode)}
++                    />
++                    <InfoRow
++                      label="Max position amount"
++                      value={formatCurrency(metrics.max_position_usd, currencyCode)}
++                    />
++                    <InfoRow
++                      label="Portfolio return"
++                      value={formatNumber(
++                        classicalSummary?.portfolio_return ?? metrics.portfolio_return,
++                        4
++                      )}
++                    />
++                    <InfoRow
++                      label="Portfolio volatility"
++                      value={formatNumber(
++                        classicalSummary?.portfolio_vol ?? metrics.portfolio_vol,
++                        4
++                      )}
++                    />
++                    <InfoRow
++                      label="Sharpe ratio"
++                      value={formatNumber(
++                        classicalSummary?.sharpe_like ?? metrics.sharpe_like,
++                        4
++                      )}
++                    />
++                    <InfoRow
++                      label="Budget-normalized return"
++                      value={formatNumber(metrics.portfolio_return_budget_normalized, 4)}
++                    />
++                    <InfoRow
++                      label="Budget-normalized volatility"
++                      value={formatNumber(metrics.portfolio_vol_budget_normalized, 4)}
++                    />
++                    <InfoRow
++                      label="Budget-normalized Sharpe ratio"
++                      value={formatNumber(metrics.sharpe_like_budget_normalized, 4)}
++                    />
++                  </Panel>
++
++                  <Panel title="Quantum Portfolio Metrics" tone="amber">
++                    {hasQuantumResult(quantumSummary) ? (
++                      <>
++                        <InfoRow
++                          label="Cash weight"
++                          value={formatPercent(quantumSummary?.cash_weight, 3)}
++                        />
++                        <InfoRow
++                          label="Selected amount"
++                          value={formatCurrency(quantumSummary?.selected_usd, currencyCode)}
++                        />
++                        <InfoRow
++                          label="Budget gap"
++                          value={formatCurrency(quantumSummary?.budget_gap, currencyCode)}
++                        />
++                        <InfoRow
++                          label="Portfolio return"
++                          value={formatNumber(quantumSummary?.portfolio_return, 4)}
++                        />
++                        <InfoRow
++                          label="Portfolio volatility"
++                          value={formatNumber(quantumSummary?.portfolio_vol, 4)}
++                        />
++                        <InfoRow
++                          label="Sharpe ratio"
++                          value={formatNumber(quantumSummary?.sharpe_like, 4)}
++                        />
++                        <InfoRow
++                          label="Probability"
++                          value={formatProbability(quantumSummary?.probability)}
++                        />
++                      </>
++                    ) : (
++                      <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
++                        Quantum portfolio metrics will be populated from the best
++                        QUBO candidate within the exported QAOA sample set once
++                        a QAOA simulator run completes successfully.
++                      </QuantumPlaceholder>
+                     )}
+-                  />
+-                  <InfoRow
+-                    label="Budget-normalized return"
+-                    value={formatNumber(metrics.portfolio_return_budget_normalized, 4)}
+-                  />
+-                  <InfoRow
+-                    label="Budget-normalized volatility"
+-                    value={formatNumber(metrics.portfolio_vol_budget_normalized, 4)}
+-                  />
+-                  <InfoRow
+-                    label="Budget-normalized Sharpe ratio"
+-                    value={formatNumber(metrics.sharpe_like_budget_normalized, 4)}
+-                  />
+-                </Panel>
++                  </Panel>
+ 
+-                <Panel title="Quantum Portfolio Metrics" tone="amber">
+-                  {hasQuantumResult(quantumSummary) ? (
+-                    <>
+-                      <InfoRow
+-                        label="Cash weight"
+-                        value={formatPercent(quantumSummary?.cash_weight, 3)}
+-                      />
+-                      <InfoRow
+-                        label="Selected amount"
+-                        value={formatCurrency(quantumSummary?.selected_usd, currencyCode)}
+-                      />
+-                      <InfoRow
+-                        label="Budget gap"
+-                        value={formatCurrency(quantumSummary?.budget_gap, currencyCode)}
+-                      />
+-                      <InfoRow
+-                        label="Portfolio return"
+-                        value={formatNumber(quantumSummary?.portfolio_return, 4)}
+-                      />
+-                      <InfoRow
+-                        label="Portfolio volatility"
+-                        value={formatNumber(quantumSummary?.portfolio_vol, 4)}
+-                      />
+-                      <InfoRow
+-                        label="Sharpe ratio"
+-                        value={formatNumber(quantumSummary?.sharpe_like, 4)}
+-                      />
+-                      <InfoRow
+-                        label="Probability"
+-                        value={formatProbability(quantumSummary?.probability)}
+-                      />
+-                    </>
+-                  ) : (
+-                    <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
+-                      Quantum portfolio metrics will be populated from the best
+-                      QUBO candidate within the exported QAOA sample set once
+-                      a QAOA simulator run completes successfully.
+-                    </QuantumPlaceholder>
++                  {secondOpinionModeChosen && (
++                    <Panel
++                      title={`Quantum Portfolio Metrics (2nd opinion)${secondOpinionPanelSuffix}`}
++                      tone="secondOpinion"
++                    >
++                      {hasSecondOpinionAvailable ? (
++                        <>
++                          <InfoRow
++                            label="Cash weight"
++                            value={formatPercent(secondOpinionSummary?.cash_weight, 3)}
++                          />
++                          <InfoRow
++                            label="Selected amount"
++                            value={formatCurrency(secondOpinionSummary?.selected_usd, currencyCode)}
++                          />
++                          <InfoRow
++                            label="Budget gap"
++                            value={formatCurrency(secondOpinionSummary?.budget_gap, currencyCode)}
++                          />
++                          <InfoRow
++                            label="Portfolio return"
++                            value={formatNumber(secondOpinionSummary?.portfolio_return, 4)}
++                          />
++                          <InfoRow
++                            label="Portfolio volatility"
++                            value={formatNumber(secondOpinionSummary?.portfolio_vol, 4)}
++                          />
++                          <InfoRow
++                            label="Sharpe ratio"
++                            value={formatNumber(secondOpinionSummary?.sharpe_like, 4)}
++                          />
++                          <InfoRow
++                            label="Probability"
++                            value={formatProbability(secondOpinionSummary?.probability)}
++                          />
++                        </>
++                      ) : (
++                        <QuantumPlaceholder title={quantumPlaceholderText(secondOpinionSummary)}>
++                          {secondOpinion?.reason ??
++                            "The selected 2nd opinion mode did not return comparison metrics for this result."}
++                        </QuantumPlaceholder>
++                      )}
++                    </Panel>
+                   )}
+-                </Panel>
++                </div>
+ 
+-                <Panel title="Classical Objective / QUBO Breakdown">
+-                  <InfoRow
+-                    label="Return term"
+-                    value={formatNumber(
+-                      classicalSummary?.return_term ?? components.return_term,
+-                      6
+-                    )}
+-                  />
+-                  <InfoRow
+-                    label="Risk term"
+-                    value={formatNumber(
+-                      classicalSummary?.risk_term ?? components.risk_term,
+-                      6
+-                    )}
+-                  />
+-                  <InfoRow
+-                    label="Budget term"
+-                    value={formatNumber(
+-                      classicalSummary?.budget_term ?? components.budget_term,
+-                      6
+-                    )}
+-                  />
+-                  <InfoRow
+-                    label="Type-budget term"
+-                    value={formatNumber(
+-                      classicalSummary?.type_budget_term ??
+-                        classicalSummary?.additional_type_budget_penalty ??
+-                        components.type_budget_term ??
+-                        components.additional_type_budget_penalty,
+-                      6
++                <div className={`${comparisonGridClass} mt-4`}>
++                  <Panel title="Classical Objective / QUBO Breakdown">
++                    <InfoRow
++                      label="Return term"
++                      value={formatNumber(
++                        classicalSummary?.return_term ?? components.return_term,
++                        6
++                      )}
++                    />
++                    <InfoRow
++                      label="Risk term"
++                      value={formatNumber(
++                        classicalSummary?.risk_term ?? components.risk_term,
++                        6
++                      )}
++                    />
++                    <InfoRow
++                      label="Budget term"
++                      value={formatNumber(
++                        classicalSummary?.budget_term ?? components.budget_term,
++                        6
++                      )}
++                    />
++                    <InfoRow
++                      label="Type-budget term"
++                      value={formatNumber(
++                        classicalSummary?.type_budget_term ??
++                          classicalSummary?.additional_type_budget_penalty ??
++                          components.type_budget_term ??
++                          components.additional_type_budget_penalty,
++                        6
++                      )}
++                    />
++                    <InfoRow
++                      label="QUBO reconstructed"
++                      value={formatNumber(components.qubo_reconstructed, 6)}
++                    />
++                    <InfoRow
++                      label="Budget lambda"
++                      value={formatNumber(reportingSummary?.budget_lambda, 3)}
++                    />
++                    <InfoRow
++                      label="Risk lambda"
++                      value={formatNumber(reportingSummary?.risk_lambda, 3)}
++                    />
++                    <InfoRow
++                      label="Risk-free rate"
++                      value={formatPercent(reportingSummary?.risk_free_rate, 2)}
++                    />
++                  </Panel>
++
++                  <Panel title="Quantum Objective / QUBO Breakdown" tone="amber">
++                    {hasQuantumResult(quantumSummary) ? (
++                      <>
++                        <InfoRow
++                          label="Return term"
++                          value={formatNumber(quantumSummary?.return_term, 6)}
++                        />
++                        <InfoRow
++                          label="Risk term"
++                          value={formatNumber(quantumSummary?.risk_term, 6)}
++                        />
++                        <InfoRow
++                          label="Budget term"
++                          value={formatNumber(quantumSummary?.budget_term, 6)}
++                        />
++                        <InfoRow
++                          label="Type-budget term"
++                          value={formatNumber(
++                            quantumSummary?.type_budget_term ??
++                              quantumSummary?.additional_type_budget_penalty,
++                            6
++                          )}
++                        />
++                        <InfoRow
++                          label="QUBO value"
++                          value={formatNumber(quantumSummary?.qubo_value, 6)}
++                        />
++                        <InfoRow
++                          label="Probability"
++                          value={formatProbability(quantumSummary?.probability)}
++                        />
++                      </>
++                    ) : (
++                      <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
++                        Quantum QUBO terms will be populated from QAOA_Samples and
++                        QAOA_Best_QUBO once a QAOA simulator run completes successfully.
++                      </QuantumPlaceholder>
+                     )}
+-                  />
+-                  <InfoRow
+-                    label="QUBO reconstructed"
+-                    value={formatNumber(components.qubo_reconstructed, 6)}
+-                  />
+-                  <InfoRow
+-                    label="Budget lambda"
+-                    value={formatNumber(reportingSummary?.budget_lambda, 3)}
+-                  />
+-                  <InfoRow
+-                    label="Risk lambda"
+-                    value={formatNumber(reportingSummary?.risk_lambda, 3)}
+-                  />
+-                  <InfoRow
+-                    label="Risk-free rate"
+-                    value={formatPercent(reportingSummary?.risk_free_rate, 2)}
+-                  />
+-                </Panel>
++                  </Panel>
+ 
+-                <Panel title="Quantum Objective / QUBO Breakdown" tone="amber">
+-                  {hasQuantumResult(quantumSummary) ? (
+-                    <>
+-                      <InfoRow
+-                        label="Return term"
+-                        value={formatNumber(quantumSummary?.return_term, 6)}
+-                      />
+-                      <InfoRow
+-                        label="Risk term"
+-                        value={formatNumber(quantumSummary?.risk_term, 6)}
+-                      />
+-                      <InfoRow
+-                        label="Budget term"
+-                        value={formatNumber(quantumSummary?.budget_term, 6)}
+-                      />
+-                      <InfoRow
+-                        label="Type-budget term"
+-                        value={formatNumber(
+-                          quantumSummary?.type_budget_term ??
+-                            quantumSummary?.additional_type_budget_penalty,
+-                          6
+-                        )}
+-                      />
+-                      <InfoRow
+-                        label="QUBO value"
+-                        value={formatNumber(quantumSummary?.qubo_value, 6)}
+-                      />
+-                      <InfoRow
+-                        label="Probability"
+-                        value={formatProbability(quantumSummary?.probability)}
+-                      />
+-                    </>
+-                  ) : (
+-                    <QuantumPlaceholder title={quantumPlaceholderText(quantumSummary)}>
+-                      Quantum QUBO terms will be populated from QAOA_Samples and
+-                      QAOA_Best_QUBO once a QAOA simulator run completes successfully.
+-                    </QuantumPlaceholder>
++                  {secondOpinionModeChosen && (
++                    <Panel
++                      title={`Quantum Objective / QUBO Breakdown (2nd opinion)${secondOpinionPanelSuffix}`}
++                      tone="secondOpinion"
++                    >
++                      {hasSecondOpinionAvailable ? (
++                        <>
++                          <InfoRow
++                            label="Return term"
++                            value={formatNumber(secondOpinionSummary?.return_term, 6)}
++                          />
++                          <InfoRow
++                            label="Risk term"
++                            value={formatNumber(secondOpinionSummary?.risk_term, 6)}
++                          />
++                          <InfoRow
++                            label="Budget term"
++                            value={formatNumber(secondOpinionSummary?.budget_term, 6)}
++                          />
++                          <InfoRow
++                            label="Type-budget term"
++                            value={formatNumber(
++                              secondOpinionSummary?.type_budget_term ??
++                                secondOpinionSummary?.additional_type_budget_penalty,
++                              6
++                            )}
++                          />
++                          <InfoRow
++                            label="QUBO value"
++                            value={formatNumber(secondOpinionSummary?.qubo_value, 6)}
++                          />
++                          <InfoRow
++                            label="Probability"
++                            value={formatProbability(secondOpinionSummary?.probability)}
++                          />
++                        </>
++                      ) : (
++                        <QuantumPlaceholder title={quantumPlaceholderText(secondOpinionSummary)}>
++                          {secondOpinion?.reason ??
++                            "The selected 2nd opinion mode did not return QUBO breakdown metrics for this result."}
++                        </QuantumPlaceholder>
++                      )}
++                    </Panel>
+                   )}
+-                </Panel>
+-              </div>
++                </div>
++              </>
+             )}
+ 
+             {portfolioContents.length > 0 && (
+@@ -4570,6 +5480,30 @@ export default function QaoaRqpV9Page() {
+               </Panel>
+             )}
+ 
++            {result && !result.error && secondOpinionModeChosen && (
++              <Panel
++                title={`Quantum Portfolio Contents (2nd opinion)${secondOpinionPanelSuffix}`}
++                tone="secondOpinion"
++              >
++                {secondOpinionPortfolioContents.length > 0 ||
++                fallbackSecondOpinionPortfolioContents.length > 0 ? (
++                  <PortfolioContentsTable
++                    rows={
++                      secondOpinionPortfolioContents.length > 0
++                        ? secondOpinionPortfolioContents
++                        : fallbackSecondOpinionPortfolioContents
++                    }
++                    currencyCode={currencyCode}
++                  />
++                ) : (
++                  <QuantumPlaceholder title="No 2nd opinion portfolio contents">
++                    {secondOpinion?.reason ??
++                      "No 2nd opinion portfolio contents are available for this result."}
++                  </QuantumPlaceholder>
++                )}
++              </Panel>
++            )}
++
+             {result && !result.error && (
+               <Panel title="Top Classical Candidates">
+                 {classicalCandidates.length > 0 ? (
+@@ -4601,9 +5535,33 @@ export default function QaoaRqpV9Page() {
+               </Panel>
+             )}
+ 
+-            {solverComparison.length > 0 && (
++            {result && !result.error && secondOpinionModeChosen && (
++              <Panel
++                title={`Top Quantum Candidates (2nd opinion)${secondOpinionPanelSuffix}`}
++                tone="secondOpinion"
++              >
++                {secondOpinionBestQubo.length > 0 || secondOpinionSamples.length > 0 ? (
++                  <CandidateTable
++                    rows={
++                      secondOpinionBestQubo.length > 0
++                        ? secondOpinionBestQubo
++                        : secondOpinionSamples
++                    }
++                    currencyCode={currencyCode}
++                    showProbability
++                  />
++                ) : (
++                  <QuantumPlaceholder title="No 2nd opinion candidates">
++                    {secondOpinion?.reason ??
++                      `No ${secondOpinionSourceLabel} 2nd opinion candidates are available for this result.`}
++                  </QuantumPlaceholder>
++                )}
++              </Panel>
++            )}
++
++            {displayedSolverComparison.length > 0 && (
+               <Panel title="Solver Comparison">
+-                <CandidateTable rows={solverComparison} currencyCode={currencyCode} />
++                <CandidateTable rows={displayedSolverComparison} currencyCode={currencyCode} />
+               </Panel>
+             )}
+ 
+diff --git a/old version/Generator 40 assets workbook.ipynb b/old version/Generator 40 assets workbook.ipynb
+index 90c0540..1f9c96a 100644
+--- a/old version/Generator 40 assets workbook.ipynb	
++++ b/old version/Generator 40 assets workbook.ipynb	
+@@ -2,29 +2,9 @@
+  "cells": [
+   {
+    "cell_type": "code",
+-   "execution_count": 2,
++   "execution_count": null,
+    "metadata": {},
+-   "outputs": [
+-    {
+-     "name": "stdout",
+-     "output_type": "stream",
+-     "text": [
+-      "Saved workbook to /Users/danielhug/code/qubit-lab/QAOA-Optimizer/old version/qaoa_rqp_tech_digital_infrastructure_40_blocks.xlsx\n",
+-      "\n",
+-      "Generated demo workbook:\n",
+-      "- Total blocks:      40\n",
+-      "- Fixed blocks:      10\n",
+-      "- Variable blocks:   30\n",
+-      "- Fixed budget:      USD 1,000,000\n",
+-      "- Variable budget:   USD 1,000,000\n",
+-      "- Target new blocks: 10\n",
+-      "\n",
+-      "Processor reminder:\n",
+-      "Use only Decision Type == 'variable' rows as QUBO / QAOA decision variables.\n",
+-      "Add fixed rows back when calculating final portfolio metrics.\n"
+-     ]
+-    }
+-   ],
++   "outputs": [],
+    "source": [
+     "# Run this whole cell in Colab or Jupyter.\n",
+     "\n",
+@@ -90,7 +70,7 @@
+     "    (\"VAR_16\", \"V\", \"Visa\", \"Payments Infrastructure\"),\n",
+     "    (\"VAR_17\", \"MA\", \"Mastercard\", \"Payments Infrastructure\"),\n",
+     "    (\"VAR_18\", \"PYPL\", \"PayPal\", \"Digital Payments\"),\n",
+-    "    (\"VAR_19\", \"FISV\", \"Fiserv\", \"Financial Technology\"),\n",
++    "    (\"VAR_19\", \"FI\", \"Fiserv\", \"Financial Technology\"),\n",
+     "    (\"VAR_20\", \"FIS\", \"FIS\", \"Financial Technology\"),\n",
+     "\n",
+     "    (\"VAR_21\", \"EQIX\", \"Equinix\", \"Data Centers\"),\n",
+@@ -611,21 +591,12 @@
+  ],
+  "metadata": {
+   "kernelspec": {
+-   "display_name": "Python (qaoa-rqp)",
++   "display_name": "Python (qsim-bench)",
+    "language": "python",
+-   "name": "qaoa-rqp"
++   "name": "qsim-bench"
+   },
+   "language_info": {
+-   "codemirror_mode": {
+-    "name": "ipython",
+-    "version": 3
+-   },
+-   "file_extension": ".py",
+-   "mimetype": "text/x-python",
+-   "name": "python",
+-   "nbconvert_exporter": "python",
+-   "pygments_lexer": "ipython3",
+-   "version": "3.10.18"
++   "name": ""
+   }
+  },
+  "nbformat": 4,

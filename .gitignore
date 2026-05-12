@@ -27,6 +27,7 @@ credentials*.json
 
 # OS
 .DS_Store
+~$*.docx
 
 # Generated data / outputs
 *.xlsx
@@ -38,6 +39,7 @@ outputs/
 results/
 tmp/
 temp/
+test code output/
 
 # Build artifacts
 dist/
