@@ -69,6 +69,13 @@ type WorkerProfileMetadata = {
   required_level?: string | null;
 };
 
+type HardwareDepthRating = {
+  status: "ok" | "critical" | "beyond_limits";
+  title: string;
+  detail: string;
+  className: string;
+};
+
 type MemoryHistoryPoint = {
   timestamp?: string | null;
   elapsed_sec?: number | null;
@@ -575,6 +582,8 @@ const DEFAULT_WORKER_PROFILE: WorkerProfileId = "small";
 const EXPORT_MODE_INTERNAL_ONLY: ExportMode = "internal_only";
 const EXPORT_MODE_QISKIT_EXPORT: ExportMode = "qiskit_export";
 const EXPORT_MODE_IBM_EXTERNAL_RUN: ExportMode = "ibm_external_run";
+const IBM_DEFAULT_EXACT_SHOTS = 4096;
+const IBM_HARDWARE_DEPTH_LIMIT = 2000;
 const DEFAULT_EXPORT_MODE: ExportMode = EXPORT_MODE_INTERNAL_ONLY;
 
 const RUN_MODE_OPTIONS = [
@@ -1185,6 +1194,40 @@ function getIbmCircuitMetadata(circuit: unknown): Record<string, unknown> | unde
     return undefined;
   }
   return metadata as Record<string, unknown>;
+}
+
+function getHardwareDepthRating(
+  sequentialTwoQDepth: number | undefined,
+  limit: number = IBM_HARDWARE_DEPTH_LIMIT
+): HardwareDepthRating | null {
+  if (sequentialTwoQDepth === undefined) return null;
+  const lower = limit * 0.9;
+  const upper = limit * 1.1;
+
+  if (sequentialTwoQDepth < lower) {
+    return {
+      status: "ok",
+      title: "Circuit depth ok",
+      detail: `Estimated sequential 2Q depth is comfortably below the hardware reference limit of ${formatNumber(limit, 0)}.`,
+      className: "border-emerald-700 bg-emerald-950/30 text-emerald-100",
+    };
+  }
+
+  if (sequentialTwoQDepth <= upper) {
+    return {
+      status: "critical",
+      title: "Circuit depth critical",
+      detail: `Estimated sequential 2Q depth is close to the hardware reference limit of ${formatNumber(limit, 0)}. Noise risk is elevated.`,
+      className: "border-amber-700 bg-amber-950/30 text-amber-100",
+    };
+  }
+
+  return {
+    status: "beyond_limits",
+    title: "Circuit depth beyond limits",
+    detail: `Estimated sequential 2Q depth is above the hardware reference limit of ${formatNumber(limit, 0)}. Results are likely to be strongly noise-affected.`,
+    className: "border-red-800 bg-red-950/30 text-red-100",
+  };
 }
 
 function getRecordValue(record: unknown, key: string) {
@@ -2780,6 +2823,29 @@ export default function QaoaRqpV9Page() {
       ? (diagnostics.circuit as Record<string, unknown>)
       : undefined);
   const ibmCircuit = useMemo(() => getIbmCircuitMetadata(circuit), [circuit]);
+  const inspectCircuit =
+    activeDiagnostics.circuit &&
+    typeof activeDiagnostics.circuit === "object" &&
+    !Array.isArray(activeDiagnostics.circuit)
+      ? (activeDiagnostics.circuit as Record<string, unknown>)
+      : undefined;
+  const ibmHardwarePreview = useMemo(() => {
+    const previewSource = result ? circuit : inspectCircuit;
+    const totalGates = getNumber(getCircuitValue(previewSource, "total_gates"));
+    const twoQGates = getNumber(getCircuitValue(previewSource, "two_qubit_gates"));
+    const sequentialTwoQDepth = getNumber(
+      getCircuitValue(previewSource, "sequential_2q_depth")
+    );
+    const rating = getHardwareDepthRating(sequentialTwoQDepth);
+
+    return {
+      totalGates,
+      twoQGates,
+      sequentialTwoQDepth,
+      limit: IBM_HARDWARE_DEPTH_LIMIT,
+      rating,
+    };
+  }, [result, circuit, inspectCircuit]);
 
   const classicalCandidates =
     reporting?.classical_candidates ?? result?.top_candidates ?? [];
@@ -2881,6 +2947,7 @@ export default function QaoaRqpV9Page() {
   const isTensorSimMode = normalizeRunMode(mode) === QAOA_TENSOR_SIM_MODE;
   const isExactShotsMode =
     !isTensorSimMode && (shotsMode === "exact" || qaoaShotsDisplay === "exact");
+  const plannedIbmShots = isExactShotsMode ? IBM_DEFAULT_EXACT_SHOTS : qaoaShots;
   const effectiveRandomSeed = getEffectiveRandomSeed(diagnostics, inspectDiagnostics);
   const runModeDiagnostics = useMemo(
     () => getRunModeDiagnostics(mode, diagnostics, inspectDiagnostics),
@@ -4606,15 +4673,61 @@ export default function QaoaRqpV9Page() {
                   )}
 
                   <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-gray-300">
+                    <div className="mb-2 font-semibold text-amber-100">
+                      Pre-run hardware depth check
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
+                      <div>
+                        <div className="text-gray-500">Total gates</div>
+                        <div className="font-mono text-gray-100">
+                          {formatText(ibmHardwarePreview.totalGates)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">2Q gates</div>
+                        <div className="font-mono text-gray-100">
+                          {formatText(ibmHardwarePreview.twoQGates)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">Sequential 2Q</div>
+                        <div className="font-mono text-gray-100">
+                          {formatText(ibmHardwarePreview.sequentialTwoQDepth)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">HW reference limit</div>
+                        <div className="font-mono text-gray-100">
+                          {formatNumber(ibmHardwarePreview.limit, 0)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {ibmHardwarePreview.rating ? (
+                      <div
+                        className={`mt-2 rounded-lg border px-2 py-1.5 ${ibmHardwarePreview.rating.className}`}
+                      >
+                        <div className="font-semibold">{ibmHardwarePreview.rating.title}</div>
+                        <div className="mt-0.5 text-[11px]">{ibmHardwarePreview.rating.detail}</div>
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-[11px] text-gray-500">
+                        Recalculate or inspect the workbook to see the estimated hardware
+                        gate profile before submission.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-gray-300">
                     {isExactShotsMode ? (
                       <>
                         Internal QAOA used exact probabilities, so IBM hardware will
-                        use a practical default shot count for comparison.
+                        use {formatNumber(plannedIbmShots, 0)} shots for comparison.
                       </>
                     ) : (
                       <>
                         IBM hardware uses the same shot count as the simulator
-                        setting for comparability.
+                        setting for comparability: {formatNumber(plannedIbmShots, 0)} shots.
                       </>
                     )}
                   </div>
