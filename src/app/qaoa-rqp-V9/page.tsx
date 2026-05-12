@@ -27,6 +27,8 @@ type EffectiveSettings = {
   ibm_instance?: string | null;
   ibm_backend?: string | null;
   ibm_backend_selection?: string | null;
+  ibm_fractional_gates?: boolean | null;
+  ibm_fractional_mode_label?: string | null;
   ibm_hardware_shots?: number | null;
   ibm_hardware_shots_source?: string | null;
   layers?: number | null;
@@ -520,6 +522,7 @@ type SavedQaoaSnapshot = {
     export_mode?: ExportMode;
     ibm_instance?: string;
     ibm_backend?: string;
+    ibm_fractional_gates?: boolean;
     response_level: string;
     layers: number;
     iterations: number;
@@ -583,7 +586,8 @@ const EXPORT_MODE_INTERNAL_ONLY: ExportMode = "internal_only";
 const EXPORT_MODE_QISKIT_EXPORT: ExportMode = "qiskit_export";
 const EXPORT_MODE_IBM_EXTERNAL_RUN: ExportMode = "ibm_external_run";
 const IBM_DEFAULT_EXACT_SHOTS = 4096;
-const IBM_HARDWARE_DEPTH_LIMIT = 2000;
+const IBM_HERON2_OK_MAX_SEQUENTIAL_2Q_DEPTH = 150;
+const IBM_HERON2_CRITICAL_MAX_SEQUENTIAL_2Q_DEPTH = 250;
 const DEFAULT_EXPORT_MODE: ExportMode = EXPORT_MODE_INTERNAL_ONLY;
 
 const RUN_MODE_OPTIONS = [
@@ -1198,34 +1202,33 @@ function getIbmCircuitMetadata(circuit: unknown): Record<string, unknown> | unde
 
 function getHardwareDepthRating(
   sequentialTwoQDepth: number | undefined,
-  limit: number = IBM_HARDWARE_DEPTH_LIMIT
+  okMax: number = IBM_HERON2_OK_MAX_SEQUENTIAL_2Q_DEPTH,
+  criticalMax: number = IBM_HERON2_CRITICAL_MAX_SEQUENTIAL_2Q_DEPTH
 ): HardwareDepthRating | null {
   if (sequentialTwoQDepth === undefined) return null;
-  const lower = limit * 0.9;
-  const upper = limit * 1.1;
 
-  if (sequentialTwoQDepth < lower) {
+  if (sequentialTwoQDepth < okMax) {
     return {
       status: "ok",
       title: "Circuit depth ok",
-      detail: `Estimated sequential 2Q depth is comfortably below the hardware reference limit of ${formatNumber(limit, 0)}.`,
+      detail: `Sequential 2Q depth is within the practical Heron r2 comfort zone below ${formatNumber(okMax, 0)} layers.`,
       className: "border-emerald-700 bg-emerald-950/30 text-emerald-100",
     };
   }
 
-  if (sequentialTwoQDepth <= upper) {
+  if (sequentialTwoQDepth <= criticalMax) {
     return {
       status: "critical",
       title: "Circuit depth critical",
-      detail: `Estimated sequential 2Q depth is close to the hardware reference limit of ${formatNumber(limit, 0)}. Noise risk is elevated.`,
+      detail: `Sequential 2Q depth is in the critical Heron r2 range between ${formatNumber(okMax, 0)} and ${formatNumber(criticalMax, 0)} layers.`,
       className: "border-amber-700 bg-amber-950/30 text-amber-100",
     };
   }
 
   return {
     status: "beyond_limits",
-    title: "Circuit depth beyond limits",
-    detail: `Estimated sequential 2Q depth is above the hardware reference limit of ${formatNumber(limit, 0)}. Results are likely to be strongly noise-affected.`,
+    title: "Circuit depth beyond comfort zone",
+    detail: `Sequential 2Q depth is above the practical Heron r2 comfort zone of ${formatNumber(criticalMax, 0)} layers. Results are likely to be strongly noise-affected.`,
     className: "border-red-800 bg-red-950/30 text-red-100",
   };
 }
@@ -1921,6 +1924,22 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
     formatText(getRecordValue(metadata, "reason"), "") ||
     formatText(getRecordValue(metadata, "qiskit_unavailable_reason"), "");
   const comparabilityNote = formatText(getRecordValue(metadata, "comparability_note"), "");
+  const transpiledSequentialTwoQDepth = getNumber(
+    getRecordValue(metadata, "transpiled_sequential_2q_depth")
+  );
+  const hardwareDepthRating = getHardwareDepthRating(transpiledSequentialTwoQDepth);
+  const previewComparison = getRecordValue(metadata, "preview_comparison");
+  const previewComparisonRecord =
+    previewComparison &&
+    typeof previewComparison === "object" &&
+    !Array.isArray(previewComparison)
+      ? (previewComparison as Record<string, unknown>)
+      : undefined;
+  const depthComparison = getRecordValue(previewComparisonRecord, "sequential_2q_depth");
+  const depthComparisonRecord =
+    depthComparison && typeof depthComparison === "object" && !Array.isArray(depthComparison)
+      ? (depthComparison as Record<string, unknown>)
+      : undefined;
 
   return (
     <div className="space-y-3 text-xs">
@@ -1961,6 +1980,15 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
           <InfoRow
             label="Hardware submission"
             value={formatText(getRecordValue(metadata, "hardware_submission"))}
+          />
+          <InfoRow
+            label="Hardware gate mode"
+            value={formatText(
+              getRecordValue(metadata, "fractional_mode_label") ??
+                (getRecordValue(metadata, "fractional_gates_enabled")
+                  ? "Prefer fractional gates"
+                  : "Standard basis")
+            )}
           />
           <InfoRow
             label="Parse status"
@@ -2094,6 +2122,13 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
         </div>
       </div>
 
+      {hardwareDepthRating && (
+        <div className={`rounded-xl border px-3 py-2 ${hardwareDepthRating.className}`}>
+          <div className="font-semibold">{hardwareDepthRating.title}</div>
+          <div className="mt-1 text-[11px]">{hardwareDepthRating.detail}</div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
         <div className="font-semibold text-amber-100 mb-2">Runtime timing</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6">
@@ -2116,6 +2151,19 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
           <div className="font-semibold text-amber-100 mb-2">Comparability</div>
           <div className="text-gray-300">{comparabilityNote}</div>
+        </div>
+      )}
+
+      {depthComparisonRecord && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+          <div className="font-semibold text-amber-100 mb-2">
+            Fractional-gate preview comparison
+          </div>
+          <div className="text-gray-300">
+            Standard {formatText(getRecordValue(depthComparisonRecord, "standard"))} vs
+            fractional {formatText(getRecordValue(depthComparisonRecord, "fractional"))} sequential 2Q
+            layers ({formatPercent(getRecordValue(depthComparisonRecord, "pct_delta"), 1)} delta).
+          </div>
         </div>
       )}
 
@@ -2809,6 +2857,7 @@ export default function QaoaRqpV9Page() {
   const [ibmToken, setIbmToken] = useState("");
   const [ibmInstance, setIbmInstance] = useState("open-instance");
   const [ibmBackend, setIbmBackend] = useState("");
+  const [ibmFractionalGates, setIbmFractionalGates] = useState(false);
   const [ibmBackends, setIbmBackends] = useState<IbmBackendOption[]>([]);
   const [ibmBackendsLoading, setIbmBackendsLoading] = useState(false);
   const [ibmBackendsError, setIbmBackendsError] = useState<string | null>(null);
@@ -2892,19 +2941,51 @@ export default function QaoaRqpV9Page() {
       : undefined;
   const ibmHardwarePreview = useMemo(() => {
     const previewSource = result ? circuit : inspectCircuit;
-    const totalGates = getNumber(getCircuitValue(previewSource, "total_gates"));
-    const twoQGates = getNumber(getCircuitValue(previewSource, "two_qubit_gates"));
-    const sequentialTwoQDepth = getNumber(
-      getCircuitValue(previewSource, "sequential_2q_depth")
+    const previewTotalGates = getNumber(
+      getCircuitValue(previewSource, "preview_transpiled_total_gates")
     );
+    const previewTwoQGates = getNumber(
+      getCircuitValue(previewSource, "preview_transpiled_two_qubit_gates")
+    );
+    const previewSequentialTwoQDepth = getNumber(
+      getCircuitValue(previewSource, "preview_transpiled_sequential_2q_depth")
+    );
+    const totalGates =
+      previewTotalGates ?? getNumber(getCircuitValue(previewSource, "total_gates"));
+    const twoQGates =
+      previewTwoQGates ?? getNumber(getCircuitValue(previewSource, "two_qubit_gates"));
+    const sequentialTwoQDepth =
+      previewSequentialTwoQDepth ??
+      getNumber(getCircuitValue(previewSource, "sequential_2q_depth"));
     const rating = getHardwareDepthRating(sequentialTwoQDepth);
+    const comparisonRecord = getRecordValue(previewSource, "preview_comparison");
+    const comparison =
+      comparisonRecord && typeof comparisonRecord === "object" && !Array.isArray(comparisonRecord)
+        ? (comparisonRecord as Record<string, unknown>)
+        : undefined;
+    const depthComparison = getRecordValue(comparison, "sequential_2q_depth");
+    const depthComparisonRecord =
+      depthComparison && typeof depthComparison === "object" && !Array.isArray(depthComparison)
+        ? (depthComparison as Record<string, unknown>)
+        : undefined;
 
     return {
       totalGates,
       twoQGates,
       sequentialTwoQDepth,
-      limit: IBM_HARDWARE_DEPTH_LIMIT,
+      sourceLabel:
+        previewSequentialTwoQDepth !== undefined
+          ? "Backend-aware estimate"
+          : "Logical circuit estimate",
+      okMax: IBM_HERON2_OK_MAX_SEQUENTIAL_2Q_DEPTH,
+      criticalMax: IBM_HERON2_CRITICAL_MAX_SEQUENTIAL_2Q_DEPTH,
       rating,
+      depthComparison: depthComparisonRecord,
+      fractionalModeLabel: formatText(
+        getCircuitValue(previewSource, "preview_fractional_mode_label") ??
+          getCircuitValue(previewSource, "fractional_mode_label"),
+        ""
+      ),
     };
   }, [result, circuit, inspectCircuit]);
 
@@ -3233,6 +3314,7 @@ export default function QaoaRqpV9Page() {
     const nextRestartPerturbation = getNumber(effectiveSettings.restart_perturbation);
     const nextRandomSeed = getNumber(effectiveSettings.random_seed);
     const nextExportMode = formatText(effectiveSettings.export_mode, "");
+    const nextIbmFractionalGates = getBoolean(effectiveSettings.ibm_fractional_gates);
 
     let changed = false;
 
@@ -3278,6 +3360,10 @@ export default function QaoaRqpV9Page() {
     }
     if (nextExportMode !== "") {
       setExportMode(normalizeExportMode(nextExportMode));
+      changed = true;
+    }
+    if (nextIbmFractionalGates !== undefined) {
+      setIbmFractionalGates(nextIbmFractionalGates);
       changed = true;
     }
 
@@ -3364,6 +3450,7 @@ export default function QaoaRqpV9Page() {
         export_mode: exportMode,
         ibm_instance: ibmInstance,
         ibm_backend: ibmBackend,
+        ibm_fractional_gates: ibmFractionalGates,
         response_level: responseLevel,
         layers,
         iterations,
@@ -3561,6 +3648,9 @@ export default function QaoaRqpV9Page() {
             ""
           )
         );
+        setIbmFractionalGates(
+          Boolean(getBoolean(getEffectiveSetting(resultDiagnostics, "ibm_fractional_gates")))
+        );
         setInspectResult(raw.inspect_result ?? null);
         setResult(loadedResult);
         setJobStatus(raw.job_status ?? null);
@@ -3598,6 +3688,7 @@ export default function QaoaRqpV9Page() {
       setExportMode(normalizeExportMode(snapshot.ui_state?.export_mode));
       setIbmInstance(snapshot.ui_state?.ibm_instance ?? "open-instance");
       setIbmBackend(snapshot.ui_state?.ibm_backend ?? "");
+      setIbmFractionalGates(Boolean(snapshot.ui_state?.ibm_fractional_gates));
       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
       setWorkerProfile(normalizeWorkerProfile(snapshot.ui_state?.worker_profile));
       setLayers(snapshot.ui_state?.layers ?? 1);
@@ -3807,10 +3898,14 @@ export default function QaoaRqpV9Page() {
       formData.append("response_level", responseLevel);
       formData.append("worker_profile", workerProfile);
       if (ibmHardwareModeChosen) {
+        if (ibmToken.trim()) {
+          formData.append("ibm_token", ibmToken.trim());
+        }
         formData.append("ibm_instance", ibmInstance.trim() || "open-instance");
         if (ibmBackend.trim()) {
           formData.append("ibm_backend", ibmBackend.trim());
         }
+        formData.append("ibm_fractional_gates", ibmFractionalGates ? "1" : "0");
       }
 
       if (settingsTouchedRef.current) {
@@ -4111,6 +4206,7 @@ export default function QaoaRqpV9Page() {
         if (ibmBackend.trim()) {
           formData.append("ibm_backend", ibmBackend.trim());
         }
+        formData.append("ibm_fractional_gates", ibmFractionalGates ? "1" : "0");
       }
       formData.append("layers", String(layers));
       formData.append("iterations", String(iterations));
@@ -4702,6 +4798,25 @@ export default function QaoaRqpV9Page() {
                     className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
                   />
 
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    Hardware gate mode
+                  </label>
+                  <select
+                    value={ibmFractionalGates ? "fractional" : "standard"}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmFractionalGates(e.target.value === "fractional");
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  >
+                    <option value="standard">Standard basis</option>
+                    <option value="fractional">Prefer fractional gates</option>
+                  </select>
+                  <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-[11px] text-gray-300">
+                    Prefer fractional gates to preserve more direct QAOA-style RZZ / RX structure
+                    when the selected IBM backend supports it.
+                  </div>
+
                   <div className="flex items-center justify-between gap-3 mb-1.5">
                     <label className="block text-xs text-gray-300">
                       Optional backend override
@@ -4742,29 +4857,48 @@ export default function QaoaRqpV9Page() {
                     <div className="mb-2 font-semibold text-amber-100">
                       Pre-run hardware depth estimate
                     </div>
+                    <div className="mb-2 text-[11px] text-gray-400">
+                      {ibmHardwarePreview.sourceLabel}
+                      {ibmHardwarePreview.fractionalModeLabel
+                        ? ` · ${ibmHardwarePreview.fractionalModeLabel}`
+                        : ""}
+                    </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
                       <div>
-                        <div className="text-gray-500">Est. total gates</div>
+                        <div className="text-gray-500">
+                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled gates"
+                            : "Logical total gates"}
+                        </div>
                         <div className="font-mono text-gray-100">
                           {formatText(ibmHardwarePreview.totalGates)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-500">Est. 2Q gates</div>
+                        <div className="text-gray-500">
+                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled 2Q"
+                            : "Logical 2Q gates"}
+                        </div>
                         <div className="font-mono text-gray-100">
                           {formatText(ibmHardwarePreview.twoQGates)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-500">Est. sequential 2Q</div>
+                        <div className="text-gray-500">
+                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled seq. 2Q"
+                            : "Logical seq. 2Q"}
+                        </div>
                         <div className="font-mono text-gray-100">
                           {formatText(ibmHardwarePreview.sequentialTwoQDepth)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-500">HW reference limit</div>
+                        <div className="text-gray-500">Heron r2 band</div>
                         <div className="font-mono text-gray-100">
-                          {formatNumber(ibmHardwarePreview.limit, 0)}
+                          &lt;{formatNumber(ibmHardwarePreview.okMax, 0)} /{" "}
+                          {formatNumber(ibmHardwarePreview.criticalMax, 0)}+
                         </div>
                       </div>
                     </div>
@@ -4778,8 +4912,19 @@ export default function QaoaRqpV9Page() {
                       </div>
                     ) : (
                       <div className="mt-2 text-[11px] text-gray-500">
-                        Recalculate or inspect the workbook to see the estimated hardware
-                        gate profile before submission.
+                        Recalculate or inspect the workbook to see the hardware preview
+                        before submission.
+                      </div>
+                    )}
+
+                    {ibmHardwarePreview.depthComparison && (
+                      <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
+                        Fractional-gate comparison: standard{" "}
+                        {formatText(getRecordValue(ibmHardwarePreview.depthComparison, "standard"))}{" "}
+                        vs fractional{" "}
+                        {formatText(getRecordValue(ibmHardwarePreview.depthComparison, "fractional"))}{" "}
+                        sequential 2Q layers (
+                        {formatPercent(getRecordValue(ibmHardwarePreview.depthComparison, "pct_delta"), 1)} delta).
                       </div>
                     )}
                   </div>
@@ -5629,8 +5774,13 @@ export default function QaoaRqpV9Page() {
                       value={formatText(getCircuitValue(circuit, "estimated_circuit_depth"))}
                     />
                     <InfoRow
-                      label="Estimated counts"
-                      value={formatText(getCircuitValue(circuit, "counts_are_estimated"))}
+                      label="Metric source"
+                      value={formatText(
+                        getCircuitValue(circuit, "metric_source") ??
+                          (getCircuitValue(circuit, "counts_are_estimated")
+                            ? "structural_formula"
+                            : "qiskit_logical_circuit")
+                      )}
                     />
                   </div>
                 </div>
