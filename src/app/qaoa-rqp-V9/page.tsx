@@ -3047,6 +3047,17 @@ export default function QaoaRqpV9Page() {
       !Array.isArray(constructionComparison)
         ? (constructionComparison as Record<string, unknown>)
         : undefined;
+    const fallbackReason = formatText(
+      getCircuitValue(previewSource, "preview_fallback_reason"),
+      ""
+    );
+    const selectedFailure = getRecordValue(previewSource, "preview_selected_failure");
+    const selectedFailureRecord =
+      selectedFailure &&
+      typeof selectedFailure === "object" &&
+      !Array.isArray(selectedFailure)
+        ? (selectedFailure as Record<string, unknown>)
+        : undefined;
 
     return {
       totalDepth,
@@ -3072,6 +3083,8 @@ export default function QaoaRqpV9Page() {
           getCircuitValue(previewSource, "construction_mode_label"),
         ""
       ),
+      fallbackReason,
+      selectedFailureType: formatText(getRecordValue(selectedFailureRecord, "error_type"), ""),
     };
   }, [result, circuit, inspectCircuit]);
 
@@ -4988,6 +5001,15 @@ export default function QaoaRqpV9Page() {
                         ? ` · ${ibmHardwarePreview.fractionalModeLabel}`
                         : ""}
                     </div>
+                    {ibmHardwarePreview.sourceLabel !== "Backend-aware estimate" &&
+                    ibmHardwarePreview.fallbackReason ? (
+                      <div className="mb-2 rounded-lg border border-amber-900/60 bg-amber-950/20 px-2 py-1 text-[11px] text-amber-100">
+                        {ibmHardwarePreview.fallbackReason}
+                        {ibmHardwarePreview.selectedFailureType
+                          ? ` (${ibmHardwarePreview.selectedFailureType})`
+                          : ""}
+                      </div>
+                    ) : null}
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-5">
                       <div>
                         <div className="text-gray-500">
