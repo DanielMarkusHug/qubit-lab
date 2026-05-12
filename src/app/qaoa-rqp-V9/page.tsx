@@ -24,6 +24,11 @@ type EffectiveSettings = {
   export_mode_label?: string | null;
   qiskit_export_requested?: boolean | null;
   ibm_external_run_requested?: boolean | null;
+  ibm_instance?: string | null;
+  ibm_backend?: string | null;
+  ibm_backend_selection?: string | null;
+  ibm_hardware_shots?: number | null;
+  ibm_hardware_shots_source?: string | null;
   layers?: number | null;
   p?: number | null;
   iterations?: number | null;
@@ -473,6 +478,27 @@ type AsyncSubmitResponse = {
   };
 };
 
+type IbmBackendOption = {
+  name?: string;
+  num_qubits?: number;
+  pending_jobs?: number;
+  operational?: boolean;
+  simulator?: boolean;
+};
+
+type IbmBackendsResponse = {
+  ok?: boolean;
+  instance?: string;
+  default_backend?: string | null;
+  backends?: IbmBackendOption[];
+  license?: LicenseStatus;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  };
+};
+
 type SavedQaoaSnapshot = {
   schema: "qaoa-rqp-review-snapshot";
   schema_version: 1;
@@ -485,6 +511,8 @@ type SavedQaoaSnapshot = {
   ui_state: {
     mode: string;
     export_mode?: ExportMode;
+    ibm_instance?: string;
+    ibm_backend?: string;
     response_level: string;
     layers: number;
     iterations: number;
@@ -594,9 +622,10 @@ const EXPORT_MODE_OPTIONS: Array<{
   {
     value: EXPORT_MODE_IBM_EXTERNAL_RUN,
     label: "Qiskit on IBM Hardware",
-    description: "Reserved for a later IBM hardware comparison path.",
-    requiredLevel: "internal ultra",
-    enabled: false,
+    description:
+      "Runs the optimized QAOA circuit as a 2nd opinion on a real IBM Quantum backend using your IBM token for this session.",
+    requiredLevel: "tester",
+    enabled: true,
   },
 ];
 
@@ -996,7 +1025,6 @@ function isExportModeAllowed(
   selectedExportMode: ExportMode
 ) {
   if (selectedExportMode === EXPORT_MODE_INTERNAL_ONLY) return true;
-  if (selectedExportMode === EXPORT_MODE_IBM_EXTERNAL_RUN) return false;
   return usageLevelId(license) >= 2;
 }
 
@@ -1834,7 +1862,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
   if (!metadata) {
     return (
       <QuantumPlaceholder title="Export metadata not in this result">
-        Select Qiskit simulation before running a QAOA job to add
+        Select Qiskit simulation or Qiskit on IBM Hardware before running a QAOA job to add
         <span className="font-mono"> circuit.ibm </span> diagnostics.
       </QuantumPlaceholder>
     );
@@ -1868,6 +1896,17 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
           <InfoRow
             label="Provider"
             value={formatText(getRecordValue(metadata, "provider"))}
+          />
+          <InfoRow
+            label="Instance"
+            value={formatText(getRecordValue(metadata, "instance"))}
+          />
+          <InfoRow
+            label="Backend"
+            value={formatText(
+              getRecordValue(metadata, "backend_name") ??
+                getRecordValue(getRecordValue(metadata, "backend_details"), "name")
+            )}
           />
           <InfoRow label="SDK" value={formatText(getRecordValue(metadata, "sdk"))} />
           <InfoRow
@@ -1909,6 +1948,13 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             label="Operation count"
             value={formatText(getRecordValue(metadata, "operation_count"))}
           />
+          <InfoRow
+            label="Hardware shots"
+            value={formatText(
+              getRecordValue(metadata, "shots") ??
+                getRecordValue(metadata, "ibm_hardware_shots")
+            )}
+          />
         </div>
 
         <div>
@@ -1940,6 +1986,32 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             label="Counts decoder"
             value={formatText(getRecordValue(metadata, "counts_decoder"))}
           />
+          <InfoRow
+            label="Transpiled depth"
+            value={formatText(getRecordValue(metadata, "transpiled_depth"))}
+          />
+          <InfoRow
+            label="Transpiled 2Q depth"
+            value={formatText(getRecordValue(metadata, "transpiled_sequential_2q_depth"))}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">Runtime timing</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6">
+          <InfoRow
+            label="Queue wait"
+            value={formatSeconds(getRecordValue(getRecordValue(metadata, "timing"), "queue_wait_seconds"))}
+          />
+          <InfoRow
+            label="Execution"
+            value={formatSeconds(getRecordValue(getRecordValue(metadata, "timing"), "execution_seconds"))}
+          />
+          <InfoRow
+            label="Total"
+            value={formatSeconds(getRecordValue(getRecordValue(metadata, "timing"), "total_seconds"))}
+          />
         </div>
       </div>
 
@@ -1961,7 +2033,23 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             getRecordValue(metadata, "qiskit_gate_counts_with_measurements")
           )}
         />
+        <InfoRow
+          label="Transpiled"
+          value={formatGateCounts(getRecordValue(metadata, "transpiled_gate_counts"))}
+        />
       </div>
+
+      {Array.isArray(getRecordValue(metadata, "warnings")) &&
+        (getRecordValue(metadata, "warnings") as unknown[]).length > 0 && (
+          <div className="rounded-xl border border-amber-700/60 bg-amber-950/25 p-3 text-amber-100">
+            <div className="font-semibold mb-1">Hardware notes</div>
+            <div className="space-y-1">
+              {(getRecordValue(metadata, "warnings") as unknown[]).map((warning, idx) => (
+                <div key={idx}>{formatText(warning)}</div>
+              ))}
+            </div>
+          </div>
+        )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
         <div className="font-semibold text-amber-100 mb-2">Bit ordering</div>
@@ -2614,6 +2702,12 @@ export default function QaoaRqpV9Page() {
 
   const [mode, setMode] = useState(DEFAULT_RUN_MODE);
   const [exportMode, setExportMode] = useState<ExportMode>(DEFAULT_EXPORT_MODE);
+  const [ibmToken, setIbmToken] = useState("");
+  const [ibmInstance, setIbmInstance] = useState("open-instance");
+  const [ibmBackend, setIbmBackend] = useState("");
+  const [ibmBackends, setIbmBackends] = useState<IbmBackendOption[]>([]);
+  const [ibmBackendsLoading, setIbmBackendsLoading] = useState(false);
+  const [ibmBackendsError, setIbmBackendsError] = useState<string | null>(null);
   const [responseLevel, setResponseLevel] = useState("full");
   const [workerProfile, setWorkerProfile] =
     useState<WorkerProfileId>(DEFAULT_WORKER_PROFILE);
@@ -2808,6 +2902,7 @@ export default function QaoaRqpV9Page() {
     () => EXPORT_MODE_OPTIONS.find((option) => option.value === exportMode),
     [exportMode]
   );
+  const ibmHardwareModeChosen = exportMode === EXPORT_MODE_IBM_EXTERNAL_RUN;
   const selectedWorkerProfileInfo = useMemo(
     () => workerProfileInfo(license, workerProfile),
     [license, workerProfile]
@@ -3112,6 +3207,12 @@ export default function QaoaRqpV9Page() {
     );
   }, [selectedExportModeAllowed]);
 
+  useEffect(() => {
+    if (ibmHardwareModeChosen) return;
+    setIbmBackends([]);
+    setIbmBackendsError(null);
+  }, [ibmHardwareModeChosen]);
+
   function saveReviewFile() {
     setReviewFileError(null);
     setReviewFileMessage(null);
@@ -3128,6 +3229,8 @@ export default function QaoaRqpV9Page() {
       ui_state: {
         mode,
         export_mode: exportMode,
+        ibm_instance: ibmInstance,
+        ibm_backend: ibmBackend,
         response_level: responseLevel,
         layers,
         iterations,
@@ -3311,6 +3414,20 @@ export default function QaoaRqpV9Page() {
             )
           )
         );
+        setIbmInstance(
+          formatText(
+            getEffectiveSetting(resultDiagnostics, "ibm_instance") ??
+              resultDiagnostics.ibm_instance,
+            "open-instance"
+          )
+        );
+        setIbmBackend(
+          formatText(
+            getEffectiveSetting(resultDiagnostics, "ibm_backend") ??
+              resultDiagnostics.ibm_backend,
+            ""
+          )
+        );
         setInspectResult(raw.inspect_result ?? null);
         setResult(loadedResult);
         setJobStatus(raw.job_status ?? null);
@@ -3346,6 +3463,8 @@ export default function QaoaRqpV9Page() {
       setWorkbookFilename(snapshot.original_filename ?? selectedFile.name);
       setMode(reviewMode);
       setExportMode(normalizeExportMode(snapshot.ui_state?.export_mode));
+      setIbmInstance(snapshot.ui_state?.ibm_instance ?? "open-instance");
+      setIbmBackend(snapshot.ui_state?.ibm_backend ?? "");
       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
       setWorkerProfile(normalizeWorkerProfile(snapshot.ui_state?.worker_profile));
       setLayers(snapshot.ui_state?.layers ?? 1);
@@ -3554,6 +3673,12 @@ export default function QaoaRqpV9Page() {
       formData.append("export_mode", exportMode);
       formData.append("response_level", responseLevel);
       formData.append("worker_profile", workerProfile);
+      if (ibmHardwareModeChosen) {
+        formData.append("ibm_instance", ibmInstance.trim() || "open-instance");
+        if (ibmBackend.trim()) {
+          formData.append("ibm_backend", ibmBackend.trim());
+        }
+      }
 
       if (settingsTouchedRef.current) {
         formData.append("layers", String(layers));
@@ -3675,6 +3800,8 @@ export default function QaoaRqpV9Page() {
     apiKey,
     mode,
     exportMode,
+    ibmInstance,
+    ibmBackend,
     responseLevel,
     workerProfile,
     layers,
@@ -3704,6 +3831,60 @@ export default function QaoaRqpV9Page() {
       clearPollInterval();
     };
   }, [clearPollInterval]);
+
+  async function loadIbmBackends() {
+    if (!ibmToken.trim()) {
+      setIbmBackendsError("Enter your IBM API token first.");
+      addLog("IBM backend discovery skipped: no IBM token entered.");
+      return;
+    }
+
+    setIbmBackendsLoading(true);
+    setIbmBackendsError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("ibm_token", ibmToken.trim());
+      formData.append("ibm_instance", ibmInstance.trim() || "open-instance");
+
+      const res = await fetch(`${API_URL}/ibm/backends`, {
+        method: "POST",
+        headers: apiKey ? { "X-API-Key": apiKey } : {},
+        body: formData,
+      });
+
+      const data: IbmBackendsResponse = await res.json();
+
+      if (data.license) {
+        setLicense(data.license);
+      }
+
+      if (!res.ok || data.error) {
+        const message =
+          data.error?.message ?? `Could not load IBM backends (${res.status}).`;
+        setIbmBackendsError(message);
+        addLog(`IBM backend discovery failed: ${message}`);
+        return;
+      }
+
+      const backends = Array.isArray(data.backends) ? data.backends : [];
+      setIbmBackends(backends);
+      if (!ibmBackend && data.default_backend) {
+        setIbmBackend(String(data.default_backend));
+      }
+      addLog(
+        `Loaded ${backends.length} IBM hardware backend${
+          backends.length === 1 ? "" : "s"
+        } for instance ${data.instance ?? ibmInstance}.`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setIbmBackendsError(message);
+      addLog(`IBM backend discovery failed: ${message}`);
+    } finally {
+      setIbmBackendsLoading(false);
+    }
+  }
 
   async function checkLicense() {
     const controller = new AbortController();
@@ -3759,6 +3940,17 @@ export default function QaoaRqpV9Page() {
       return;
     }
 
+    if (ibmHardwareModeChosen && !ibmToken.trim()) {
+      const error = {
+        code: "ibm_token_required",
+        message: "IBM API token is required when Qiskit on IBM Hardware is selected.",
+      };
+      setJobError(error);
+      setResult({ status: "error", error });
+      addLog(error.message);
+      return;
+    }
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -3780,6 +3972,13 @@ export default function QaoaRqpV9Page() {
       formData.append("export_mode", exportMode);
       formData.append("response_level", responseLevel);
       formData.append("worker_profile", workerProfile);
+      if (ibmHardwareModeChosen) {
+        formData.append("ibm_token", ibmToken.trim());
+        formData.append("ibm_instance", ibmInstance.trim() || "open-instance");
+        if (ibmBackend.trim()) {
+          formData.append("ibm_backend", ibmBackend.trim());
+        }
+      }
       formData.append("layers", String(layers));
       formData.append("iterations", String(iterations));
       formData.append("restarts", String(restarts));
@@ -4327,6 +4526,100 @@ export default function QaoaRqpV9Page() {
                   </div>
                 )}
               </div>
+
+              {ibmHardwareModeChosen && (
+                <div className="mb-3 rounded-xl border border-amber-800/70 bg-amber-950/20 p-3 text-xs">
+                  <div className="font-semibold text-amber-100 mb-2">
+                    IBM Quantum hardware session
+                  </div>
+                  <div className="text-amber-50/90 mb-3">
+                    Enter your IBM Quantum token for this run. The backend uses it
+                    only for the current hardware job and does not include it in
+                    downloaded result files.
+                  </div>
+
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    IBM API token
+                  </label>
+                  <input
+                    type="password"
+                    value={ibmToken}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmToken(e.target.value);
+                      setIbmBackends([]);
+                      setIbmBackendsError(null);
+                    }}
+                    placeholder="Paste IBM Quantum token"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  />
+
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    IBM instance
+                  </label>
+                  <input
+                    value={ibmInstance}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmInstance(e.target.value);
+                      setIbmBackends([]);
+                      setIbmBackendsError(null);
+                    }}
+                    placeholder="open-instance"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  />
+
+                  <div className="flex items-center justify-between gap-3 mb-1.5">
+                    <label className="block text-xs text-gray-300">
+                      Optional backend override
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void loadIbmBackends()}
+                      disabled={ibmBackendsLoading || !ibmToken.trim()}
+                      className="rounded-lg border border-amber-700 bg-amber-950/40 px-2.5 py-1 text-[11px] font-semibold text-amber-100 disabled:opacity-50"
+                    >
+                      {ibmBackendsLoading ? "Loading..." : "Load IBM backends"}
+                    </button>
+                  </div>
+                  <select
+                    value={ibmBackend}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmBackend(e.target.value);
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100"
+                  >
+                    <option value="">Auto-select available backend</option>
+                    {ibmBackends.map((backend) => (
+                      <option key={backend.name} value={backend.name}>
+                        {backend.name} - {formatText(backend.num_qubits)} qubits, pending{" "}
+                        {formatText(backend.pending_jobs)}
+                      </option>
+                    ))}
+                  </select>
+
+                  {ibmBackendsError && (
+                    <div className="mt-2 rounded-lg border border-red-800 bg-red-950/30 p-2 text-red-100">
+                      {ibmBackendsError}
+                    </div>
+                  )}
+
+                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-gray-300">
+                    {isExactShotsMode ? (
+                      <>
+                        Internal QAOA used exact probabilities, so IBM hardware will
+                        use a practical default shot count for comparison.
+                      </>
+                    ) : (
+                      <>
+                        IBM hardware uses the same shot count as the simulator
+                        setting for comparability.
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <label className="block text-xs text-gray-300 mb-1.5">
                 Response level
@@ -5069,7 +5362,7 @@ export default function QaoaRqpV9Page() {
                   <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
                 </Panel>
 
-                <Panel title="IBM / Qiskit Dry Run" tone="amber">
+                <Panel title="IBM / Qiskit Circuit Diagnostics" tone="amber">
                   <IbmCircuitDiagnostics metadata={ibmCircuit} />
                 </Panel>
               </div>
