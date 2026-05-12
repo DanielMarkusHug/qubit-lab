@@ -2945,6 +2945,7 @@ export default function QaoaRqpV9Page() {
   const [result, setResult] = useState<RunResult | null>(null);
   const [inspectResult, setInspectResult] = useState<InspectResult | null>(null);
   const [inspecting, setInspecting] = useState(false);
+  const [lastAppliedInspectKey, setLastAppliedInspectKey] = useState<string | null>(null);
 
   const [logs, setLogs] = useState<string[]>([]);
   const [backendJobLogs, setBackendJobLogs] = useState<string[]>([]);
@@ -3218,6 +3219,62 @@ export default function QaoaRqpV9Page() {
     [exportMode]
   );
   const ibmHardwareModeChosen = exportMode === EXPORT_MODE_IBM_EXTERNAL_RUN;
+  const inspectSettingsKey = useMemo(
+    () =>
+      JSON.stringify({
+        fileName: file?.name ?? null,
+        fileSize: file?.size ?? null,
+        fileModified: file?.lastModified ?? null,
+        apiKeyPresent: Boolean(apiKey),
+        mode,
+        exportMode,
+        ibmHardwareModeChosen,
+        ibmInstance: ibmHardwareModeChosen ? ibmInstance.trim() || "open-instance" : null,
+        ibmBackend: ibmHardwareModeChosen ? ibmBackend.trim() : null,
+        ibmFractionalGates: ibmHardwareModeChosen ? ibmFractionalGates : null,
+        ibmParallelization: ibmHardwareModeChosen ? ibmParallelization : null,
+        responseLevel,
+        workerProfile,
+        layers,
+        iterations,
+        restarts,
+        warmStart,
+        budgetLambda,
+        riskLambda,
+        riskFreeRate,
+        qaoaShots,
+        restartPerturbation,
+        randomSeed,
+      }),
+    [
+      file,
+      apiKey,
+      mode,
+      exportMode,
+      ibmHardwareModeChosen,
+      ibmInstance,
+      ibmBackend,
+      ibmFractionalGates,
+      ibmParallelization,
+      responseLevel,
+      workerProfile,
+      layers,
+      iterations,
+      restarts,
+      warmStart,
+      budgetLambda,
+      riskLambda,
+      riskFreeRate,
+      qaoaShots,
+      restartPerturbation,
+      randomSeed,
+    ]
+  );
+  const ibmPreviewRecalculating =
+    !result &&
+    Boolean(file) &&
+    ibmHardwareModeChosen &&
+    inspectSettingsKey !== lastAppliedInspectKey;
   const selectedWorkerProfileInfo = useMemo(
     () => workerProfileInfo(license, workerProfile),
     [license, workerProfile]
@@ -4001,6 +4058,7 @@ export default function QaoaRqpV9Page() {
 
     try {
       addLog("Inspecting workbook...");
+      const requestKey = inspectSettingsKey;
 
       const formData = new FormData();
       formData.append("file", file);
@@ -4045,6 +4103,7 @@ export default function QaoaRqpV9Page() {
       const data: InspectResult = await res.json();
 
       setInspectResult(data);
+      setLastAppliedInspectKey(requestKey);
       applyEffectiveSettingsFromInspection(data);
 
       if (data.license) {
@@ -4993,7 +5052,9 @@ export default function QaoaRqpV9Page() {
                       Pre-run hardware depth estimate
                     </div>
                     <div className="mb-2 text-[11px] text-gray-400">
-                      {ibmHardwarePreview.sourceLabel}
+                      {ibmPreviewRecalculating
+                        ? "Recalculating preview"
+                        : ibmHardwarePreview.sourceLabel}
                       {ibmHardwarePreview.constructionModeLabel
                         ? ` · ${ibmHardwarePreview.constructionModeLabel}`
                         : ""}
@@ -5001,7 +5062,14 @@ export default function QaoaRqpV9Page() {
                         ? ` · ${ibmHardwarePreview.fractionalModeLabel}`
                         : ""}
                     </div>
+                    {ibmPreviewRecalculating ? (
+                      <div className="mb-2 rounded-lg border border-sky-900/60 bg-sky-950/20 px-2 py-1 text-[11px] text-sky-100">
+                        Recalculation in progress for the selected IBM hardware options. Updated
+                        depth and gate estimates will appear shortly.
+                      </div>
+                    ) : null}
                     {ibmHardwarePreview.sourceLabel !== "Backend-aware estimate" &&
+                    !ibmPreviewRecalculating &&
                     ibmHardwarePreview.fallbackReason ? (
                       <div className="mb-2 rounded-lg border border-amber-900/60 bg-amber-950/20 px-2 py-1 text-[11px] text-amber-100">
                         {ibmHardwarePreview.fallbackReason}
@@ -5013,42 +5081,54 @@ export default function QaoaRqpV9Page() {
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-5">
                       <div>
                         <div className="text-gray-500">
-                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
                             ? "Est. transpiled depth"
                             : "Logical depth"}
                         </div>
                         <div className="font-mono text-gray-100">
-                          {formatText(ibmHardwarePreview.totalDepth)}
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.totalDepth)}
                         </div>
                       </div>
                       <div>
                         <div className="text-gray-500">
-                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
                             ? "Est. transpiled gates"
                             : "Logical total gates"}
                         </div>
                         <div className="font-mono text-gray-100">
-                          {formatText(ibmHardwarePreview.totalGates)}
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.totalGates)}
                         </div>
                       </div>
                       <div>
                         <div className="text-gray-500">
-                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
                             ? "Est. transpiled 2Q"
                             : "Logical 2Q gates"}
                         </div>
                         <div className="font-mono text-gray-100">
-                          {formatText(ibmHardwarePreview.twoQGates)}
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.twoQGates)}
                         </div>
                       </div>
                       <div>
                         <div className="text-gray-500">
-                          {ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
                             ? "Est. transpiled seq. 2Q"
                             : "Logical seq. 2Q"}
                         </div>
                         <div className="font-mono text-gray-100">
-                          {formatText(ibmHardwarePreview.sequentialTwoQDepth)}
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.sequentialTwoQDepth)}
                         </div>
                       </div>
                       <div>
@@ -5060,12 +5140,17 @@ export default function QaoaRqpV9Page() {
                       </div>
                     </div>
 
-                    {ibmHardwarePreview.rating ? (
+                    {!ibmPreviewRecalculating && ibmHardwarePreview.rating ? (
                       <div
                         className={`mt-2 rounded-lg border px-2 py-1.5 ${ibmHardwarePreview.rating.className}`}
                       >
                         <div className="font-semibold">{ibmHardwarePreview.rating.title}</div>
                         <div className="mt-0.5 text-[11px]">{ibmHardwarePreview.rating.detail}</div>
+                      </div>
+                    ) : ibmPreviewRecalculating ? (
+                      <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
+                        Using the latest workbook and IBM settings to recompute the hardware
+                        preview.
                       </div>
                     ) : (
                       <div className="mt-2 text-[11px] text-gray-500">
@@ -5074,7 +5159,7 @@ export default function QaoaRqpV9Page() {
                       </div>
                     )}
 
-                    {ibmHardwarePreview.fractionalDepthComparison && (
+                    {!ibmPreviewRecalculating && ibmHardwarePreview.fractionalDepthComparison && (
                       <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
                         Fractional-gate comparison: standard{" "}
                         {formatText(
@@ -5093,7 +5178,8 @@ export default function QaoaRqpV9Page() {
                       </div>
                     )}
 
-                    {ibmHardwarePreview.constructionDepthComparison && (
+                    {!ibmPreviewRecalculating &&
+                    ibmHardwarePreview.constructionDepthComparison && (
                       <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
                         Construction comparison: current{" "}
                         {formatText(
