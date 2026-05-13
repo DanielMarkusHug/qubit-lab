@@ -722,6 +722,12 @@ const WORKER_PROFILE_OPTIONS: Array<{
   },
 ];
 
+const WORKER_PROFILE_ORDER: Record<WorkerProfileId, number> = {
+  small: 0,
+  medium: 1,
+  large: 2,
+};
+
 function normalizeRunMode(value?: string | null) {
   const mode = value || DEFAULT_RUN_MODE;
   return mode === LEGACY_QAOA_LIMITED_MODE ? QAOA_LIGHTNING_SIM_MODE : mode;
@@ -1074,6 +1080,27 @@ function isWorkerProfileAllowed(
     return ["tester", "internal_power", "internal_qaoa_30", "internal_ultra"].includes(level);
   }
   return ["internal_power", "internal_qaoa_30", "internal_ultra"].includes(level);
+}
+
+function minimumWorkerProfileForProblem(
+  mode: string,
+  qubits: number | undefined
+): WorkerProfileId | undefined {
+  if (!isQaoaSimulationMode(mode) || qubits === undefined || qubits <= 0) return undefined;
+  if (qubits <= 18) return "small";
+  if (qubits <= 25) return "medium";
+  return "large";
+}
+
+function isWorkerProfileProblemAllowed(
+  selectedProfile: string,
+  mode: string,
+  qubits: number | undefined
+) {
+  const profile = normalizeWorkerProfile(selectedProfile);
+  const required = minimumWorkerProfileForProblem(mode, qubits);
+  if (!required) return true;
+  return WORKER_PROFILE_ORDER[profile] >= WORKER_PROFILE_ORDER[required];
 }
 
 function allowedWorkerProfileFallback(license: LicenseStatus | null | undefined) {
@@ -3325,24 +3352,6 @@ export default function QaoaRqpV9Page() {
     string
   ][];
 
-  const canRun = useMemo(() => {
-    return (
-      !!file &&
-      !loading &&
-      !inspecting &&
-      selectedModeAllowed &&
-      selectedWorkerProfileAllowed &&
-      selectedExportModeAllowed
-    );
-  }, [
-    file,
-    loading,
-    inspecting,
-    selectedModeAllowed,
-    selectedWorkerProfileAllowed,
-    selectedExportModeAllowed,
-  ]);
-
   const canSaveReview = useMemo(() => {
     return Boolean(result || inspectResult || jobStatus || backendJobLogs.length > 0);
   }, [result, inspectResult, jobStatus, backendJobLogs]);
@@ -3371,6 +3380,42 @@ export default function QaoaRqpV9Page() {
         inspectSummary?.n_qubits
     );
   }, [reportingSummary, result, diagnostics, inspectSummary]);
+
+  const requiredProblemWorkerProfile = useMemo(
+    () => minimumWorkerProfileForProblem(mode, knownQubits),
+    [mode, knownQubits]
+  );
+  const selectedWorkerProfileProblemAllowed = useMemo(
+    () => isWorkerProfileProblemAllowed(workerProfile, mode, knownQubits),
+    [workerProfile, mode, knownQubits]
+  );
+  const requiredProblemWorkerProfileInfo = useMemo(
+    () =>
+      requiredProblemWorkerProfile
+        ? workerProfileInfo(license, requiredProblemWorkerProfile)
+        : null,
+    [license, requiredProblemWorkerProfile]
+  );
+
+  const canRun = useMemo(() => {
+    return (
+      !!file &&
+      !loading &&
+      !inspecting &&
+      selectedModeAllowed &&
+      selectedWorkerProfileAllowed &&
+      selectedWorkerProfileProblemAllowed &&
+      selectedExportModeAllowed
+    );
+  }, [
+    file,
+    loading,
+    inspecting,
+    selectedModeAllowed,
+    selectedWorkerProfileAllowed,
+    selectedWorkerProfileProblemAllowed,
+    selectedExportModeAllowed,
+  ]);
 
   const runtimeCap = useMemo(() => {
     if (isQaoaSimulationMode(mode)) {
@@ -5250,12 +5295,27 @@ export default function QaoaRqpV9Page() {
               >
                 {WORKER_PROFILE_OPTIONS.map((option) => {
                   const info = workerProfileInfo(license, option.value);
-                  const allowed = isWorkerProfileAllowed(license, option.value);
+                  const licenseAllowed = isWorkerProfileAllowed(license, option.value);
+                  const problemAllowed = isWorkerProfileProblemAllowed(
+                    option.value,
+                    mode,
+                    knownQubits
+                  );
+                  const allowed = licenseAllowed && problemAllowed;
+                  const requiredLabel =
+                    !licenseAllowed
+                      ? requiredWorkerProfileText(info)
+                      : requiredProblemWorkerProfileInfo && knownQubits !== undefined
+                        ? `Requires ${requiredProblemWorkerProfileInfo.label} for ${formatNumber(
+                            knownQubits,
+                            0
+                          )} qubits`
+                        : "Not available";
 
                   return (
                     <option key={option.value} value={option.value} disabled={!allowed}>
                       {info.label} - {workerProfileResourceText(info)}
-                      {allowed ? "" : ` (${requiredWorkerProfileText(info)})`}
+                      {allowed ? "" : ` (${requiredLabel})`}
                     </option>
                   );
                 })}
@@ -5280,6 +5340,17 @@ export default function QaoaRqpV9Page() {
                     This worker profile is not available for the current key.
                   </div>
                 )}
+                {selectedWorkerProfileAllowed &&
+                  !selectedWorkerProfileProblemAllowed &&
+                  requiredProblemWorkerProfileInfo &&
+                  knownQubits !== undefined && (
+                    <div className="mt-2 rounded-lg border border-amber-700 bg-amber-950/30 p-2 text-amber-100">
+                      {formatNumber(knownQubits, 0)} qubits in{" "}
+                      {displayRunMode(mode)} require at least the{" "}
+                      {requiredProblemWorkerProfileInfo.label} worker profile (
+                      {workerProfileResourceText(requiredProblemWorkerProfileInfo)}).
+                    </div>
+                  )}
               </div>
 
               {settingsLoadedFromWorkbook && (
