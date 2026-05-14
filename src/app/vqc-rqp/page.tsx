@@ -230,21 +230,6 @@ async function getJson<T>(endpoint: string): Promise<T> {
   return payload as T;
 }
 
-async function postJson<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const payload = await parseResponseJson(response);
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(payload));
-  }
-  return payload as T;
-}
-
 async function postMultipart<T>(endpoint: string, formData: FormData): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
