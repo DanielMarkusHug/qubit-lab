@@ -26,6 +26,8 @@ EXTENDED_WORKBOOK = REPO_ROOT / "Version 3" / "parametric_assets_only_input_exte
 sys.path.insert(0, str(VERSION_DIR))
 
 import app.main as main_module  # noqa: E402
+import app.ibm_circuit as ibm_circuit_module  # noqa: E402
+import app.ibm_runtime as ibm_runtime_module  # noqa: E402
 import app.cloud_run_jobs as cloud_run_jobs_module  # noqa: E402
 import app.job_worker as job_worker_module  # noqa: E402
 import app.memory_monitor as memory_monitor_module  # noqa: E402
@@ -58,6 +60,10 @@ _key_admin_spec.loader.exec_module(key_admin_firestore)
 DEMO_KEY_ID = "demo-qualified-001"
 INTERNAL_POWER_KEY_ID = "demo-internal-power-001"
 INTERNAL_POWER_KEY = "INTERNAL-POWER-123"
+TINY_PNG_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zq6QAAAAASUVORK5CYII="
+)
 
 
 def _minimal_code_export_package(qubits: int = 2) -> dict:
@@ -104,6 +110,454 @@ def _minimal_code_export_package(qubits: int = 2) -> dict:
             "counts_decoder": "reverse_qiskit_count_key",
         },
         "decision_variables": [],
+    }
+
+
+def _minimal_pdf_result_payload() -> dict:
+    summary_card = {
+        "title": "Classical Result Summary",
+        "status": "Available",
+        "available": True,
+        "source": "Classical_Candidates",
+        "solver": "Classical Heuristic",
+        "best_bitstring": "101",
+        "qubo_value": -1.234,
+        "portfolio_return": 0.12,
+        "portfolio_vol": 0.08,
+        "sharpe_like": 1.5,
+    }
+    quantum_card = {
+        **summary_card,
+        "title": "Quantum Result Summary",
+        "source": "QAOA_Best_QUBO",
+        "solver": "Quantum / QAOA",
+    }
+    second_opinion_card = {
+        **summary_card,
+        "title": "Quantum (2nd opinion) - IBM Hardware",
+        "source": "IBM Hardware",
+        "solver": "Quantum / QAOA (2nd opinion)",
+    }
+    candidate_row = {
+        "rank": 1,
+        "bitstring": "101",
+        "qubo_value": -1.234,
+        "probability": 0.42,
+        "selected_usd": 750000.0,
+        "source": "classical_best_qubo",
+        "selection_scope": "Top QUBO",
+    }
+    return {
+        "status": "completed",
+        "run_id": "job_pdf_report",
+        "mode": "qaoa_lightning_sim",
+        "solver": "classical_heuristic+qaoa_lightning_sim",
+        "filename": "demo.xlsx",
+        "reporting": {
+            "summary": {
+                "decision_variables": 7,
+                "qaoa_p": 2,
+                "classical_candidate_count": 120,
+                "qaoa_candidate_count": 25,
+                "export_mode": "ibm_external_run",
+                "qaoa_status": "Available",
+                "classical_result_summary": summary_card,
+                "quantum_result_summary": quantum_card,
+                "quantum_second_opinion_summary": second_opinion_card,
+            },
+            "solver_comparison": [
+                {
+                    "solver": "Classical Heuristic",
+                    "qubo_value": -1.234,
+                    "portfolio_return": 0.12,
+                    "portfolio_vol": 0.08,
+                    "sharpe_like": 1.5,
+                },
+                {
+                    "solver": "Quantum / QAOA",
+                    "qubo_value": -1.21,
+                    "portfolio_return": 0.119,
+                    "portfolio_vol": 0.081,
+                    "sharpe_like": 1.47,
+                },
+            ],
+            "portfolio_contents": [
+                {
+                    "source": "classical_best_qubo",
+                    "Ticker": "AAA",
+                    "decision_role": "variable",
+                    "Shares": 10,
+                    "Indicative Market Cost USD": 250000.0,
+                },
+                {
+                    "source": "ibm_hardware_second_opinion",
+                    "Ticker": "BBB",
+                    "decision_role": "variable",
+                    "Shares": 5,
+                    "Indicative Market Cost USD": 180000.0,
+                },
+            ],
+            "classical_candidates": [candidate_row],
+            "quantum_samples": [candidate_row],
+            "qaoa_best_qubo": [candidate_row],
+            "second_opinion": {
+                "summary": second_opinion_card,
+                "best_qubo": [candidate_row],
+                "samples": [{**candidate_row, "source": "ibm_hardware_second_opinion"}],
+            },
+            "circuit": {
+                "available": True,
+                "metric_source": "qiskit_qaoa_circuit",
+                "n_qubits": 7,
+                "total_gates": 84,
+                "two_qubit_gates": 42,
+                "sequential_2q_depth": 21,
+                "estimated_circuit_depth": 77,
+                "ibm": {
+                    "backend_name": "ibm_fez",
+                    "job_id": "d811h96gbeec73ajvbpg",
+                    "shots": 25,
+                    "hardware_submission": "completed",
+                    "timing": {
+                        "queue_wait_seconds": 4.2,
+                        "execution_seconds": 3.4,
+                        "total_seconds": 7.6,
+                        "timeout_sec": 1800,
+                    },
+                    "posttranspile": {
+                        "sequential_2q_depth": 170,
+                        "two_qubit_gates": 640,
+                    },
+                },
+            },
+            "charts": {
+                "solver_comparison": TINY_PNG_DATA_URL,
+                "risk_return_sharpe": TINY_PNG_DATA_URL,
+                "qubo_breakdown_classical": TINY_PNG_DATA_URL,
+            },
+        },
+        "diagnostics": {
+            "circuit": {
+                "available": True,
+            }
+        },
+    }
+
+
+def _fake_ibm_runtime_result(
+    *,
+    primary_bitstring: str = "101",
+    secondary_bitstring: str = "011",
+    shots: int = 8,
+    instance: str = "open-instance",
+    backend_name: str = "ibm_fez",
+    shots_source: str = "matched_qaoa_sampling",
+    comparability_note: str | None = None,
+) -> dict:
+    primary_hits = max(int(shots) - 3, 1)
+    secondary_hits = max(int(shots) - primary_hits, 1)
+    total_hits = primary_hits + secondary_hits
+    return {
+        "available": True,
+        "enabled": True,
+        "label": "Quantum (2nd opinion) - IBM Hardware",
+        "source": "ibm_hardware",
+        "provider": "ibm_quantum_platform",
+        "sdk": "qiskit",
+        "dry_run": False,
+        "simulation": False,
+        "hardware_submission": "completed",
+        "parse_status": "ok",
+        "instance": instance,
+        "backend_name": backend_name,
+        "backend_selection": "auto",
+        "backend_details": {
+            "name": backend_name,
+            "num_qubits": 156,
+            "pending_jobs": 0,
+            "operational": True,
+            "simulator": False,
+        },
+        "job_id": "d811h96gbeec73ajvbpg",
+        "shots": int(shots),
+        "shots_source": shots_source,
+        "comparability_note": comparability_note,
+        "submitted_at": "2026-05-12T09:00:00Z",
+        "completed_at": "2026-05-12T09:01:05Z",
+        "timing": {
+            "queue_wait_seconds": 45.0,
+            "execution_seconds": 20.0,
+            "total_seconds": 65.0,
+            "timeout_sec": 1800,
+        },
+        "counts": {
+            primary_bitstring: primary_hits,
+            secondary_bitstring: secondary_hits,
+        },
+        "counts_qiskit": {
+            primary_bitstring[::-1]: primary_hits,
+            secondary_bitstring[::-1]: secondary_hits,
+        },
+        "probabilities": {
+            primary_bitstring: primary_hits / total_hits,
+            secondary_bitstring: secondary_hits / total_hits,
+        },
+        "measured_bitstrings_by_hits": [primary_bitstring, secondary_bitstring],
+        "warnings": [],
+        "pretranspile": {
+            "available": True,
+            "export_mode": "ibm_external_run",
+        },
+        "posttranspile": {
+            "depth": 312,
+            "size": 640,
+            "gate_counts": {"rz": 120, "sx": 80, "cx": 64, "measure": len(primary_bitstring)},
+            "total_gates": 264,
+            "two_qubit_gates": 64,
+            "sequential_2q_depth": 128,
+        },
+        "result_snapshot": {
+            "result_type": "PrimitiveResult",
+            "item_count": 1,
+            "items": [{"item_type": "SamplerPubResult", "has_data": True}],
+        },
+        "qiskit_version": "1.2.0",
+        "qiskit_ibm_runtime_version": "0.40.1",
+    }
+
+
+def _fake_ibm_runtime_parse_failure_result(
+    *,
+    shots: int = 4096,
+    instance: str = "open-instance",
+    backend_name: str = "ibm_kingston",
+    shots_source: str = "default_from_exact_mode",
+    comparability_note: str | None = None,
+) -> dict:
+    return {
+        "available": False,
+        "enabled": True,
+        "label": "Quantum (2nd opinion) - IBM Hardware",
+        "source": "ibm_hardware",
+        "provider": "ibm_quantum_platform",
+        "sdk": "qiskit",
+        "dry_run": False,
+        "simulation": False,
+        "hardware_submission": "completed",
+        "parse_status": "failed",
+        "instance": instance,
+        "backend_name": backend_name,
+        "backend_selection": "auto",
+        "backend_details": {
+            "name": backend_name,
+            "num_qubits": 156,
+            "pending_jobs": 0,
+            "operational": True,
+            "simulator": False,
+        },
+        "job_id": "d811h96gbeec73ajvbpg",
+        "shots": int(shots),
+        "shots_source": shots_source,
+        "comparability_note": comparability_note
+        or (
+            f"Internal QAOA ran in exact-probability mode, so IBM hardware uses {int(shots)} shots "
+            "for the comparison run."
+        ),
+        "submitted_at": "2026-05-12T09:00:00Z",
+        "completed_at": "2026-05-12T09:01:05Z",
+        "timing": {
+            "queue_wait_seconds": 45.0,
+            "execution_seconds": 20.0,
+            "total_seconds": 65.0,
+            "timeout_sec": 1800,
+        },
+        "counts": {},
+        "counts_qiskit": {},
+        "probabilities": {},
+        "measured_bitstrings_by_hits": [],
+        "warnings": [],
+        "pretranspile": {
+            "available": True,
+            "export_mode": "ibm_external_run",
+        },
+        "posttranspile": {
+            "depth": 312,
+            "size": 640,
+            "gate_counts": {"rz": 120, "sx": 80, "cx": 64, "measure": 3},
+            "total_gates": 264,
+            "two_qubit_gates": 64,
+            "sequential_2q_depth": 128,
+        },
+        "result_snapshot": {
+            "result_type": "PrimitiveResult",
+            "item_count": 1,
+            "items": [
+                {
+                    "item_type": "SamplerPubResult",
+                    "has_data": True,
+                    "data_type": "DataBin",
+                    "registers": [
+                        {
+                            "register": "alpha",
+                            "type": "BitArray",
+                            "has_get_counts": False,
+                            "has_get_int_counts": False,
+                            "has_get_bitstrings": False,
+                            "is_mapping": False,
+                        }
+                    ],
+                }
+            ],
+        },
+        "reason": "IBM hardware results did not include readable counts.",
+        "error": {
+            "code": "ibm_counts_unavailable",
+            "message": "IBM hardware results did not include readable counts.",
+            "status_code": 502,
+        },
+        "qiskit_version": "1.2.0",
+        "qiskit_ibm_runtime_version": "0.40.1",
+    }
+
+
+def _fake_ibm_preview_result(*, instance: str = "open-instance", backend_name: str = "ibm_fez") -> dict:
+    standard_depth = 220
+    fractional_depth = 170
+    current_depth = 240
+    parallelized_depth = 170
+    return {
+        "available": True,
+        "provider": "ibm_quantum_platform",
+        "sdk": "qiskit",
+        "instance": instance,
+        "backend_name": backend_name,
+        "backend_details": {
+            "name": backend_name,
+            "num_qubits": 156,
+            "pending_jobs": 0,
+            "operational": True,
+            "simulator": False,
+        },
+        "fractional_gates_enabled": True,
+        "fractional_mode_label": "Prefer fractional gates",
+        "parallelized_construction_enabled": True,
+        "construction_mode_label": "Parallelized construction",
+        "selected_mode": "parallelized_fractional",
+        "selected_preview": {
+            "available": True,
+            "fractional_gates_enabled": True,
+            "fractional_mode_label": "Prefer fractional gates",
+            "parallelized_construction_enabled": True,
+            "construction_mode_label": "Parallelized construction",
+            "pretranspile": {
+                "available": True,
+                "export_mode": "ibm_external_run",
+                "qiskit_available": True,
+                "fractional_gates_enabled": True,
+                "fractional_mode_label": "Prefer fractional gates",
+                "parallelized_construction_enabled": True,
+                "construction_mode_label": "Parallelized construction",
+            },
+            "posttranspile": {
+                "depth": 540,
+                "size": 2120,
+                "gate_counts": {"rz": 720, "sx": 610, "cz": 350, "measure": 16},
+                "total_gates": 1696,
+                "two_qubit_gates": 350,
+                "sequential_2q_depth": fractional_depth,
+            },
+            "warnings": [],
+        },
+        "previews": {
+            "current_standard": {
+                "available": True,
+                "fractional_gates_enabled": False,
+                "fractional_mode_label": "Standard basis",
+                "parallelized_construction_enabled": False,
+                "construction_mode_label": "Current / standard construction",
+                "pretranspile": {"available": True},
+                "posttranspile": {
+                    "depth": 690,
+                    "size": 2810,
+                    "gate_counts": {"rz": 970, "sx": 820, "cz": 470, "measure": 16},
+                    "total_gates": 2276,
+                    "two_qubit_gates": 470,
+                    "sequential_2q_depth": current_depth,
+                },
+                "warnings": [],
+            },
+            "current_fractional": {
+                "available": True,
+                "fractional_gates_enabled": True,
+                "fractional_mode_label": "Prefer fractional gates",
+                "parallelized_construction_enabled": False,
+                "construction_mode_label": "Current / standard construction",
+                "pretranspile": {"available": True},
+                "posttranspile": {
+                    "depth": 540,
+                    "size": 2120,
+                    "gate_counts": {"rz": 720, "sx": 610, "cz": 350, "measure": 16},
+                    "total_gates": 1696,
+                    "two_qubit_gates": 350,
+                    "sequential_2q_depth": fractional_depth,
+                },
+                "warnings": [],
+            },
+            "parallelized_standard": {
+                "available": True,
+                "fractional_gates_enabled": False,
+                "fractional_mode_label": "Standard basis",
+                "parallelized_construction_enabled": True,
+                "construction_mode_label": "Parallelized construction",
+                "pretranspile": {"available": True},
+                "posttranspile": {
+                    "depth": 620,
+                    "size": 2480,
+                    "gate_counts": {"rz": 840, "sx": 720, "cz": 390, "measure": 16},
+                    "total_gates": 1950,
+                    "two_qubit_gates": 390,
+                    "sequential_2q_depth": standard_depth,
+                },
+                "warnings": [],
+            },
+            "parallelized_fractional": {
+                "available": True,
+                "fractional_gates_enabled": True,
+                "fractional_mode_label": "Prefer fractional gates",
+                "parallelized_construction_enabled": True,
+                "construction_mode_label": "Parallelized construction",
+                "pretranspile": {"available": True},
+                "posttranspile": {
+                    "depth": 540,
+                    "size": 2120,
+                    "gate_counts": {"rz": 720, "sx": 610, "cz": 350, "measure": 16},
+                    "total_gates": 1696,
+                    "two_qubit_gates": 350,
+                    "sequential_2q_depth": parallelized_depth,
+                },
+                "warnings": [],
+            },
+        },
+        "comparison": {
+            "sequential_2q_depth": {
+                "standard": standard_depth,
+                "fractional": fractional_depth,
+                "delta": fractional_depth - standard_depth,
+                "pct_delta": (fractional_depth - standard_depth) / standard_depth,
+            },
+            "construction_mode": {
+                "sequential_2q_depth": {
+                    "current": current_depth,
+                    "parallelized": parallelized_depth,
+                    "delta": parallelized_depth - current_depth,
+                    "pct_delta": (parallelized_depth - current_depth) / current_depth,
+                }
+            },
+        },
+        "depth_reference": {
+            "ok_max_sequential_2q_depth": 150,
+            "critical_max_sequential_2q_depth": 250,
+        },
     }
 
 
@@ -494,13 +948,18 @@ def _firestore_usage_context(key_record):
     )
 
 
-def _policy_result():
+def _policy_result(
+    *,
+    export_mode: str = "internal_only",
+    qaoa_shots: int | None = None,
+    n_qubits: int = 3,
+):
     return SimpleNamespace(
         estimated_runtime_sec=2.0,
         raw_estimated_runtime_sec=2.0,
         max_estimated_runtime_sec=60.0,
         within_limit=True,
-        n_qubits=3,
+        n_qubits=n_qubits,
         candidate_count=8,
         runtime_limit_source="usage_level",
         runtime_inputs=SimpleNamespace(
@@ -508,15 +967,19 @@ def _policy_result():
             iterations=60,
             restarts=1,
             warm_start=False,
-            qaoa_shots=None,
+            qaoa_shots=qaoa_shots,
             restart_perturbation=None,
             random_seed=None,
         ),
         effective_settings={
-            "qaoa_shots_display": "not_applicable",
-            "shots_mode": "disabled",
+            "qaoa_shots": qaoa_shots,
+            "qaoa_shots_display": "not_applicable" if qaoa_shots is None else str(qaoa_shots),
+            "shots_mode": "disabled" if qaoa_shots is None else "sampling",
             "random_seed": None,
+            "export_mode": export_mode,
         },
+        export_mode=export_mode,
+        export_mode_diagnostics={"export_mode": export_mode},
     )
 
 
@@ -670,6 +1133,7 @@ def test_root_reports_current_version():
 def test_capabilities():
     response = app.test_client().get("/capabilities")
     payload = response.get_json()
+    export_modes = {row["value"]: row for row in payload["export_modes"]}
 
     assert response.status_code == 200
     assert payload["service"] == "qaoa-rqp-api-v9"
@@ -696,6 +1160,10 @@ def test_capabilities():
     assert payload["default_worker_profile"] == "small"
     assert payload["worker_profiles"]["large"]["cpu"] == 4
     assert payload["worker_profiles"]["large"]["memory_gib"] == 8
+    assert export_modes["qiskit_export"]["enabled"] is True
+    assert export_modes["qiskit_export"]["minimum_level_id"] == 2
+    assert export_modes["ibm_external_run"]["enabled"] is True
+    assert export_modes["ibm_external_run"]["minimum_level_id"] == 2
     assert "demo_keys" not in payload
     assert "KEY_HASH_SECRET" not in str(payload)
     assert "key_hash" not in str(payload)
@@ -751,6 +1219,48 @@ def test_async_submission_stores_effective_random_seed(monkeypatch, tmp_path):
     assert any("Random seed: 987" in line for line in job["logs_tail"])
 
 
+def test_async_ibm_submission_stores_secret_ref_without_token(monkeypatch, tmp_path):
+    default_exact_shots = ibm_runtime_module.ibm_default_exact_shots()
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", lambda job_id: {"triggered": False, "mode": "test"})
+    monkeypatch.setattr(
+        main_module,
+        "validate_problem_policy",
+        lambda *_args, **_kwargs: _policy_result(export_mode="ibm_external_run"),
+    )
+
+    response = _post_async(
+        headers={"X-API-Key": "TESTER-123"},
+        mode="classical_only",
+        export_mode="ibm_external_run",
+        ibm_token="ibm-session-token",
+        ibm_instance="open-instance",
+    )
+    payload = response.get_json()
+    job = get_job_store().get_job(payload["job_id"])
+    ibm_runtime = dict(job["settings"]["ibm_runtime"])
+    secret_ref = dict(ibm_runtime["secret_ref"])
+    secret_path = Path(secret_ref["path"])
+
+    assert response.status_code == 202
+    assert payload["status"] == "queued"
+    assert job["settings"]["export_mode"] == "ibm_external_run"
+    assert job["settings"]["effective_settings"]["export_mode"] == "ibm_external_run"
+    assert job["settings"]["ibm_instance"] == "open-instance"
+    assert job["settings"]["ibm_hardware_shots"] == default_exact_shots
+    assert "ibm_token" not in job["settings"]
+    assert "ibm_token" not in json.dumps(job["settings"])
+    assert ibm_runtime["instance"] == "open-instance"
+    assert ibm_runtime["secret_ref"]["backend"] == "local"
+    assert secret_path.exists()
+    assert secret_path.read_text(encoding="utf-8") == "ibm-session-token"
+
+    main_module.delete_ibm_runtime_token(secret_ref)
+    assert not secret_path.exists()
+
+
 def test_async_status_and_result_before_completion(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
     ledger = _RouteLockLedger()
@@ -788,6 +1298,74 @@ def test_async_status_and_result_before_completion(monkeypatch, tmp_path):
     assert result_response.status_code == 409
     assert result_payload["error"]["code"] == "job_not_completed"
     assert result_payload["error"]["details"]["job_id"] == job_id
+
+
+def test_status_auto_finalizes_stale_running_job(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    monkeypatch.setenv("QAOA_JOB_HEARTBEAT_STALE_SEC", "60")
+    ledger = _RouteLockLedger()
+    monkeypatch.setattr(main_module, "get_run_ledger", lambda: ledger)
+    monkeypatch.setattr(
+        main_module,
+        "cloud_run_job_execution_status",
+        lambda _trigger: {"available": False, "reason": "execution_not_tracked"},
+    )
+    job_id = _create_local_worker_job(tmp_path, monkeypatch, job_id="job_stale_status")
+    get_job_store().update_job(
+        job_id,
+        {
+            "status": "running",
+            "phase": "optimization",
+            "started_at": "2026-05-13T00:00:00Z",
+            "heartbeat_at": "2026-05-13T00:01:00Z",
+            "latest_log": "Running qaoa_lightning_sim optimization.",
+        },
+    )
+
+    response = app.test_client().get(f"/jobs/{job_id}/status")
+    payload = response.get_json()
+    job = get_job_store().get_job(job_id)
+
+    assert response.status_code == 200
+    assert payload["status"] == "failed"
+    assert payload["phase"] == "stale_heartbeat"
+    assert payload["error"]["code"] == "worker_heartbeat_stale"
+    assert payload["finished_at"] is not None
+    assert "Worker heartbeat expired" in payload["logs_tail"][-1]
+    assert ledger.public_released is True
+    assert job["stale_cleanup"]["cloud_run_execution"]["reason"] == "execution_not_tracked"
+
+
+def test_cancel_running_job_finalizes_when_cloud_run_cancel_succeeds(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    monkeypatch.setattr(main_module, "get_run_ledger", lambda: ledger)
+    monkeypatch.setattr(main_module, "cancel_cloud_run_job_execution", lambda _trigger: {"attempted": True, "cancelled": True, "execution": "exec-123"})
+    monkeypatch.setattr(
+        main_module,
+        "cloud_run_job_execution_status",
+        lambda _trigger: {"available": False, "reason": "execution_not_tracked"},
+    )
+    job_id = _create_local_worker_job(tmp_path, monkeypatch, job_id="job_cancel_running")
+    get_job_store().update_job(
+        job_id,
+        {
+            "status": "running",
+            "phase": "optimization",
+            "started_at": "2026-05-13T00:00:00Z",
+            "heartbeat_at": main_module._utc_now(),
+            "trigger": {"execution": "exec-123"},
+        },
+    )
+
+    response = app.test_client().post(f"/jobs/{job_id}/cancel")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "cancelled"
+    assert payload["phase"] == "cancelled"
+    assert payload["finished_at"] is not None
+    assert ledger.public_released is True
 
 
 def test_async_worker_profile_defaults_to_small(monkeypatch, tmp_path):
@@ -860,7 +1438,45 @@ def test_async_worker_profile_permissions(monkeypatch, tmp_path, api_key, profil
         assert get_job_store().get_job(payload["job_id"])["worker_profile"] == profile
     else:
         assert payload["error"]["code"] == "worker_profile_not_allowed"
-        assert profile in payload["error"]["message"]
+
+
+def test_async_worker_profile_capacity_rejects_small_for_24_qubits(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", lambda job_id: {"triggered": False, "mode": "test"})
+    monkeypatch.setattr(
+        main_module,
+        "validate_problem_policy",
+        lambda *_args, **_kwargs: _policy_result(n_qubits=24),
+    )
+
+    response = _post_async(headers={"X-API-Key": "DEMO-123"}, mode="qaoa_lightning_sim", worker_profile="small")
+    payload = response.get_json()
+
+    assert response.status_code == 403
+    assert payload["error"]["code"] == "worker_profile_insufficient"
+    assert payload["error"]["details"]["required_worker_profile"] == "medium"
+    assert payload["error"]["details"]["n_qubits"] == 24
+
+
+def test_async_worker_profile_capacity_allows_medium_for_24_qubits(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
+    ledger = _RouteLockLedger()
+    _patch_fast_run(monkeypatch, ledger)
+    monkeypatch.setattr(main_module, "trigger_cloud_run_job", lambda job_id: {"triggered": False, "mode": "test"})
+    monkeypatch.setattr(
+        main_module,
+        "validate_problem_policy",
+        lambda *_args, **_kwargs: _policy_result(n_qubits=24),
+    )
+
+    response = _post_async(headers={"X-API-Key": INTERNAL_POWER_KEY}, mode="qaoa_lightning_sim", worker_profile="medium")
+    payload = response.get_json()
+
+    assert response.status_code == 202
+    assert payload["worker_profile"] == "medium"
+    assert get_job_store().get_job(payload["job_id"])["worker_profile"] == "medium"
 
 
 def test_sync_result_includes_worker_profile_metadata():
@@ -1011,6 +1627,7 @@ def _create_local_worker_job(
     job_id: str = "job_test_worker_001",
     settings: dict | None = None,
     worker_profile: str = "small",
+    mode: str = "classical_only",
 ):
     monkeypatch.setattr(main_module.Config, "LOCAL_JOB_DIR", tmp_path / "jobs")
     usage_level = load_usage_config()["usage_levels"]["public_demo"]
@@ -1025,9 +1642,9 @@ def _create_local_worker_job(
     get_job_store().create_job(
         initial_job_document(
             job_id=job_id,
-            mode="classical_only",
+            mode=mode,
             response_level="full",
-            settings=settings or {"mode": "classical_only", "response_level": "full"},
+            settings=settings or {"mode": mode, "response_level": "full"},
             input_info=input_info,
             usage_context=usage_context,
             policy_result=_policy_result(),
@@ -1082,6 +1699,91 @@ def test_worker_marks_completed_and_releases_public_lock(monkeypatch, tmp_path):
     result_response = app.test_client().get(f"/jobs/{job_id}/result")
     assert result_response.status_code == 200
     assert result_response.get_json()["run_id"] == job_id
+
+
+def test_worker_ibm_parse_failure_keeps_primary_result_completed(monkeypatch, tmp_path):
+    secret_path = tmp_path / "jobs" / "_ibm_runtime_secrets" / "worker.token"
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+    secret_path.write_text("ibm-session-token", encoding="utf-8")
+    settings = {
+        "mode": "qaoa_limited",
+        "response_level": "full",
+        "export_mode": "ibm_external_run",
+        "ibm_runtime": {
+            "instance": "open-instance",
+            "hardware_shots": ibm_runtime_module.ibm_default_exact_shots(),
+            "hardware_shots_source": "default_from_exact_mode",
+            "comparability_note": (
+                "Internal QAOA ran in exact-probability mode, so IBM hardware uses "
+                f"{ibm_runtime_module.ibm_default_exact_shots()} shots for the comparison run."
+            ),
+            "secret_ref": {"backend": "local", "path": str(secret_path)},
+        },
+    }
+    job_id = _create_local_worker_job(
+        tmp_path,
+        monkeypatch,
+        job_id="job_test_worker_ibm_parse_fallback",
+        settings=settings,
+        mode="qaoa_limited",
+    )
+    ledger = _RouteLockLedger()
+    optimizer = SimpleNamespace(
+        n=3,
+        qaoa_p=1,
+        qaoa_maxiter=10,
+        qaoa_multistart_restarts=1,
+        qaoa_layerwise_warm_start=False,
+        qaoa_shots=None,
+        classical_results=[{"bitstring": "101"}],
+        samples_df=pd.DataFrame(
+            [
+                {"bitstring": "101", "probability": 0.6, "qubo_value": -1.0},
+                {"bitstring": "011", "probability": 0.4, "qubo_value": -0.8},
+            ]
+        ),
+        qaoa_exact_best_qubo_df=pd.DataFrame([{"bitstring": "101", "probability": 0.6, "qubo_value": -1.0}]),
+        progress_callback=lambda _message, _progress=None: None,
+    )
+    monkeypatch.setattr(job_worker_module, "get_run_ledger", lambda: ledger)
+    monkeypatch.setattr(job_worker_module, "validate_required_input_sheets", lambda _path: None)
+    monkeypatch.setattr(job_worker_module, "workbook_structure", lambda _path: {})
+    monkeypatch.setattr(job_worker_module, "build_qubo_from_workbook", lambda _path, _log, _settings=None: optimizer)
+    monkeypatch.setattr(
+        job_worker_module,
+        "validate_problem_policy",
+        lambda *_args, **_kwargs: _policy_result(export_mode="ibm_external_run"),
+    )
+    monkeypatch.setattr(job_worker_module, "run_classical_optimizer", lambda current, logs: (current, logs))
+    monkeypatch.setattr(
+        job_worker_module,
+        "run_qaoa_sim",
+        lambda current, _runtime_inputs, logs, **_kwargs: (current, logs),
+    )
+    monkeypatch.setattr(
+        job_worker_module,
+        "run_ibm_second_opinion",
+        lambda optimizer, **_kwargs: _fake_ibm_runtime_parse_failure_result(),
+    )
+    monkeypatch.setattr(
+        job_worker_module,
+        "build_classical_response",
+        lambda run_id, *_args, **_kwargs: {
+            "status": "completed",
+            "run_id": run_id,
+            "model_version": "9.2.0",
+            "mode": "qaoa_limited",
+            "binary_variables": 3,
+            "objective": 1.23,
+        },
+    )
+
+    job_worker_module.run_job(job_id)
+    job = get_job_store().get_job(job_id)
+
+    assert job["status"] == "completed"
+    assert job["result"]["available"] is True
+    assert any("keeping the internal result" in entry for entry in job.get("logs_tail", []))
 
 
 def test_worker_final_result_includes_worker_profile_and_memory(monkeypatch, tmp_path):
@@ -2960,6 +3662,16 @@ def test_inspect_workbook_qaoa_limited_returns_estimate_without_execution(tmp_pa
     assert payload["diagnostics"]["simulation_backend"] == "lightning.qubit"
     assert payload["diagnostics"]["legacy_run_mode_alias"] is True
     assert payload["diagnostics"]["hardware_replay"] is False
+    assert payload["diagnostics"]["circuit"]["available"] is True
+    assert payload["diagnostics"]["circuit"]["metric_source"] in {
+        "qiskit_logical_circuit",
+        "structural_formula",
+    }
+    assert payload["diagnostics"]["circuit"]["shots_mode"] == "exact"
+    assert payload["diagnostics"]["circuit"]["total_gates"] > 0
+    assert payload["diagnostics"]["circuit"]["two_qubit_gates"] > 0
+    assert payload["diagnostics"]["circuit"]["sequential_2q_depth"] > 0
+    assert payload["diagnostics"]["circuit"]["ibm"]["available"] is False
     assert any("optimization execution skipped" in line for line in payload["diagnostics"]["logs"])
     assert any("not executed during workbook inspection" in line for line in payload["diagnostics"]["logs"])
 
@@ -3487,6 +4199,264 @@ def test_public_demo_qiskit_export_requires_tester_level(tmp_path):
     assert payload["error"]["details"]["required_level"] == "tester"
 
 
+def test_public_demo_ibm_backend_list_requires_tester_level():
+    response = app.test_client().post(
+        "/ibm/backends",
+        data={"ibm_token": "ibm-demo-token", "ibm_instance": "open-instance"},
+        content_type="multipart/form-data",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 403
+    assert payload["error"]["code"] == "export_mode_not_allowed"
+    assert payload["error"]["details"]["export_mode"] == "ibm_external_run"
+    assert payload["error"]["details"]["required_level"] == "tester"
+
+
+def test_tester_can_list_ibm_backends(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "list_ibm_backends",
+        lambda token, *, instance: {
+            "ok": True,
+            "channel": "ibm_quantum_platform",
+            "instance": instance,
+            "backends": [
+                {"name": "ibm_fez", "num_qubits": 156, "pending_jobs": 0, "operational": True, "simulator": False},
+                {
+                    "name": "ibm_marrakesh",
+                    "num_qubits": 156,
+                    "pending_jobs": 2,
+                    "operational": True,
+                    "simulator": False,
+                },
+            ],
+            "default_backend": "ibm_fez",
+        },
+    )
+
+    response = app.test_client().post(
+        "/ibm/backends",
+        headers={"X-API-Key": "TESTER-123"},
+        data={"ibm_token": "ibm-demo-token", "ibm_instance": "open-instance"},
+        content_type="multipart/form-data",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["ok"] is True
+    assert payload["instance"] == "open-instance"
+    assert payload["default_backend"] == "ibm_fez"
+    assert payload["backends"][0]["name"] == "ibm_fez"
+    assert payload["license"]["usage_level"] == "tester"
+
+
+def test_inspect_workbook_includes_ibm_transpile_preview_and_fractional_and_parallel_modes(monkeypatch, tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=4)
+    monkeypatch.setattr(
+        main_module,
+        "preview_ibm_transpilation",
+        lambda optimizer, *, token, ibm_settings: _fake_ibm_preview_result(
+            instance=str(ibm_settings.get("instance") or "open-instance"),
+            backend_name=str(ibm_settings.get("backend_name") or "ibm_fez"),
+        ),
+    )
+
+    response = _post_inspect(
+        workbook_path,
+        headers={"X-API-Key": "TESTER-123"},
+        mode="qaoa_lightning_sim",
+        export_mode="ibm_external_run",
+        ibm_token="ibm-demo-token",
+        ibm_instance="open-instance",
+        ibm_backend="ibm_fez",
+        ibm_fractional_gates="1",
+        ibm_parallelization="1",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    diagnostics = payload["diagnostics"]
+    assert diagnostics["effective_settings"]["ibm_instance"] == "open-instance"
+    assert diagnostics["effective_settings"]["ibm_backend"] == "ibm_fez"
+    assert diagnostics["effective_settings"]["ibm_fractional_gates"] is True
+    assert diagnostics["effective_settings"]["ibm_fractional_mode_label"] == "Prefer fractional gates"
+    assert diagnostics["effective_settings"]["ibm_parallelization"] is True
+    assert diagnostics["effective_settings"]["ibm_construction_mode_label"] == "Parallelized construction"
+    circuit = diagnostics["circuit"]
+    assert circuit["preview_available"] is True
+    assert circuit["preview_backend_name"] == "ibm_fez"
+    assert circuit["preview_fractional_gates_enabled"] is True
+    assert circuit["preview_parallelized_construction_enabled"] is True
+    assert circuit["preview_construction_mode_label"] == "Parallelized construction"
+    assert circuit["preview_transpiled_sequential_2q_depth"] == 170
+    assert circuit["preview_transpiled_total_gates"] == 1696
+    assert circuit["preview_comparison"]["sequential_2q_depth"]["standard"] == 220
+    assert circuit["preview_comparison"]["sequential_2q_depth"]["fractional"] == 170
+    assert (
+        circuit["preview_comparison"]["construction_mode"]["sequential_2q_depth"]["current"]
+        == 240
+    )
+    assert (
+        circuit["preview_comparison"]["construction_mode"]["sequential_2q_depth"][
+            "parallelized"
+        ]
+        == 170
+    )
+    assert circuit["ibm"]["hardware_submission"] == "preview_only"
+    assert circuit["ibm"]["backend_name"] == "ibm_fez"
+    assert circuit["ibm"]["transpiled_sequential_2q_depth"] == 170
+
+
+def test_preview_ibm_transpilation_keeps_selected_mode_when_other_modes_fail(monkeypatch):
+    optimizer = SimpleNamespace(n=4)
+    backend_row = {
+        "name": "ibm_fez",
+        "num_qubits": 156,
+        "pending_jobs": 0,
+        "operational": True,
+        "simulator": False,
+    }
+
+    monkeypatch.setattr(ibm_runtime_module, "_qiskit_runtime_service", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        ibm_runtime_module,
+        "_available_backend_rows",
+        lambda *_args, **_kwargs: [backend_row],
+    )
+    monkeypatch.setattr(
+        ibm_runtime_module,
+        "_select_backend_row",
+        lambda *_args, **_kwargs: backend_row,
+    )
+
+    def _fake_get_backend(_service, _backend_name, *, use_fractional_gates=False):
+        if use_fractional_gates:
+            raise RuntimeError("fractional preview unavailable in this test")
+        return {"backend_name": "ibm_fez"}
+
+    monkeypatch.setattr(ibm_runtime_module, "_get_backend", _fake_get_backend)
+    monkeypatch.setattr(
+        ibm_runtime_module,
+        "build_qiskit_qaoa_circuit_from_optimizer",
+        lambda _optimizer, **kwargs: kwargs,
+    )
+    monkeypatch.setattr(
+        ibm_runtime_module,
+        "_transpile_for_backend",
+        lambda circuit, _backend: circuit,
+    )
+    monkeypatch.setattr(
+        ibm_runtime_module,
+        "_transpiled_circuit_metrics",
+        lambda circuit: {
+            "depth": 500 if circuit.get("parallelize_cost_terms") else 700,
+            "size": 1600 if circuit.get("parallelize_cost_terms") else 2200,
+            "gate_counts": {"cz": 300 if circuit.get("parallelize_cost_terms") else 420},
+            "total_gates": 1600 if circuit.get("parallelize_cost_terms") else 2200,
+            "two_qubit_gates": 300 if circuit.get("parallelize_cost_terms") else 420,
+            "sequential_2q_depth": 180 if circuit.get("parallelize_cost_terms") else 240,
+        },
+    )
+    monkeypatch.setattr(
+        ibm_runtime_module,
+        "qaoa_ibm_circuit_metadata",
+        lambda _optimizer, **kwargs: {"available": True, **kwargs},
+    )
+
+    preview = ibm_runtime_module.preview_ibm_transpilation(
+        optimizer,
+        token="ibm-demo-token",
+        ibm_settings={
+            "instance": "open-instance",
+            "backend_name": "ibm_fez",
+            "fractional_gates_enabled": False,
+            "parallelized_construction_enabled": True,
+        },
+    )
+
+    assert preview["available"] is True
+    assert preview["selected_mode"] == "parallelized_standard"
+    assert preview["selected_preview"]["posttranspile"]["sequential_2q_depth"] == 180
+    assert preview["selected_failure"] is None
+    assert preview["mode_failures"]["current_fractional"]["error_type"] == "RuntimeError"
+    assert preview["mode_failures"]["parallelized_fractional"]["error_type"] == "RuntimeError"
+    assert (
+        preview["comparison"]["construction_mode"]["sequential_2q_depth"]["parallelized"]
+        == 180
+    )
+    assert preview.get("fallback_reason") in {None, ""}
+
+
+def test_qiskit_preview_uses_placeholder_angles_before_qaoa_execution():
+    optimizer = SimpleNamespace(
+        n=2,
+        qaoa_preview_layers=2,
+        Q=np.array([[1.0, -0.5], [-0.5, 0.25]], dtype=float),
+        constant=0.0,
+        _qubo_to_ising=lambda _Q, _constant: (
+            np.array([0.3, -0.2], dtype=float),
+            {(0, 1): 0.4},
+            0.0,
+        ),
+    )
+
+    metadata = ibm_circuit_module.qaoa_ibm_circuit_metadata(
+        optimizer,
+        use_fractional_gates=True,
+        parallelize_cost_terms=True,
+        allow_preview_placeholders=True,
+    )
+    circuit = ibm_circuit_module.build_qiskit_qaoa_circuit_from_optimizer(
+        optimizer,
+        measure=True,
+        use_fractional_gates=True,
+        parallelize_cost_terms=True,
+        allow_preview_placeholders=True,
+    )
+
+    assert metadata["available"] is True
+    assert metadata["parameter_source"] == "preview_placeholder"
+    assert metadata["preview_placeholder_angles"] is True
+    assert metadata["layers"] == 2
+    assert metadata["fractional_gates_enabled"] is True
+    assert metadata["parallelized_construction_enabled"] is True
+    assert circuit.num_qubits == 2
+    assert circuit.num_clbits == 2
+    assert circuit.size() > 0
+
+
+def test_pdf_report_export_returns_pdf_for_review_snapshot():
+    snapshot = {
+        "schema": "qaoa-rqp-review-snapshot",
+        "schema_version": 1,
+        "saved_at": "2026-05-14T09:00:00Z",
+        "frontend": {"page": "qaoa-rqp-v9", "api_url": "https://example.invalid"},
+        "original_filename": "demo.xlsx",
+        "result": _minimal_pdf_result_payload(),
+        "backend_job_logs": ["[09:00:00 UTC] Job queued.", "[09:00:10 UTC] Job completed."],
+        "client_logs": ["UI restored from saved review file."],
+    }
+
+    response = app.test_client().post("/exports/report-pdf", json=snapshot)
+
+    assert response.status_code == 200
+    assert response.headers["Content-Type"] == "application/pdf"
+    assert response.headers["Content-Disposition"].endswith(".pdf\"")
+    assert response.data.startswith(b"%PDF-")
+
+
+def test_pdf_report_export_requires_completed_result():
+    response = app.test_client().post(
+        "/exports/report-pdf",
+        json={"result": {"status": "running", "run_id": "job_incomplete"}},
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "pdf_report_requires_completed_result"
+
+
 def test_code_export_requires_tester_level():
     response = app.test_client().post(
         "/exports/code",
@@ -3630,7 +4600,10 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert payload["diagnostics"]["qaoa_exact_probabilities"] is True
     assert payload["diagnostics"]["qaoa_runtime_sec"] is not None
     assert payload["diagnostics"]["circuit"]["available"] is True
-    assert payload["diagnostics"]["circuit"]["counts_are_estimated"] is True
+    assert payload["diagnostics"]["circuit"]["metric_source"] in {
+        "qiskit_logical_circuit",
+        "structural_formula",
+    }
     assert payload["diagnostics"]["circuit"]["n_qubits"] == 7
     assert payload["diagnostics"]["circuit"]["layers"] == 1
     assert payload["diagnostics"]["circuit"]["shots_mode"] == "exact"
@@ -3709,7 +4682,10 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert not any("PennyLane" in row["solver"] for row in reporting["solver_comparison"])
     assert any(row.get("source") == "qaoa_best_qubo" for row in reporting["portfolio_contents"])
     assert reporting["circuit"]["available"] is True
-    assert reporting["circuit"]["counts_are_estimated"] is True
+    assert reporting["circuit"]["metric_source"] in {
+        "qiskit_logical_circuit",
+        "structural_formula",
+    }
     assert reporting["circuit"]["n_qubits"] == 7
     assert reporting["circuit"]["ibm"]["qiskit_available"] is True
     assert reporting["charts"]["qubo_breakdown_quantum"].startswith("data:image/png;base64,")
@@ -3718,6 +4694,129 @@ def test_tester_qaoa_limited_runs_exact_statevector_full_response(tmp_path):
     assert reporting["charts"]["optimization_history"].startswith("data:image/png;base64,")
     assert reporting["charts"]["circuit_overview"].startswith("data:image/png;base64,")
     assert reporting["charts"]["qubo_breakdown_classical"].startswith("data:image/png;base64,")
+
+
+def test_tester_qaoa_limited_runs_ibm_hardware_second_opinion(monkeypatch, tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=3)
+    matched_shots = 5000
+    monkeypatch.setattr(
+        main_module,
+        "run_ibm_second_opinion",
+        lambda optimizer, **_kwargs: _fake_ibm_runtime_result(
+            primary_bitstring="101",
+            secondary_bitstring="011",
+            shots=matched_shots,
+            shots_source="matched_qaoa_candidate_request_exact_mode",
+            comparability_note=(
+                "Internal QAOA ran in exact-probability mode, so IBM hardware uses the requested "
+                f"quantum-candidate comparison pool size: {matched_shots} shots."
+            ),
+        ),
+    )
+
+    response = _post_run_file(
+        workbook_path,
+        headers={"X-API-Key": "TESTER-123"},
+        mode="qaoa_limited",
+        response_level="full",
+        export_mode="ibm_external_run",
+        qaoa_p="1",
+        qaoa_maxiter="2",
+        qaoa_multistart_restarts="1",
+        qaoa_shots=str(matched_shots),
+        ibm_token="ibm-session-token",
+        ibm_instance="open-instance",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "completed"
+    assert payload["diagnostics"]["export_mode"] == "ibm_external_run"
+    assert payload["diagnostics"]["effective_settings"]["export_mode"] == "ibm_external_run"
+    assert payload["diagnostics"]["effective_settings"]["ibm_instance"] == "open-instance"
+    assert payload["diagnostics"]["effective_settings"]["ibm_hardware_shots"] == matched_shots
+    assert (
+        payload["diagnostics"]["effective_settings"]["ibm_hardware_shots_source"]
+        == "matched_qaoa_candidate_request_exact_mode"
+    )
+    ibm_circuit = payload["diagnostics"]["circuit"]["ibm"]
+    assert ibm_circuit["available"] is True
+    assert ibm_circuit["export_mode"] == "ibm_external_run"
+    assert ibm_circuit["hardware_submission"] == "completed"
+    assert ibm_circuit["instance"] == "open-instance"
+    assert ibm_circuit["backend_name"] == "ibm_fez"
+    assert ibm_circuit["job_id"] == "d811h96gbeec73ajvbpg"
+    assert ibm_circuit["shots"] == matched_shots
+    assert ibm_circuit["shots_source"] == "matched_qaoa_candidate_request_exact_mode"
+    assert str(matched_shots) in ibm_circuit["comparability_note"]
+    assert ibm_circuit["timing"]["total_seconds"] == 65.0
+    assert ibm_circuit["transpiled_sequential_2q_depth"] == 128
+
+    second_opinion = payload["reporting"]["second_opinion"]
+    assert second_opinion["available"] is True
+    assert second_opinion["label"] == "Quantum (2nd opinion) - IBM Hardware"
+    assert second_opinion["source"] == "ibm_hardware"
+    assert second_opinion["summary"]["status"] == "Available"
+    assert second_opinion["summary"]["source"] == "IBM Hardware"
+    assert second_opinion["backend_name"] == "ibm_fez"
+    assert second_opinion["job_id"] == "d811h96gbeec73ajvbpg"
+    assert second_opinion["shots"] == matched_shots
+    assert second_opinion["samples"]
+    assert second_opinion["samples"][0]["source"] == "ibm_hardware_second_opinion"
+    assert second_opinion["samples"][0]["count"] >= 1
+    assert second_opinion["best_qubo"]
+    assert second_opinion["portfolio_contents"]
+    assert any(
+        row["solver"] == "Quantum / QAOA (2nd opinion)"
+        for row in payload["reporting"]["solver_comparison"]
+    )
+    assert payload["reporting"]["summary"]["quantum_second_opinion_summary"]["source"] == "IBM Hardware"
+    assert payload["reporting"]["charts"]["qubo_breakdown_second_opinion"].startswith("data:image/png;base64,")
+
+
+def test_tester_qaoa_limited_ibm_parse_failure_keeps_completed_response(monkeypatch, tmp_path):
+    workbook_path = _limited_workbook(tmp_path, qubits=3)
+    requested_candidate_shots = 5000
+    monkeypatch.setattr(
+        main_module,
+        "run_ibm_second_opinion",
+        lambda optimizer, **_kwargs: _fake_ibm_runtime_parse_failure_result(
+            shots=requested_candidate_shots,
+            shots_source="matched_qaoa_candidate_request_exact_mode",
+            comparability_note=(
+                "Internal QAOA ran in exact-probability mode, so IBM hardware uses the requested "
+                f"quantum-candidate comparison pool size: {requested_candidate_shots} shots."
+            ),
+        ),
+    )
+
+    response = _post_run_file(
+        workbook_path,
+        headers={"X-API-Key": "TESTER-123"},
+        mode="qaoa_limited",
+        response_level="full",
+        export_mode="ibm_external_run",
+        qaoa_p="1",
+        qaoa_maxiter="2",
+        qaoa_multistart_restarts="1",
+        ibm_token="ibm-session-token",
+        ibm_instance="open-instance",
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "completed"
+    assert payload["diagnostics"]["effective_settings"]["ibm_hardware_shots"] == requested_candidate_shots
+    assert str(requested_candidate_shots) in payload["diagnostics"]["circuit"]["ibm"]["comparability_note"]
+    ibm_circuit = payload["diagnostics"]["circuit"]["ibm"]
+    assert ibm_circuit["hardware_submission"] == "completed"
+    assert ibm_circuit["parse_status"] == "failed"
+    assert ibm_circuit["result_snapshot"]["result_type"] == "PrimitiveResult"
+    second_opinion = payload["reporting"]["second_opinion"]
+    assert second_opinion["available"] is False
+    assert second_opinion["summary"]["status"] == "Unavailable"
+    assert second_opinion["reason"] == "IBM hardware results did not include readable counts."
+    assert second_opinion["result_snapshot"]["result_type"] == "PrimitiveResult"
 
 
 def test_tester_qaoa_tensor_sim_uses_sampling_shots(tmp_path):

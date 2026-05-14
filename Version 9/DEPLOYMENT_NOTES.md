@@ -7,6 +7,12 @@ Version 9 uses the same container image for two Cloud Run targets:
 
 The async production path uses Version 9 Firestore job/lock collections, existing Firestore key/usage collections, and a Version 9 GCS bucket for uploaded workbooks and result JSON payloads. Version 8 service, worker, job collection, lock collections, and bucket remain separate.
 
+IBM hardware second-opinion runs use the existing Qiskit circuit build path plus
+real IBM backend execution. For production, the API stores each submitted IBM
+token as a short-lived per-job Secret Manager secret, the worker reads it once,
+and the worker deletes it in a `finally` path after the hardware run completes
+or fails.
+
 ## Shell Variables
 
 Set these once from the repository root. Do not hardcode the project ID in commands.
@@ -96,6 +102,7 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   run.googleapis.com \
   firestore.googleapis.com \
+  secretmanager.googleapis.com \
   storage.googleapis.com \
   iam.googleapis.com \
   --project "$PROJECT_ID"
@@ -209,6 +216,17 @@ for SA in "$API_SERVICE_ACCOUNT" "$WORKER_SERVICE_ACCOUNT"; do
   gcloud storage buckets add-iam-policy-binding "gs://$QAOA_JOB_BUCKET" \
     --member "serviceAccount:$SA" \
     --role "roles/storage.objectAdmin"
+done
+```
+
+Grant both runtime service accounts permission to create/read/delete the
+transient IBM token secrets used for hardware runs:
+
+```bash
+for SA in "$API_SERVICE_ACCOUNT" "$WORKER_SERVICE_ACCOUNT"; do
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member "serviceAccount:$SA" \
+    --role "roles/secretmanager.admin"
 done
 ```
 

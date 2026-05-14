@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import os
 import time
@@ -16,7 +17,11 @@ except ImportError:  # pragma: no cover - optional local-dev dependency
         return None
 
 from app.classical_solver import run_classical_optimizer
-from app.cloud_run_jobs import trigger_cloud_run_job
+from app.cloud_run_jobs import (
+    cancel_cloud_run_job_execution,
+    cloud_run_job_execution_status,
+    trigger_cloud_run_job,
+)
 from app.code_exports import code_export_targets_payload, extract_code_export_package, render_code_export
 from app.config import Config
 from app.excel_io import (
@@ -27,8 +32,22 @@ from app.excel_io import (
 )
 from app.job_storage import get_job_storage
 from app.job_store import get_job_store, initial_job_document
+from app.ibm_runtime import (
+    IBM_INSTANCE_FORM_FIELD,
+    IBM_TOKEN_FORM_FIELD,
+    apply_ibm_runtime_settings,
+    ibm_runtime_enabled_for_mode,
+    ibm_runtime_settings_from_request,
+    list_ibm_backends,
+    preview_ibm_transpilation,
+    persist_ibm_runtime_token,
+    run_ibm_second_opinion,
+    sensitive_form_fields,
+    delete_ibm_runtime_token,
+)
 from app.key_store import get_key_store
 from app.license_service import require_api_key
+from app.pdf_report import render_pdf_report
 from app.qaoa_engine import QAOAExecutionError, run_qaoa_sim
 from app.qubo_builder import build_qubo_from_workbook, load_legacy_optimizer_symbols
 from app.random_seed import random_seed_display
@@ -52,6 +71,7 @@ from app.usage_policy import (
     validate_secret_configuration,
     validate_pre_upload_policy,
     validate_problem_policy,
+    validate_export_mode_policy,
 )
 from app.workbook_diagnostics import (
     append_workbook_warning_logs,
@@ -63,6 +83,7 @@ from app.worker_profiles import (
     DEFAULT_WORKER_PROFILE,
     normalize_worker_profile,
     validate_worker_profile_allowed,
+    validate_worker_profile_capacity,
     worker_profile_metadata,
 )
 
@@ -129,6 +150,19 @@ def register_routes(flask_app: Flask) -> None:
     def code_export_targets():
         return jsonify({"targets": code_export_targets_payload()})
 
+    @flask_app.post("/ibm/backends")
+    def ibm_backends():
+        usage_context = resolve_usage_context(request.headers.get(Config.API_KEY_HEADER))
+        # Reuse the normal export-mode gate so this endpoint tracks the same key policy.
+        validate_export_mode_policy(usage_context, {"export_mode": "ibm_external_run"})
+        token = str(request.form.get(IBM_TOKEN_FORM_FIELD) or "").strip()
+        if not token:
+            raise ApiError(400, "ibm_token_required", "IBM API token is required to load hardware backends.")
+        instance = str(request.form.get(IBM_INSTANCE_FORM_FIELD) or "").strip() or "open-instance"
+        payload = list_ibm_backends(token, instance=instance)
+        payload["license"] = get_run_ledger().license_status(usage_context)
+        return jsonify(payload)
+
     @flask_app.post("/exports/code")
     def code_export():
         usage_context = resolve_usage_context(request.headers.get(Config.API_KEY_HEADER))
@@ -144,6 +178,20 @@ def register_routes(flask_app: Flask) -> None:
             headers={
                 "Content-Disposition": f'attachment; filename="{rendered.filename}"',
                 "X-QAOA-RQP-Code-Export-Target": target,
+            },
+        )
+
+    @flask_app.post("/exports/report-pdf")
+    def pdf_report_export():
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            raise ApiError(400, "invalid_json_payload", "A JSON object payload is required.")
+        rendered = render_pdf_report(payload)
+        return Response(
+            rendered.content,
+            content_type=rendered.content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{rendered.filename}"',
             },
         )
 
@@ -247,6 +295,15 @@ def register_routes(flask_app: Flask) -> None:
             append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
+            worker_profile = validate_worker_profile_capacity(
+                usage_context,
+                worker_profile,
+                n_qubits=policy_result.n_qubits,
+                mode=mode,
+            )
+            run_metadata = worker_profile_metadata(worker_profile)
+            _apply_ibm_runtime_request_metadata(optimizer, policy_result, request.form)
+            _apply_ibm_runtime_preview_metadata(optimizer, policy_result, request.form, logs)
             _append_random_seed_log(logs, policy_result)
             logs.append("Inspection only: optimization execution skipped.")
             logs.append("QAOA execution status: not executed during workbook inspection.")
@@ -330,6 +387,14 @@ def register_routes(flask_app: Flask) -> None:
             append_workbook_warning_logs(logs, optimizer)
             _append_mode_logs(logs, mode, inspection=False)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
+            worker_profile = validate_worker_profile_capacity(
+                usage_context,
+                worker_profile,
+                n_qubits=policy_result.n_qubits,
+                mode=mode,
+            )
+            run_metadata = worker_profile_metadata(worker_profile)
+            _apply_ibm_runtime_request_metadata(optimizer, policy_result, request.form)
             _append_random_seed_log(logs, policy_result)
 
             if usage_context.authenticated:
@@ -390,6 +455,13 @@ def register_routes(flask_app: Flask) -> None:
                 )
                 logs.append(f"QAOA sample count: {int(len(getattr(optimizer, 'samples_df', [])))}")
                 solver = f"classical_heuristic+{mode}"
+                _run_ibm_second_opinion_sync_if_requested(
+                    optimizer,
+                    usage_context=usage_context,
+                    policy_result=policy_result,
+                    form_data=request.form,
+                    logs=logs,
+                )
             elif mode == "classical_only":
                 logs.append("QAOA execution status: disabled for classical_only mode.")
             logs.extend(candidate_export_log_lines(optimizer))
@@ -592,6 +664,7 @@ def register_routes(flask_app: Flask) -> None:
         public_slot_acquired = False
         job_created = False
         submission_completed = False
+        ibm_secret_ref = None
         ledger = get_run_ledger()
         job_store = get_job_store()
         storage = get_job_storage()
@@ -627,6 +700,14 @@ def register_routes(flask_app: Flask) -> None:
             logs.extend(warning_lines)
             _append_mode_logs(logs, mode, inspection=True)
             policy_result = validate_problem_policy(usage_context, optimizer, mode, request.form)
+            worker_profile = validate_worker_profile_capacity(
+                usage_context,
+                worker_profile,
+                n_qubits=policy_result.n_qubits,
+                mode=mode,
+            )
+            run_metadata = worker_profile_metadata(worker_profile)
+            _apply_ibm_runtime_request_metadata(optimizer, policy_result, request.form)
             _append_random_seed_log(logs, policy_result)
 
             if usage_context.authenticated:
@@ -656,6 +737,21 @@ def register_routes(flask_app: Flask) -> None:
             input_info = storage.save_input_from_path(job_id, tmp_path, filename)
             settings = _job_settings_from_request(mode, response_level, request.form, policy_result)
             settings["worker_profile"] = worker_profile
+            if ibm_runtime_enabled_for_mode(getattr(policy_result, "export_mode", None)):
+                raw_ibm_token = str(request.form.get(IBM_TOKEN_FORM_FIELD) or "").strip()
+                if not raw_ibm_token:
+                    raise ApiError(
+                        400,
+                        "ibm_token_required",
+                        "IBM API token is required when Qiskit on IBM Hardware is selected.",
+                    )
+                ibm_secret_ref = persist_ibm_runtime_token(job_id, raw_ibm_token)
+                settings["ibm_runtime"] = json_safe(
+                    {
+                        **dict(getattr(optimizer, "ibm_runtime_settings", {}) or {}),
+                        "secret_ref": ibm_secret_ref,
+                    }
+                )
             job_store.create_job(
                 initial_job_document(
                     job_id=job_id,
@@ -752,6 +848,8 @@ def register_routes(flask_app: Flask) -> None:
                 "Async job submission failed before the worker could be started.",
             ) from exc
         finally:
+            if ibm_secret_ref is not None and not submission_completed:
+                delete_ibm_runtime_token(ibm_secret_ref)
             if (not submission_completed) and lock_acquired and usage_context is not None:
                 try:
                     ledger.release_run_lock(usage_context.key_record, job_id)
@@ -766,7 +864,12 @@ def register_routes(flask_app: Flask) -> None:
 
     @flask_app.get("/jobs/<job_id>/status")
     def job_status(job_id: str):
-        return jsonify(get_job_store().status_payload(job_id))
+        job_store = get_job_store()
+        job = job_store.get_job(job_id)
+        if job is None:
+            raise ApiError(404, "job_not_found", "Job was not found.", {"job_id": job_id})
+        _reconcile_stale_job_if_needed(job_store, job_id, job)
+        return jsonify(job_store.status_payload(job_id))
 
     @flask_app.get("/jobs/<job_id>/result")
     def job_result(job_id: str):
@@ -792,24 +895,47 @@ def register_routes(flask_app: Flask) -> None:
         job = job_store.get_job(job_id)
         if job is None:
             raise ApiError(404, "job_not_found", "Job was not found.", {"job_id": job_id})
+        reconciled = _reconcile_stale_job_if_needed(job_store, job_id, job)
+        if reconciled is not None:
+            job = reconciled
+        if _job_is_terminal(job):
+            return jsonify(job_store.status_payload(job_id))
+        cancel_result = _request_job_cancellation(job)
+        if job.get("status") == "queued":
+            job = _finalize_job_document(
+                job_store,
+                job,
+                job_id,
+                status="cancelled",
+                phase="cancelled",
+                message="Job cancelled before worker execution.",
+                cancel_requested=True,
+                error=None,
+                extra_updates={"cancel": json_safe(cancel_result)} if cancel_result else None,
+            )
+            return jsonify(job_store.status_payload(job_id))
+        if cancel_result.get("cancelled"):
+            job = _finalize_job_document(
+                job_store,
+                job,
+                job_id,
+                status="cancelled",
+                phase="cancelled",
+                message="Cloud Run execution cancelled.",
+                cancel_requested=True,
+                error=None,
+                extra_updates={"cancel": json_safe(cancel_result)} if cancel_result else None,
+            )
+            return jsonify(job_store.status_payload(job_id))
         updates = {
             "cancel_requested": True,
             "heartbeat_at": _utc_now(),
             "latest_log": "Cancellation requested.",
         }
-        if job.get("status") == "queued":
-            updates.update({"status": "cancelled", "phase": "cancelled", "finished_at": _utc_now()})
-            try:
-                usage_context = _usage_context_from_job(job)
-                _release_job_lock(get_run_ledger(), usage_context, job_id)
-            except Exception:
-                logger.exception("Failed to release lock for cancelled queued job_id=%s", job_id)
-                try:
-                    _release_job_lock_from_job(get_run_ledger(), job, job_id)
-                except Exception:
-                    logger.exception("Fallback lock release failed for cancelled queued job_id=%s", job_id)
+        if cancel_result:
+            updates["cancel"] = json_safe(cancel_result)
         job_store.update_job(job_id, updates)
-        return jsonify(get_job_store().status_payload(job_id))
+        return jsonify(job_store.status_payload(job_id))
 
 
 def register_error_handlers(flask_app: Flask) -> None:
@@ -927,8 +1053,121 @@ def _client_ip() -> str | None:
     return request.headers.get("X-Real-IP") or request.remote_addr
 
 
+def _apply_ibm_runtime_request_metadata(optimizer, policy_result, form_data) -> None:
+    if optimizer is None or policy_result is None:
+        return
+    try:
+        optimizer.qaoa_preview_layers = int(policy_result.runtime_inputs.layers)
+    except Exception:
+        pass
+    export_mode = getattr(policy_result, "export_mode", None)
+    if not ibm_runtime_enabled_for_mode(export_mode):
+        return
+    ibm_settings = ibm_runtime_settings_from_request(
+        form_data,
+        optimizer=optimizer,
+        runtime_inputs=policy_result.runtime_inputs,
+        effective_settings=policy_result.effective_settings,
+    )
+    apply_ibm_runtime_settings(optimizer, getattr(policy_result, "export_mode_diagnostics", {}), ibm_settings)
+    policy_result.effective_settings.update(
+        json_safe(
+            {
+                "ibm_instance": ibm_settings.get("instance"),
+                "ibm_backend": ibm_settings.get("backend_name"),
+                "ibm_backend_selection": ibm_settings.get("backend_selection"),
+                "ibm_fractional_gates": ibm_settings.get("fractional_gates_enabled"),
+                "ibm_fractional_mode_label": ibm_settings.get("fractional_mode_label"),
+                "ibm_parallelization": ibm_settings.get("parallelized_construction_enabled"),
+                "ibm_construction_mode_label": ibm_settings.get("construction_mode_label"),
+                "ibm_hardware_shots": ibm_settings.get("hardware_shots"),
+                "ibm_hardware_shots_source": ibm_settings.get("hardware_shots_source"),
+            }
+        )
+    )
+
+
+def _apply_ibm_runtime_preview_metadata(optimizer, policy_result, form_data, logs: list[str]) -> None:
+    if optimizer is None or policy_result is None or not ibm_runtime_enabled_for_mode(getattr(policy_result, "export_mode", None)):
+        return
+    token = str(form_data.get(IBM_TOKEN_FORM_FIELD) or "").strip()
+    if not token:
+        logs.append("IBM hardware preview uses logical Qiskit circuit metrics only; no IBM token was provided for backend-aware transpilation preview.")
+        return
+    try:
+        logs.append("Building IBM hardware transpilation preview...")
+        optimizer.ibm_runtime_preview = preview_ibm_transpilation(
+            optimizer,
+            token=token,
+            ibm_settings=getattr(optimizer, "ibm_runtime_settings", {}) or {},
+        )
+        preview_payload = (getattr(optimizer, "ibm_runtime_preview", {}) or {})
+        backend_name = preview_payload.get("backend_name") or "auto-selected backend"
+        if preview_payload.get("available"):
+            logs.append(f"IBM hardware transpilation preview ready for {backend_name}.")
+        else:
+            selected_failure = dict(preview_payload.get("selected_failure") or {})
+            failure_suffix = (
+                f" ({selected_failure.get('error_type')})" if selected_failure.get("error_type") else ""
+            )
+            logs.append(
+                "IBM hardware transpilation preview unavailable for the selected mode; "
+                f"continuing with logical circuit metrics only{failure_suffix}."
+            )
+    except Exception as exc:  # noqa: BLE001 - preview should not block inspection
+        logs.append(
+            "IBM hardware transpilation preview unavailable; continuing with logical circuit metrics only. "
+            f"{type(exc).__name__}"
+        )
+
+
+def _run_ibm_second_opinion_sync_if_requested(
+    optimizer,
+    *,
+    usage_context,
+    policy_result,
+    form_data,
+    logs: list[str],
+) -> None:
+    if optimizer is None or policy_result is None or not ibm_runtime_enabled_for_mode(getattr(policy_result, "export_mode", None)):
+        return
+    raw_ibm_token = str(form_data.get(IBM_TOKEN_FORM_FIELD) or "").strip()
+    if not raw_ibm_token:
+        raise ApiError(
+            400,
+            "ibm_token_required",
+            "IBM API token is required when Qiskit on IBM Hardware is selected.",
+        )
+
+    def emit_progress(message: str, *, phase: str | None = None, progress_pct: float | None = None) -> None:
+        logs.append(str(message))
+
+    ibm_settings = dict(getattr(optimizer, "ibm_runtime_settings", {}) or {})
+    optimizer.ibm_hardware_result = run_ibm_second_opinion(
+        optimizer,
+        token=raw_ibm_token,
+        usage_context=usage_context,
+        ibm_settings=ibm_settings,
+        progress_callback=emit_progress,
+    )
+    if optimizer.ibm_hardware_result.get("available"):
+        logs.append(
+            f"IBM hardware completed on {optimizer.ibm_hardware_result.get('backend_name')} "
+            f"(job {optimizer.ibm_hardware_result.get('job_id') or 'n/a'})."
+        )
+    else:
+        logs.append(
+            "IBM hardware second opinion unavailable; keeping the internal result. "
+            f"{optimizer.ibm_hardware_result.get('reason') or 'No measured IBM result could be decoded.'}"
+        )
+
+
 def _job_settings_from_request(mode: str, response_level: str, form_data, policy_result) -> dict:
-    settings = {key: str(value) for key, value in form_data.items()}
+    settings = {
+        key: str(value)
+        for key, value in form_data.items()
+        if key not in sensitive_form_fields()
+    }
     effective_seed = policy_result.effective_settings.get("random_seed")
     if effective_seed is not None:
         settings["random_seed"] = str(effective_seed)
@@ -945,6 +1184,15 @@ def _job_settings_from_request(mode: str, response_level: str, form_data, policy
         "export_mode_label",
         "qiskit_export_requested",
         "ibm_external_run_requested",
+        "ibm_instance",
+        "ibm_backend",
+        "ibm_backend_selection",
+        "ibm_fractional_gates",
+        "ibm_fractional_mode_label",
+        "ibm_parallelization",
+        "ibm_construction_mode_label",
+        "ibm_hardware_shots",
+        "ibm_hardware_shots_source",
     ):
         if key in policy_result.effective_settings:
             settings[key] = policy_result.effective_settings[key]
@@ -961,6 +1209,152 @@ def _job_settings_from_request(mode: str, response_level: str, form_data, policy
         }
     )
     return settings
+
+
+def _job_cleanup_stale_after_sec() -> float:
+    raw_value = os.getenv("QAOA_JOB_HEARTBEAT_STALE_SEC")
+    try:
+        parsed = float(raw_value) if raw_value is not None else 3600.0
+    except Exception:
+        parsed = 3600.0
+    return max(parsed, 60.0)
+
+
+def _parse_datetime_or_none(value) -> dt.datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, dt.datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+        try:
+            parsed = dt.datetime.fromisoformat(normalized)
+        except Exception:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _job_is_terminal(job: dict) -> bool:
+    return str(job.get("status") or "").strip().lower() in {"completed", "failed", "cancelled"}
+
+
+def _job_heartbeat_is_stale(job: dict, *, now: dt.datetime | None = None) -> bool:
+    if _job_is_terminal(job):
+        return False
+    heartbeat_at = _parse_datetime_or_none(job.get("heartbeat_at"))
+    if heartbeat_at is None:
+        return False
+    current_time = now or dt.datetime.now(dt.timezone.utc)
+    age_sec = (current_time - heartbeat_at).total_seconds()
+    return age_sec >= _job_cleanup_stale_after_sec()
+
+
+def _delete_job_ibm_secret(job: dict) -> None:
+    settings = dict(job.get("settings") or {})
+    secret_ref = ((settings.get("ibm_runtime") or {}) if isinstance(settings.get("ibm_runtime"), dict) else {})
+    if not secret_ref:
+        return
+    try:
+        delete_ibm_runtime_token(secret_ref)
+    except Exception:
+        logger.exception("Failed to delete IBM runtime token for job_id=%s", job.get("job_id"))
+
+
+def _finalize_job_document(
+    job_store,
+    job: dict,
+    job_id: str,
+    *,
+    status: str,
+    phase: str,
+    message: str,
+    cancel_requested: bool,
+    error: dict | None = None,
+    extra_updates: dict | None = None,
+) -> dict:
+    updates = {
+        "status": status,
+        "phase": phase,
+        "finished_at": _utc_now(),
+        "cancel_requested": bool(cancel_requested),
+        "error": json_safe(error),
+    }
+    if extra_updates:
+        updates.update(json_safe(extra_updates))
+    job_store.append_log(job_id, message, phase=phase, extra_updates=updates)
+    refreshed = job_store.get_job(job_id) or dict(job or {})
+    _delete_job_ibm_secret(refreshed)
+    try:
+        _release_job_lock_from_job(get_run_ledger(), refreshed, job_id)
+    except Exception:
+        logger.exception("Failed to release run lock while finalizing job_id=%s", job_id)
+    return job_store.get_job(job_id) or refreshed
+
+
+def _request_job_cancellation(job: dict) -> dict:
+    try:
+        return json_safe(cancel_cloud_run_job_execution(job.get("trigger")))
+    except Exception as exc:  # noqa: BLE001 - cancellation diagnostics should not break route
+        logger.exception("Cloud Run cancellation request failed for job_id=%s", job.get("job_id"))
+        return {
+            "attempted": True,
+            "cancelled": False,
+            "reason": type(exc).__name__,
+        }
+
+
+def _reconcile_stale_job_if_needed(job_store, job_id: str, job: dict):
+    if _job_is_terminal(job) or not _job_heartbeat_is_stale(job):
+        return job
+
+    execution_status = None
+    try:
+        execution_status = json_safe(cloud_run_job_execution_status(job.get("trigger")))
+    except Exception:
+        logger.exception("Failed to inspect Cloud Run execution state for stale job_id=%s", job_id)
+        execution_status = {"available": False, "reason": "execution_status_failed"}
+
+    if isinstance(execution_status, dict) and execution_status.get("available") and not execution_status.get("terminal"):
+        return job
+
+    heartbeat_at = _parse_datetime_or_none(job.get("heartbeat_at"))
+    stale_details = {
+        "stale_heartbeat_at": heartbeat_at.isoformat().replace("+00:00", "Z") if heartbeat_at is not None else None,
+        "stale_after_sec": _job_cleanup_stale_after_sec(),
+        "cloud_run_execution": execution_status,
+    }
+    if bool(job.get("cancel_requested")):
+        return _finalize_job_document(
+            job_store,
+            job,
+            job_id,
+            status="cancelled",
+            phase="cancelled",
+            message="Job cancellation finalized after stale heartbeat.",
+            cancel_requested=True,
+            error=None,
+            extra_updates={"stale_cleanup": stale_details},
+        )
+    return _finalize_job_document(
+        job_store,
+        job,
+        job_id,
+        status="failed",
+        phase="stale_heartbeat",
+        message="Worker heartbeat expired; job finalized automatically.",
+        cancel_requested=bool(job.get("cancel_requested")),
+        error={
+            "message": "Worker heartbeat expired before the job reported a final status.",
+            "type": "StaleHeartbeat",
+            "code": "worker_heartbeat_stale",
+        },
+        extra_updates={"stale_cleanup": stale_details},
+    )
 
 
 def _usage_context_from_job(job: dict):

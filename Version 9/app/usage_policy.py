@@ -256,7 +256,7 @@ def export_mode_diagnostics_for(
     usage_level = getattr(usage_context, "usage_level", {}) or {}
     usage_level_id = _usage_level_id(usage_context)
     qiskit_allowed = usage_level_id >= TESTER_EXPORT_LEVEL_ID
-    ibm_allowed = usage_level_id >= ULTRA_EXPORT_LEVEL_ID
+    ibm_allowed = usage_level_id >= TESTER_EXPORT_LEVEL_ID
     return json_safe(
         {
             "requested_export_mode": requested_export_mode or effective_export_mode,
@@ -302,24 +302,14 @@ def validate_export_mode_policy(usage_context: UsageContext, form_data) -> dict[
             raise ApiError(
                 403,
                 "export_mode_not_allowed",
-                "Qiskit on IBM Hardware is reserved for ultra level.",
+                "Qiskit on IBM Hardware is available for tester level and higher.",
                 {
                     "export_mode": export_mode,
-                    "required_level": "internal_ultra",
+                    "required_level": "tester",
                     "usage_level": usage_context.usage_level_name,
                     "usage_level_id": diagnostics.get("usage_level_id"),
                 },
             )
-        raise ApiError(
-            501,
-            "ibm_external_run_not_enabled",
-            "Qiskit on IBM Hardware is not enabled yet.",
-            {
-                "export_mode": export_mode,
-                "required_level": "internal_ultra",
-                "usage_level": usage_context.usage_level_name,
-            },
-        )
     return diagnostics
 
 
@@ -876,8 +866,8 @@ def capabilities_payload() -> dict[str, Any]:
                 {
                     "value": EXPORT_MODE_IBM_EXTERNAL_RUN,
                     "label": EXPORT_MODE_LABELS[EXPORT_MODE_IBM_EXTERNAL_RUN],
-                    "minimum_level_id": ULTRA_EXPORT_LEVEL_ID,
-                    "enabled": False,
+                    "minimum_level_id": TESTER_EXPORT_LEVEL_ID,
+                    "enabled": True,
                 },
             ],
             "default_export_mode": DEFAULT_EXPORT_MODE,

@@ -9,6 +9,13 @@ from app.schemas import ApiError, json_safe
 
 
 DEFAULT_WORKER_PROFILE = "small"
+QAOA_SIMULATION_MODES = {"qaoa_lightning_sim", "qaoa_tensor_sim"}
+WORKER_PROFILE_ORDER = {"small": 0, "medium": 1, "large": 2}
+QAOA_SIMULATION_PROFILE_LIMITS = (
+    ("small", 18),
+    ("medium", 25),
+    ("large", None),
+)
 
 WORKER_PROFILES: dict[str, dict[str, Any]] = {
     "small": {
@@ -88,6 +95,57 @@ def validate_worker_profile_allowed(usage_context, worker_profile: str) -> str:
             },
         )
     return profile
+
+
+def minimum_worker_profile_for_problem(*, n_qubits: int | None, mode: str | None) -> str | None:
+    normalized_mode = str(mode or "").strip().lower()
+    if normalized_mode not in QAOA_SIMULATION_MODES:
+        return None
+    try:
+        qubits = int(n_qubits or 0)
+    except Exception:
+        qubits = 0
+    if qubits <= 0:
+        return None
+    for profile_id, max_qubits in QAOA_SIMULATION_PROFILE_LIMITS:
+        if max_qubits is None or qubits <= int(max_qubits):
+            return str(profile_id)
+    return None
+
+
+def validate_worker_profile_capacity(
+    usage_context,
+    worker_profile: str,
+    *,
+    n_qubits: int | None,
+    mode: str | None,
+) -> str:
+    profile = normalize_worker_profile(worker_profile)
+    required_profile = minimum_worker_profile_for_problem(n_qubits=n_qubits, mode=mode)
+    if required_profile is None:
+        return profile
+    if WORKER_PROFILE_ORDER[profile] >= WORKER_PROFILE_ORDER[required_profile]:
+        return profile
+    required_info = WORKER_PROFILES[required_profile]
+    selected_info = WORKER_PROFILES[profile]
+    raise ApiError(
+        403,
+        "worker_profile_insufficient",
+        (
+            f"{int(n_qubits or 0)} qubits in {mode} require at least the "
+            f"{required_info['label']} worker profile."
+        ),
+        {
+            "worker_profile": profile,
+            "required_worker_profile": required_profile,
+            "selected_memory_gib": selected_info.get("memory_gib"),
+            "required_memory_gib": required_info.get("memory_gib"),
+            "n_qubits": int(n_qubits or 0),
+            "mode": mode,
+            "usage_level": getattr(usage_context, "usage_level_name", None),
+            "allowed_worker_profiles": allowed_worker_profiles(usage_context),
+        },
+    )
 
 
 def allowed_worker_profiles(usage_context) -> list[str]:

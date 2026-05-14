@@ -24,6 +24,15 @@ type EffectiveSettings = {
   export_mode_label?: string | null;
   qiskit_export_requested?: boolean | null;
   ibm_external_run_requested?: boolean | null;
+  ibm_instance?: string | null;
+  ibm_backend?: string | null;
+  ibm_backend_selection?: string | null;
+  ibm_fractional_gates?: boolean | null;
+  ibm_fractional_mode_label?: string | null;
+  ibm_parallelization?: boolean | null;
+  ibm_construction_mode_label?: string | null;
+  ibm_hardware_shots?: number | null;
+  ibm_hardware_shots_source?: string | null;
   layers?: number | null;
   p?: number | null;
   iterations?: number | null;
@@ -62,6 +71,13 @@ type WorkerProfileMetadata = {
   description?: string;
   enabled?: boolean;
   required_level?: string | null;
+};
+
+type HardwareDepthRating = {
+  status: "ok" | "critical" | "beyond_limits";
+  title: string;
+  detail: string;
+  className: string;
 };
 
 type MemoryHistoryPoint = {
@@ -473,6 +489,27 @@ type AsyncSubmitResponse = {
   };
 };
 
+type IbmBackendOption = {
+  name?: string;
+  num_qubits?: number;
+  pending_jobs?: number;
+  operational?: boolean;
+  simulator?: boolean;
+};
+
+type IbmBackendsResponse = {
+  ok?: boolean;
+  instance?: string;
+  default_backend?: string | null;
+  backends?: IbmBackendOption[];
+  license?: LicenseStatus;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  };
+};
+
 type SavedQaoaSnapshot = {
   schema: "qaoa-rqp-review-snapshot";
   schema_version: 1;
@@ -485,6 +522,10 @@ type SavedQaoaSnapshot = {
   ui_state: {
     mode: string;
     export_mode?: ExportMode;
+    ibm_instance?: string;
+    ibm_backend?: string;
+    ibm_fractional_gates?: boolean;
+    ibm_parallelization?: boolean;
     response_level: string;
     layers: number;
     iterations: number;
@@ -547,6 +588,9 @@ const DEFAULT_WORKER_PROFILE: WorkerProfileId = "small";
 const EXPORT_MODE_INTERNAL_ONLY: ExportMode = "internal_only";
 const EXPORT_MODE_QISKIT_EXPORT: ExportMode = "qiskit_export";
 const EXPORT_MODE_IBM_EXTERNAL_RUN: ExportMode = "ibm_external_run";
+const IBM_DEFAULT_EXACT_SHOTS = 4096;
+const IBM_HERON2_OK_MAX_SEQUENTIAL_2Q_DEPTH = 150;
+const IBM_HERON2_CRITICAL_MAX_SEQUENTIAL_2Q_DEPTH = 250;
 const DEFAULT_EXPORT_MODE: ExportMode = EXPORT_MODE_INTERNAL_ONLY;
 
 const RUN_MODE_OPTIONS = [
@@ -594,9 +638,10 @@ const EXPORT_MODE_OPTIONS: Array<{
   {
     value: EXPORT_MODE_IBM_EXTERNAL_RUN,
     label: "Qiskit on IBM Hardware",
-    description: "Reserved for a later IBM hardware comparison path.",
-    requiredLevel: "internal ultra",
-    enabled: false,
+    description:
+      "Runs the optimized QAOA circuit as a 2nd opinion on a real IBM Quantum backend using your IBM token for this session.",
+    requiredLevel: "tester",
+    enabled: true,
   },
 ];
 
@@ -676,6 +721,12 @@ const WORKER_PROFILE_OPTIONS: Array<{
     required_level: "power",
   },
 ];
+
+const WORKER_PROFILE_ORDER: Record<WorkerProfileId, number> = {
+  small: 0,
+  medium: 1,
+  large: 2,
+};
 
 function normalizeRunMode(value?: string | null) {
   const mode = value || DEFAULT_RUN_MODE;
@@ -901,6 +952,12 @@ function rawJsonFilename(workbookName: string | null) {
   return `qaoa-rqp-v9-raw-json_${safeFileStem(workbookName)}_${timestampForFilename()}.json`;
 }
 
+function pdfReportFilename(workbookName: string | null, mode: string) {
+  return `qaoa-rqp-v9-report_${safeFileStem(workbookName)}_${normalizeRunMode(
+    mode
+  )}_${timestampForFilename()}.pdf`;
+}
+
 function codeExportFilename(target: CodeExportTargetValue, workbookName?: string | null) {
   const option = CODE_EXPORT_TARGET_OPTIONS.find((item) => item.value === target);
   const extension = option?.filename.endsWith(".py") ? "py" : "ipynb";
@@ -996,7 +1053,6 @@ function isExportModeAllowed(
   selectedExportMode: ExportMode
 ) {
   if (selectedExportMode === EXPORT_MODE_INTERNAL_ONLY) return true;
-  if (selectedExportMode === EXPORT_MODE_IBM_EXTERNAL_RUN) return false;
   return usageLevelId(license) >= 2;
 }
 
@@ -1030,6 +1086,27 @@ function isWorkerProfileAllowed(
     return ["tester", "internal_power", "internal_qaoa_30", "internal_ultra"].includes(level);
   }
   return ["internal_power", "internal_qaoa_30", "internal_ultra"].includes(level);
+}
+
+function minimumWorkerProfileForProblem(
+  mode: string,
+  qubits: number | undefined
+): WorkerProfileId | undefined {
+  if (!isQaoaSimulationMode(mode) || qubits === undefined || qubits <= 0) return undefined;
+  if (qubits <= 18) return "small";
+  if (qubits <= 25) return "medium";
+  return "large";
+}
+
+function isWorkerProfileProblemAllowed(
+  selectedProfile: string,
+  mode: string,
+  qubits: number | undefined
+) {
+  const profile = normalizeWorkerProfile(selectedProfile);
+  const required = minimumWorkerProfileForProblem(mode, qubits);
+  if (!required) return true;
+  return WORKER_PROFILE_ORDER[profile] >= WORKER_PROFILE_ORDER[required];
 }
 
 function allowedWorkerProfileFallback(license: LicenseStatus | null | undefined) {
@@ -1159,6 +1236,39 @@ function getIbmCircuitMetadata(circuit: unknown): Record<string, unknown> | unde
   return metadata as Record<string, unknown>;
 }
 
+function getHardwareDepthRating(
+  sequentialTwoQDepth: number | undefined,
+  okMax: number = IBM_HERON2_OK_MAX_SEQUENTIAL_2Q_DEPTH,
+  criticalMax: number = IBM_HERON2_CRITICAL_MAX_SEQUENTIAL_2Q_DEPTH
+): HardwareDepthRating | null {
+  if (sequentialTwoQDepth === undefined) return null;
+
+  if (sequentialTwoQDepth < okMax) {
+    return {
+      status: "ok",
+      title: "Circuit depth ok",
+      detail: `Sequential 2Q depth is within the practical Heron r2 comfort zone below ${formatNumber(okMax, 0)} layers.`,
+      className: "border-emerald-700 bg-emerald-950/30 text-emerald-100",
+    };
+  }
+
+  if (sequentialTwoQDepth <= criticalMax) {
+    return {
+      status: "critical",
+      title: "Circuit depth critical",
+      detail: `Sequential 2Q depth is in the critical Heron r2 range between ${formatNumber(okMax, 0)} and ${formatNumber(criticalMax, 0)} layers.`,
+      className: "border-amber-700 bg-amber-950/30 text-amber-100",
+    };
+  }
+
+  return {
+    status: "beyond_limits",
+    title: "Circuit depth beyond comfort zone",
+    detail: `Sequential 2Q depth is above the practical Heron r2 comfort zone of ${formatNumber(criticalMax, 0)} layers. Results are likely to be strongly noise-affected.`,
+    className: "border-red-800 bg-red-950/30 text-red-100",
+  };
+}
+
 function getRecordValue(record: unknown, key: string) {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     return undefined;
@@ -1177,6 +1287,32 @@ function formatGateCounts(value: unknown) {
 
 function getEffectiveSetting(diagnostics: Diagnostics | undefined, key: string) {
   return getRecordValue(diagnostics?.effective_settings, key);
+}
+
+function getPlannedIbmShots(...sources: Array<Diagnostics | undefined>): number | undefined {
+  for (const diagnostics of sources) {
+    const explicitHardwareShots =
+      getNumber(diagnostics?.ibm_hardware_shots) ??
+      getNumber(getEffectiveSetting(diagnostics, "ibm_hardware_shots"));
+    if (explicitHardwareShots !== undefined && explicitHardwareShots > 0) {
+      return explicitHardwareShots;
+    }
+  }
+
+  for (const diagnostics of sources) {
+    const requestedCandidateRows =
+      getNumber(diagnostics?.qaoa_export_requested_rows) ??
+      getNumber(getEffectiveSetting(diagnostics, "qaoa_export_requested_rows")) ??
+      getNumber(diagnostics?.qaoa_max_export_rows) ??
+      getNumber(getEffectiveSetting(diagnostics, "qaoa_max_export_rows")) ??
+      getNumber(diagnostics?.qaoa_export_effective_max_rows) ??
+      getNumber(getEffectiveSetting(diagnostics, "qaoa_export_effective_max_rows"));
+    if (requestedCandidateRows !== undefined && requestedCandidateRows > 0) {
+      return requestedCandidateRows;
+    }
+  }
+
+  return undefined;
 }
 
 function getEffectiveRandomSeed(...sources: Array<Diagnostics | undefined>) {
@@ -1834,7 +1970,7 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
   if (!metadata) {
     return (
       <QuantumPlaceholder title="Export metadata not in this result">
-        Select Qiskit simulation before running a QAOA job to add
+        Select Qiskit simulation or Qiskit on IBM Hardware before running a QAOA job to add
         <span className="font-mono"> circuit.ibm </span> diagnostics.
       </QuantumPlaceholder>
     );
@@ -1849,6 +1985,33 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
   const reason =
     formatText(getRecordValue(metadata, "reason"), "") ||
     formatText(getRecordValue(metadata, "qiskit_unavailable_reason"), "");
+  const comparabilityNote = formatText(getRecordValue(metadata, "comparability_note"), "");
+  const transpiledSequentialTwoQDepth = getNumber(
+    getRecordValue(metadata, "transpiled_sequential_2q_depth")
+  );
+  const hardwareDepthRating = getHardwareDepthRating(transpiledSequentialTwoQDepth);
+  const previewComparison = getRecordValue(metadata, "preview_comparison");
+  const previewComparisonRecord =
+    previewComparison &&
+    typeof previewComparison === "object" &&
+    !Array.isArray(previewComparison)
+      ? (previewComparison as Record<string, unknown>)
+      : undefined;
+  const depthComparison = getRecordValue(previewComparisonRecord, "sequential_2q_depth");
+  const depthComparisonRecord =
+    depthComparison && typeof depthComparison === "object" && !Array.isArray(depthComparison)
+      ? (depthComparison as Record<string, unknown>)
+      : undefined;
+  const constructionComparison = getRecordValue(
+    getRecordValue(previewComparisonRecord, "construction_mode"),
+    "sequential_2q_depth"
+  );
+  const constructionComparisonRecord =
+    constructionComparison &&
+    typeof constructionComparison === "object" &&
+    !Array.isArray(constructionComparison)
+      ? (constructionComparison as Record<string, unknown>)
+      : undefined;
 
   return (
     <div className="space-y-3 text-xs">
@@ -1869,6 +2032,18 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             label="Provider"
             value={formatText(getRecordValue(metadata, "provider"))}
           />
+          <InfoRow
+            label="Instance"
+            value={formatText(getRecordValue(metadata, "instance"))}
+          />
+          <InfoRow
+            label="Backend"
+            value={formatText(
+              getRecordValue(metadata, "backend_name") ??
+                getRecordValue(getRecordValue(metadata, "backend_details"), "name")
+            )}
+          />
+          <InfoRow label="IBM job ID" value={formatText(getRecordValue(metadata, "job_id"))} />
           <InfoRow label="SDK" value={formatText(getRecordValue(metadata, "sdk"))} />
           <InfoRow
             label="Simulation"
@@ -1879,8 +2054,26 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             value={formatText(getRecordValue(metadata, "hardware_submission"))}
           />
           <InfoRow
-            label="Qiskit available"
-            value={formatText(getRecordValue(metadata, "qiskit_available"))}
+            label="Hardware gate mode"
+            value={formatText(
+              getRecordValue(metadata, "fractional_mode_label") ??
+                (getRecordValue(metadata, "fractional_gates_enabled")
+                  ? "Prefer fractional gates"
+                  : "Standard basis")
+            )}
+          />
+          <InfoRow
+            label="Circuit construction"
+            value={formatText(
+              getRecordValue(metadata, "construction_mode_label") ??
+                (getRecordValue(metadata, "parallelized_construction_enabled")
+                  ? "Parallelized construction"
+                  : "Current / standard construction")
+            )}
+          />
+          <InfoRow
+            label="Parse status"
+            value={formatText(getRecordValue(metadata, "parse_status"))}
           />
         </div>
 
@@ -1906,12 +2099,59 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             value={formatText(getRecordValue(metadata, "classical_bits"))}
           />
           <InfoRow
-            label="Operation count"
-            value={formatText(getRecordValue(metadata, "operation_count"))}
+            label="Hardware shots"
+            value={formatText(
+              getRecordValue(metadata, "shots") ??
+                getRecordValue(metadata, "ibm_hardware_shots")
+            )}
+          />
+          <InfoRow
+            label="Shots source"
+            value={formatText(getRecordValue(metadata, "shots_source"))}
+          />
+          <InfoRow
+            label="Qiskit available"
+            value={formatText(getRecordValue(metadata, "qiskit_available"))}
+          />
+          <InfoRow
+            label="Counts decoder"
+            value={formatText(getRecordValue(metadata, "counts_decoder"))}
+          />
+          <InfoRow
+            label="Sampler measurements"
+            value={formatText(getRecordValue(metadata, "measurement_required_for_sampler"))}
           />
         </div>
 
         <div>
+          <InfoRow
+            label="Optimizer bit order"
+            value={formatText(getRecordValue(metadata, "optimizer_bitstring_order"))}
+          />
+          <InfoRow
+            label="Qiskit count order"
+            value={formatText(getRecordValue(metadata, "qiskit_counts_key_order"))}
+          />
+          <InfoRow
+            label="Measurement map"
+            value={formatText(getRecordValue(metadata, "measurement_qubit_to_clbit"))}
+          />
+          <InfoRow
+            label="Export format"
+            value={formatText(getRecordValue(metadata, "export_format"))}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">
+          Circuit size before transpilation
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-6">
+          <InfoRow
+            label="Logical operation count"
+            value={formatText(getRecordValue(metadata, "operation_count"))}
+          />
           <InfoRow
             label="Depth without measurements"
             value={formatText(
@@ -1932,16 +2172,96 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             label="Size with measurements"
             value={formatText(getRecordValue(metadata, "qiskit_size_with_measurements"))}
           />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">
+          Circuit size after transpilation
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-6">
           <InfoRow
-            label="Sampler measurements"
-            value={formatText(getRecordValue(metadata, "measurement_required_for_sampler"))}
+            label="Transpiled depth"
+            value={formatText(getRecordValue(metadata, "transpiled_depth"))}
           />
           <InfoRow
-            label="Counts decoder"
-            value={formatText(getRecordValue(metadata, "counts_decoder"))}
+            label="Transpiled total gates"
+            value={formatText(getRecordValue(metadata, "transpiled_total_gates"))}
+          />
+          <InfoRow
+            label="Transpiled 2Q gates"
+            value={formatText(getRecordValue(metadata, "transpiled_two_qubit_gates"))}
+          />
+          <InfoRow
+            label="Transpiled 2Q depth"
+            value={formatText(getRecordValue(metadata, "transpiled_sequential_2q_depth"))}
+          />
+          <InfoRow
+            label="Transpiled size"
+            value={formatText(getRecordValue(metadata, "transpiled_size"))}
           />
         </div>
       </div>
+
+      {hardwareDepthRating && (
+        <div className={`rounded-xl border px-3 py-2 ${hardwareDepthRating.className}`}>
+          <div className="font-semibold">{hardwareDepthRating.title}</div>
+          <div className="mt-1 text-[11px]">{hardwareDepthRating.detail}</div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="font-semibold text-amber-100 mb-2">Runtime timing</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6">
+          <InfoRow
+            label="Queue wait"
+            value={formatSeconds(getRecordValue(getRecordValue(metadata, "timing"), "queue_wait_seconds"))}
+          />
+          <InfoRow
+            label="Execution"
+            value={formatSeconds(getRecordValue(getRecordValue(metadata, "timing"), "execution_seconds"))}
+          />
+          <InfoRow
+            label="Total"
+            value={formatSeconds(getRecordValue(getRecordValue(metadata, "timing"), "total_seconds"))}
+          />
+        </div>
+      </div>
+
+      {comparabilityNote !== "" && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+          <div className="font-semibold text-amber-100 mb-2">Comparability</div>
+          <div className="text-gray-300">{comparabilityNote}</div>
+        </div>
+      )}
+
+      {depthComparisonRecord && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+          <div className="font-semibold text-amber-100 mb-2">
+            Fractional-gate preview comparison
+          </div>
+          <div className="text-gray-300">
+            Standard {formatText(getRecordValue(depthComparisonRecord, "standard"))} vs
+            fractional {formatText(getRecordValue(depthComparisonRecord, "fractional"))} sequential 2Q
+            layers ({formatPercent(getRecordValue(depthComparisonRecord, "pct_delta"), 1)} delta).
+          </div>
+        </div>
+      )}
+
+      {constructionComparisonRecord && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+          <div className="font-semibold text-amber-100 mb-2">
+            Construction-mode preview comparison
+          </div>
+          <div className="text-gray-300">
+            Current {formatText(getRecordValue(constructionComparisonRecord, "current"))} vs
+            parallelized{" "}
+            {formatText(getRecordValue(constructionComparisonRecord, "parallelized"))} sequential
+            2Q layers (
+            {formatPercent(getRecordValue(constructionComparisonRecord, "pct_delta"), 1)} delta).
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
         <div className="font-semibold text-amber-100 mb-2">Gate counts</div>
@@ -1961,7 +2281,23 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
             getRecordValue(metadata, "qiskit_gate_counts_with_measurements")
           )}
         />
+        <InfoRow
+          label="Transpiled"
+          value={formatGateCounts(getRecordValue(metadata, "transpiled_gate_counts"))}
+        />
       </div>
+
+      {Array.isArray(getRecordValue(metadata, "warnings")) &&
+        (getRecordValue(metadata, "warnings") as unknown[]).length > 0 && (
+          <div className="rounded-xl border border-amber-700/60 bg-amber-950/25 p-3 text-amber-100">
+            <div className="font-semibold mb-1">Hardware notes</div>
+            <div className="space-y-1">
+              {(getRecordValue(metadata, "warnings") as unknown[]).map((warning, idx) => (
+                <div key={idx}>{formatText(warning)}</div>
+              ))}
+            </div>
+          </div>
+        )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
         <div className="font-semibold text-amber-100 mb-2">Bit ordering</div>
@@ -1973,14 +2309,6 @@ function IbmCircuitDiagnostics({ metadata }: { metadata?: Record<string, unknown
           <InfoRow
             label="Qiskit counts key order"
             value={formatText(getRecordValue(metadata, "qiskit_counts_key_order"))}
-          />
-          <InfoRow
-            label="Measurement map"
-            value={formatText(getRecordValue(metadata, "measurement_qubit_to_clbit"))}
-          />
-          <InfoRow
-            label="Export format"
-            value={formatText(getRecordValue(metadata, "export_format"))}
           />
         </div>
       </div>
@@ -2510,10 +2838,12 @@ function CandidateTable({
   rows,
   currencyCode,
   showProbability = false,
+  showCount = false,
 }: {
   rows: CandidateRow[];
   currencyCode: string;
   showProbability?: boolean;
+  showCount?: boolean;
 }) {
   const typeIds = getTypeIdsFromRows(rows);
 
@@ -2526,6 +2856,7 @@ function CandidateTable({
             <th className="py-1.5 pr-3">Source</th>
             <th className="py-1.5 pr-3">Bitstring</th>
             {showProbability && <th className="py-1.5 pr-3">Probability</th>}
+            {showCount && <th className="py-1.5 pr-3">Hits</th>}
             <th className="py-1.5 pr-3">QUBO</th>
             <th className="py-1.5 pr-3">Selected amount</th>
             <th className="py-1.5 pr-3">Budget gap</th>
@@ -2559,6 +2890,11 @@ function CandidateTable({
               {showProbability && (
                 <td className="py-1.5 pr-3 text-gray-300">
                   {formatProbability(candidate.probability)}
+                </td>
+              )}
+              {showCount && (
+                <td className="py-1.5 pr-3 text-gray-300">
+                  {formatText(candidate.count)}
                 </td>
               )}
               <td className="py-1.5 pr-3 text-gray-300">
@@ -2614,6 +2950,14 @@ export default function QaoaRqpV9Page() {
 
   const [mode, setMode] = useState(DEFAULT_RUN_MODE);
   const [exportMode, setExportMode] = useState<ExportMode>(DEFAULT_EXPORT_MODE);
+  const [ibmToken, setIbmToken] = useState("");
+  const [ibmInstance, setIbmInstance] = useState("open-instance");
+  const [ibmBackend, setIbmBackend] = useState("");
+  const [ibmFractionalGates, setIbmFractionalGates] = useState(false);
+  const [ibmParallelization, setIbmParallelization] = useState(false);
+  const [ibmBackends, setIbmBackends] = useState<IbmBackendOption[]>([]);
+  const [ibmBackendsLoading, setIbmBackendsLoading] = useState(false);
+  const [ibmBackendsError, setIbmBackendsError] = useState<string | null>(null);
   const [responseLevel, setResponseLevel] = useState("full");
   const [workerProfile, setWorkerProfile] =
     useState<WorkerProfileId>(DEFAULT_WORKER_PROFILE);
@@ -2634,6 +2978,7 @@ export default function QaoaRqpV9Page() {
   const [result, setResult] = useState<RunResult | null>(null);
   const [inspectResult, setInspectResult] = useState<InspectResult | null>(null);
   const [inspecting, setInspecting] = useState(false);
+  const [lastAppliedInspectKey, setLastAppliedInspectKey] = useState<string | null>(null);
 
   const [logs, setLogs] = useState<string[]>([]);
   const [backendJobLogs, setBackendJobLogs] = useState<string[]>([]);
@@ -2645,6 +2990,7 @@ export default function QaoaRqpV9Page() {
   const [jobError, setJobError] = useState<AsyncSubmitResponse["error"] | null>(null);
   const [reviewFileMessage, setReviewFileMessage] = useState<string | null>(null);
   const [reviewFileError, setReviewFileError] = useState<string | null>(null);
+  const [pdfReportLoading, setPdfReportLoading] = useState(false);
   const [codeExportLoading, setCodeExportLoading] =
     useState<CodeExportTargetValue | null>(null);
 
@@ -2686,6 +3032,96 @@ export default function QaoaRqpV9Page() {
       ? (diagnostics.circuit as Record<string, unknown>)
       : undefined);
   const ibmCircuit = useMemo(() => getIbmCircuitMetadata(circuit), [circuit]);
+  const inspectCircuit =
+    activeDiagnostics.circuit &&
+    typeof activeDiagnostics.circuit === "object" &&
+    !Array.isArray(activeDiagnostics.circuit)
+      ? (activeDiagnostics.circuit as Record<string, unknown>)
+      : undefined;
+  const ibmHardwarePreview = useMemo(() => {
+    const previewSource = result ? circuit : inspectCircuit;
+    const previewDepth = getNumber(getCircuitValue(previewSource, "preview_transpiled_depth"));
+    const previewTotalGates = getNumber(
+      getCircuitValue(previewSource, "preview_transpiled_total_gates")
+    );
+    const previewTwoQGates = getNumber(
+      getCircuitValue(previewSource, "preview_transpiled_two_qubit_gates")
+    );
+    const previewSequentialTwoQDepth = getNumber(
+      getCircuitValue(previewSource, "preview_transpiled_sequential_2q_depth")
+    );
+    const totalGates =
+      previewTotalGates ?? getNumber(getCircuitValue(previewSource, "total_gates"));
+    const totalDepth =
+      previewDepth ?? getNumber(getCircuitValue(previewSource, "estimated_circuit_depth"));
+    const twoQGates =
+      previewTwoQGates ?? getNumber(getCircuitValue(previewSource, "two_qubit_gates"));
+    const sequentialTwoQDepth =
+      previewSequentialTwoQDepth ??
+      getNumber(getCircuitValue(previewSource, "sequential_2q_depth"));
+    const rating = getHardwareDepthRating(sequentialTwoQDepth);
+    const comparisonRecord = getRecordValue(previewSource, "preview_comparison");
+    const comparison =
+      comparisonRecord && typeof comparisonRecord === "object" && !Array.isArray(comparisonRecord)
+        ? (comparisonRecord as Record<string, unknown>)
+        : undefined;
+    const fractionalComparison = getRecordValue(comparison, "sequential_2q_depth");
+    const fractionalComparisonRecord =
+      fractionalComparison &&
+      typeof fractionalComparison === "object" &&
+      !Array.isArray(fractionalComparison)
+        ? (fractionalComparison as Record<string, unknown>)
+        : undefined;
+    const constructionComparison = getRecordValue(
+      getRecordValue(comparison, "construction_mode"),
+      "sequential_2q_depth"
+    );
+    const constructionComparisonRecord =
+      constructionComparison &&
+      typeof constructionComparison === "object" &&
+      !Array.isArray(constructionComparison)
+        ? (constructionComparison as Record<string, unknown>)
+        : undefined;
+    const fallbackReason = formatText(
+      getCircuitValue(previewSource, "preview_fallback_reason"),
+      ""
+    );
+    const selectedFailure = getRecordValue(previewSource, "preview_selected_failure");
+    const selectedFailureRecord =
+      selectedFailure &&
+      typeof selectedFailure === "object" &&
+      !Array.isArray(selectedFailure)
+        ? (selectedFailure as Record<string, unknown>)
+        : undefined;
+
+    return {
+      totalDepth,
+      totalGates,
+      twoQGates,
+      sequentialTwoQDepth,
+      sourceLabel:
+        previewSequentialTwoQDepth !== undefined
+          ? "Backend-aware estimate"
+          : "Logical circuit estimate",
+      okMax: IBM_HERON2_OK_MAX_SEQUENTIAL_2Q_DEPTH,
+      criticalMax: IBM_HERON2_CRITICAL_MAX_SEQUENTIAL_2Q_DEPTH,
+      rating,
+      fractionalDepthComparison: fractionalComparisonRecord,
+      constructionDepthComparison: constructionComparisonRecord,
+      fractionalModeLabel: formatText(
+        getCircuitValue(previewSource, "preview_fractional_mode_label") ??
+          getCircuitValue(previewSource, "fractional_mode_label"),
+        ""
+      ),
+      constructionModeLabel: formatText(
+        getCircuitValue(previewSource, "preview_construction_mode_label") ??
+          getCircuitValue(previewSource, "construction_mode_label"),
+        ""
+      ),
+      fallbackReason,
+      selectedFailureType: formatText(getRecordValue(selectedFailureRecord, "error_type"), ""),
+    };
+  }, [result, circuit, inspectCircuit]);
 
   const classicalCandidates =
     reporting?.classical_candidates ?? result?.top_candidates ?? [];
@@ -2724,6 +3160,8 @@ export default function QaoaRqpV9Page() {
   );
   const secondOpinionBestQubo = secondOpinion?.best_qubo ?? [];
   const secondOpinionSamples = secondOpinion?.samples ?? [];
+  const isIbmHardwareSecondOpinion =
+    activeResultExportMode === EXPORT_MODE_IBM_EXTERNAL_RUN;
   const secondOpinionSourceLabel = displaySecondOpinionSource(activeResultExportMode);
   const secondOpinionPanelSuffix = secondOpinionModeChosen
     ? ` - ${secondOpinionSourceLabel}`
@@ -2766,6 +3204,9 @@ export default function QaoaRqpV9Page() {
   const comparisonGridClass = secondOpinionModeChosen
     ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
     : "grid grid-cols-1 xl:grid-cols-2 gap-4";
+  const ibmDiagnosticsTitle = isIbmHardwareSecondOpinion
+    ? "IBM Hardware Diagnostics"
+    : "IBM / Qiskit Circuit Diagnostics";
   const summaryGridClass = secondOpinionModeChosen
     ? "grid grid-cols-1 xl:grid-cols-3 gap-4"
     : "grid grid-cols-1 xl:grid-cols-2 gap-4";
@@ -2787,6 +3228,9 @@ export default function QaoaRqpV9Page() {
   const isTensorSimMode = normalizeRunMode(mode) === QAOA_TENSOR_SIM_MODE;
   const isExactShotsMode =
     !isTensorSimMode && (shotsMode === "exact" || qaoaShotsDisplay === "exact");
+  const plannedIbmShots =
+    getPlannedIbmShots(diagnostics, inspectDiagnostics) ??
+    (isExactShotsMode ? IBM_DEFAULT_EXACT_SHOTS : qaoaShots);
   const effectiveRandomSeed = getEffectiveRandomSeed(diagnostics, inspectDiagnostics);
   const runModeDiagnostics = useMemo(
     () => getRunModeDiagnostics(mode, diagnostics, inspectDiagnostics),
@@ -2808,6 +3252,63 @@ export default function QaoaRqpV9Page() {
     () => EXPORT_MODE_OPTIONS.find((option) => option.value === exportMode),
     [exportMode]
   );
+  const ibmHardwareModeChosen = exportMode === EXPORT_MODE_IBM_EXTERNAL_RUN;
+  const inspectSettingsKey = useMemo(
+    () =>
+      JSON.stringify({
+        fileName: file?.name ?? null,
+        fileSize: file?.size ?? null,
+        fileModified: file?.lastModified ?? null,
+        apiKeyPresent: Boolean(apiKey),
+        mode,
+        exportMode,
+        ibmHardwareModeChosen,
+        ibmInstance: ibmHardwareModeChosen ? ibmInstance.trim() || "open-instance" : null,
+        ibmBackend: ibmHardwareModeChosen ? ibmBackend.trim() : null,
+        ibmFractionalGates: ibmHardwareModeChosen ? ibmFractionalGates : null,
+        ibmParallelization: ibmHardwareModeChosen ? ibmParallelization : null,
+        responseLevel,
+        workerProfile,
+        layers,
+        iterations,
+        restarts,
+        warmStart,
+        budgetLambda,
+        riskLambda,
+        riskFreeRate,
+        qaoaShots,
+        restartPerturbation,
+        randomSeed,
+      }),
+    [
+      file,
+      apiKey,
+      mode,
+      exportMode,
+      ibmHardwareModeChosen,
+      ibmInstance,
+      ibmBackend,
+      ibmFractionalGates,
+      ibmParallelization,
+      responseLevel,
+      workerProfile,
+      layers,
+      iterations,
+      restarts,
+      warmStart,
+      budgetLambda,
+      riskLambda,
+      riskFreeRate,
+      qaoaShots,
+      restartPerturbation,
+      randomSeed,
+    ]
+  );
+  const ibmPreviewRecalculating =
+    !result &&
+    Boolean(file) &&
+    ibmHardwareModeChosen &&
+    inspectSettingsKey !== lastAppliedInspectKey;
   const selectedWorkerProfileInfo = useMemo(
     () => workerProfileInfo(license, workerProfile),
     [license, workerProfile]
@@ -2858,24 +3359,6 @@ export default function QaoaRqpV9Page() {
     string
   ][];
 
-  const canRun = useMemo(() => {
-    return (
-      !!file &&
-      !loading &&
-      !inspecting &&
-      selectedModeAllowed &&
-      selectedWorkerProfileAllowed &&
-      selectedExportModeAllowed
-    );
-  }, [
-    file,
-    loading,
-    inspecting,
-    selectedModeAllowed,
-    selectedWorkerProfileAllowed,
-    selectedExportModeAllowed,
-  ]);
-
   const canSaveReview = useMemo(() => {
     return Boolean(result || inspectResult || jobStatus || backendJobLogs.length > 0);
   }, [result, inspectResult, jobStatus, backendJobLogs]);
@@ -2883,6 +3366,10 @@ export default function QaoaRqpV9Page() {
   const canDownloadRawJson = useMemo(() => {
     return Boolean(result || inspectResult || jobStatus);
   }, [result, inspectResult, jobStatus]);
+
+  const canDownloadPdfReport = useMemo(() => {
+    return Boolean(result?.status === "completed");
+  }, [result]);
 
   const canRequestCodeExport = useMemo(() => {
     return Boolean(
@@ -2904,6 +3391,42 @@ export default function QaoaRqpV9Page() {
         inspectSummary?.n_qubits
     );
   }, [reportingSummary, result, diagnostics, inspectSummary]);
+
+  const requiredProblemWorkerProfile = useMemo(
+    () => minimumWorkerProfileForProblem(mode, knownQubits),
+    [mode, knownQubits]
+  );
+  const selectedWorkerProfileProblemAllowed = useMemo(
+    () => isWorkerProfileProblemAllowed(workerProfile, mode, knownQubits),
+    [workerProfile, mode, knownQubits]
+  );
+  const requiredProblemWorkerProfileInfo = useMemo(
+    () =>
+      requiredProblemWorkerProfile
+        ? workerProfileInfo(license, requiredProblemWorkerProfile)
+        : null,
+    [license, requiredProblemWorkerProfile]
+  );
+
+  const canRun = useMemo(() => {
+    return (
+      !!file &&
+      !loading &&
+      !inspecting &&
+      selectedModeAllowed &&
+      selectedWorkerProfileAllowed &&
+      selectedWorkerProfileProblemAllowed &&
+      selectedExportModeAllowed
+    );
+  }, [
+    file,
+    loading,
+    inspecting,
+    selectedModeAllowed,
+    selectedWorkerProfileAllowed,
+    selectedWorkerProfileProblemAllowed,
+    selectedExportModeAllowed,
+  ]);
 
   const runtimeCap = useMemo(() => {
     if (isQaoaSimulationMode(mode)) {
@@ -3005,6 +3528,8 @@ export default function QaoaRqpV9Page() {
     const nextRestartPerturbation = getNumber(effectiveSettings.restart_perturbation);
     const nextRandomSeed = getNumber(effectiveSettings.random_seed);
     const nextExportMode = formatText(effectiveSettings.export_mode, "");
+    const nextIbmFractionalGates = getBoolean(effectiveSettings.ibm_fractional_gates);
+    const nextIbmParallelization = getBoolean(effectiveSettings.ibm_parallelization);
 
     let changed = false;
 
@@ -3050,6 +3575,14 @@ export default function QaoaRqpV9Page() {
     }
     if (nextExportMode !== "") {
       setExportMode(normalizeExportMode(nextExportMode));
+      changed = true;
+    }
+    if (nextIbmFractionalGates !== undefined) {
+      setIbmFractionalGates(nextIbmFractionalGates);
+      changed = true;
+    }
+    if (nextIbmParallelization !== undefined) {
+      setIbmParallelization(nextIbmParallelization);
       changed = true;
     }
 
@@ -3112,11 +3645,14 @@ export default function QaoaRqpV9Page() {
     );
   }, [selectedExportModeAllowed]);
 
-  function saveReviewFile() {
-    setReviewFileError(null);
-    setReviewFileMessage(null);
+  useEffect(() => {
+    if (ibmHardwareModeChosen) return;
+    setIbmBackends([]);
+    setIbmBackendsError(null);
+  }, [ibmHardwareModeChosen]);
 
-    const snapshot: SavedQaoaSnapshot = {
+  function buildReviewSnapshot(): SavedQaoaSnapshot {
+    return {
       schema: "qaoa-rqp-review-snapshot",
       schema_version: 1,
       saved_at: new Date().toISOString(),
@@ -3128,6 +3664,10 @@ export default function QaoaRqpV9Page() {
       ui_state: {
         mode,
         export_mode: exportMode,
+        ibm_instance: ibmInstance,
+        ibm_backend: ibmBackend,
+        ibm_fractional_gates: ibmFractionalGates,
+        ibm_parallelization: ibmParallelization,
         response_level: responseLevel,
         layers,
         iterations,
@@ -3149,6 +3689,13 @@ export default function QaoaRqpV9Page() {
       backend_job_logs: backendJobLogs,
       client_logs: logs,
     };
+  }
+
+  function saveReviewFile() {
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+
+    const snapshot = buildReviewSnapshot();
 
     const filename = reviewFilename(snapshot.original_filename ?? null, mode);
     const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
@@ -3167,6 +3714,65 @@ export default function QaoaRqpV9Page() {
 
     setReviewFileMessage(`Saved ${filename}`);
     addLog(`Review file saved: ${filename}`);
+  }
+
+  async function downloadPdfReport() {
+    if (!result || result.status !== "completed") {
+      setReviewFileError("A completed optimization result is required for PDF export.");
+      return;
+    }
+
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+    setPdfReportLoading(true);
+
+    try {
+      const snapshot = buildReviewSnapshot();
+      const res = await fetch(`${API_URL}/exports/report-pdf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { "X-API-Key": apiKey } : {}),
+        },
+        body: JSON.stringify(snapshot),
+      });
+
+      if (!res.ok) {
+        let message = res.statusText;
+        try {
+          const payload = await res.json();
+          message = payload?.error?.message ?? message;
+        } catch {
+          // Keep HTTP status text.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const filename =
+        getFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        pdfReportFilename(
+          workbookFilename ?? file?.name ?? inspectResult?.filename ?? null,
+          mode
+        );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      setReviewFileMessage(`Saved ${filename}`);
+      addLog(`PDF report downloaded: ${filename}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown PDF export error.";
+      setReviewFileError(`Could not build PDF report: ${message}`);
+    } finally {
+      setPdfReportLoading(false);
+    }
   }
 
   function downloadRawJsonData() {
@@ -3311,6 +3917,26 @@ export default function QaoaRqpV9Page() {
             )
           )
         );
+        setIbmInstance(
+          formatText(
+            getEffectiveSetting(resultDiagnostics, "ibm_instance") ??
+              resultDiagnostics.ibm_instance,
+            "open-instance"
+          )
+        );
+        setIbmBackend(
+          formatText(
+            getEffectiveSetting(resultDiagnostics, "ibm_backend") ??
+              resultDiagnostics.ibm_backend,
+            ""
+          )
+        );
+        setIbmFractionalGates(
+          Boolean(getBoolean(getEffectiveSetting(resultDiagnostics, "ibm_fractional_gates")))
+        );
+        setIbmParallelization(
+          Boolean(getBoolean(getEffectiveSetting(resultDiagnostics, "ibm_parallelization")))
+        );
         setInspectResult(raw.inspect_result ?? null);
         setResult(loadedResult);
         setJobStatus(raw.job_status ?? null);
@@ -3346,6 +3972,10 @@ export default function QaoaRqpV9Page() {
       setWorkbookFilename(snapshot.original_filename ?? selectedFile.name);
       setMode(reviewMode);
       setExportMode(normalizeExportMode(snapshot.ui_state?.export_mode));
+      setIbmInstance(snapshot.ui_state?.ibm_instance ?? "open-instance");
+      setIbmBackend(snapshot.ui_state?.ibm_backend ?? "");
+      setIbmFractionalGates(Boolean(snapshot.ui_state?.ibm_fractional_gates));
+      setIbmParallelization(Boolean(snapshot.ui_state?.ibm_parallelization));
       setResponseLevel(snapshot.ui_state?.response_level ?? "full");
       setWorkerProfile(normalizeWorkerProfile(snapshot.ui_state?.worker_profile));
       setLayers(snapshot.ui_state?.layers ?? 1);
@@ -3547,6 +4177,7 @@ export default function QaoaRqpV9Page() {
 
     try {
       addLog("Inspecting workbook...");
+      const requestKey = inspectSettingsKey;
 
       const formData = new FormData();
       formData.append("file", file);
@@ -3554,6 +4185,17 @@ export default function QaoaRqpV9Page() {
       formData.append("export_mode", exportMode);
       formData.append("response_level", responseLevel);
       formData.append("worker_profile", workerProfile);
+      if (ibmHardwareModeChosen) {
+        if (ibmToken.trim()) {
+          formData.append("ibm_token", ibmToken.trim());
+        }
+        formData.append("ibm_instance", ibmInstance.trim() || "open-instance");
+        if (ibmBackend.trim()) {
+          formData.append("ibm_backend", ibmBackend.trim());
+        }
+        formData.append("ibm_fractional_gates", ibmFractionalGates ? "1" : "0");
+        formData.append("ibm_parallelization", ibmParallelization ? "1" : "0");
+      }
 
       if (settingsTouchedRef.current) {
         formData.append("layers", String(layers));
@@ -3580,6 +4222,7 @@ export default function QaoaRqpV9Page() {
       const data: InspectResult = await res.json();
 
       setInspectResult(data);
+      setLastAppliedInspectKey(requestKey);
       applyEffectiveSettingsFromInspection(data);
 
       if (data.license) {
@@ -3675,6 +4318,10 @@ export default function QaoaRqpV9Page() {
     apiKey,
     mode,
     exportMode,
+    ibmFractionalGates,
+    ibmParallelization,
+    ibmInstance,
+    ibmBackend,
     responseLevel,
     workerProfile,
     layers,
@@ -3704,6 +4351,60 @@ export default function QaoaRqpV9Page() {
       clearPollInterval();
     };
   }, [clearPollInterval]);
+
+  async function loadIbmBackends() {
+    if (!ibmToken.trim()) {
+      setIbmBackendsError("Enter your IBM API token first.");
+      addLog("IBM backend discovery skipped: no IBM token entered.");
+      return;
+    }
+
+    setIbmBackendsLoading(true);
+    setIbmBackendsError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("ibm_token", ibmToken.trim());
+      formData.append("ibm_instance", ibmInstance.trim() || "open-instance");
+
+      const res = await fetch(`${API_URL}/ibm/backends`, {
+        method: "POST",
+        headers: apiKey ? { "X-API-Key": apiKey } : {},
+        body: formData,
+      });
+
+      const data: IbmBackendsResponse = await res.json();
+
+      if (data.license) {
+        setLicense(data.license);
+      }
+
+      if (!res.ok || data.error) {
+        const message =
+          data.error?.message ?? `Could not load IBM backends (${res.status}).`;
+        setIbmBackendsError(message);
+        addLog(`IBM backend discovery failed: ${message}`);
+        return;
+      }
+
+      const backends = Array.isArray(data.backends) ? data.backends : [];
+      setIbmBackends(backends);
+      if (!ibmBackend && data.default_backend) {
+        setIbmBackend(String(data.default_backend));
+      }
+      addLog(
+        `Loaded ${backends.length} IBM hardware backend${
+          backends.length === 1 ? "" : "s"
+        } for instance ${data.instance ?? ibmInstance}.`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setIbmBackendsError(message);
+      addLog(`IBM backend discovery failed: ${message}`);
+    } finally {
+      setIbmBackendsLoading(false);
+    }
+  }
 
   async function checkLicense() {
     const controller = new AbortController();
@@ -3759,6 +4460,17 @@ export default function QaoaRqpV9Page() {
       return;
     }
 
+    if (ibmHardwareModeChosen && !ibmToken.trim()) {
+      const error = {
+        code: "ibm_token_required",
+        message: "IBM API token is required when Qiskit on IBM Hardware is selected.",
+      };
+      setJobError(error);
+      setResult({ status: "error", error });
+      addLog(error.message);
+      return;
+    }
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -3780,6 +4492,15 @@ export default function QaoaRqpV9Page() {
       formData.append("export_mode", exportMode);
       formData.append("response_level", responseLevel);
       formData.append("worker_profile", workerProfile);
+      if (ibmHardwareModeChosen) {
+        formData.append("ibm_token", ibmToken.trim());
+        formData.append("ibm_instance", ibmInstance.trim() || "open-instance");
+        if (ibmBackend.trim()) {
+          formData.append("ibm_backend", ibmBackend.trim());
+        }
+        formData.append("ibm_fractional_gates", ibmFractionalGates ? "1" : "0");
+        formData.append("ibm_parallelization", ibmParallelization ? "1" : "0");
+      }
       formData.append("layers", String(layers));
       formData.append("iterations", String(iterations));
       formData.append("restarts", String(restarts));
@@ -4328,6 +5049,297 @@ export default function QaoaRqpV9Page() {
                 )}
               </div>
 
+              {ibmHardwareModeChosen && (
+                <div className="mb-3 rounded-xl border border-amber-800/70 bg-amber-950/20 p-3 text-xs">
+                  <div className="font-semibold text-amber-100 mb-2">
+                    IBM Quantum hardware session
+                  </div>
+                  <div className="text-amber-50/90 mb-3">
+                    Enter your IBM Quantum token for this run. The backend uses it
+                    only for the current hardware job and does not include it in
+                    downloaded result files.
+                  </div>
+
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    IBM API token
+                  </label>
+                  <input
+                    type="password"
+                    value={ibmToken}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmToken(e.target.value);
+                      setIbmBackends([]);
+                      setIbmBackendsError(null);
+                    }}
+                    placeholder="Paste IBM Quantum token"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  />
+
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    IBM instance
+                  </label>
+                  <input
+                    value={ibmInstance}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmInstance(e.target.value);
+                      setIbmBackends([]);
+                      setIbmBackendsError(null);
+                    }}
+                    placeholder="open-instance"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  />
+
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    Hardware circuit construction
+                  </label>
+                  <select
+                    value={ibmParallelization ? "parallelized" : "current"}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmParallelization(e.target.value === "parallelized");
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  >
+                    <option value="current">Current / standard construction</option>
+                    <option value="parallelized">Parallelized construction</option>
+                  </select>
+                  <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-[11px] text-gray-300">
+                    Parallelized construction keeps the current hardware path intact by default and
+                    uses a separate QAOA cost-layer build that groups disjoint ZZ interactions into
+                    parallel rounds.
+                  </div>
+
+                  <label className="block text-xs text-gray-300 mb-1.5">
+                    Hardware gate mode
+                  </label>
+                  <select
+                    value={ibmFractionalGates ? "fractional" : "standard"}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmFractionalGates(e.target.value === "fractional");
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100 mb-3"
+                  >
+                    <option value="standard">Standard basis</option>
+                    <option value="fractional">Prefer fractional gates</option>
+                  </select>
+                  <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-[11px] text-gray-300">
+                    Prefer fractional gates to preserve more direct QAOA-style RZZ / RX structure
+                    when the selected IBM backend supports it.
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 mb-1.5">
+                    <label className="block text-xs text-gray-300">
+                      Optional backend override
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void loadIbmBackends()}
+                      disabled={ibmBackendsLoading || !ibmToken.trim()}
+                      className="rounded-lg border border-amber-700 bg-amber-950/40 px-2.5 py-1 text-[11px] font-semibold text-amber-100 disabled:opacity-50"
+                    >
+                      {ibmBackendsLoading ? "Loading..." : "Load IBM backends"}
+                    </button>
+                  </div>
+                  <select
+                    value={ibmBackend}
+                    onChange={(e) => {
+                      markSettingsTouched();
+                      setIbmBackend(e.target.value);
+                    }}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-gray-100"
+                  >
+                    <option value="">Auto-select available backend</option>
+                    {ibmBackends.map((backend) => (
+                      <option key={backend.name} value={backend.name}>
+                        {backend.name} - {formatText(backend.num_qubits)} qubits, pending{" "}
+                        {formatText(backend.pending_jobs)}
+                      </option>
+                    ))}
+                  </select>
+
+                  {ibmBackendsError && (
+                    <div className="mt-2 rounded-lg border border-red-800 bg-red-950/30 p-2 text-red-100">
+                      {ibmBackendsError}
+                    </div>
+                  )}
+
+                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-gray-300">
+                    <div className="mb-2 font-semibold text-amber-100">
+                      Pre-run hardware depth estimate
+                    </div>
+                    <div className="mb-2 text-[11px] text-gray-400">
+                      {ibmPreviewRecalculating
+                        ? "Recalculating preview"
+                        : ibmHardwarePreview.sourceLabel}
+                      {ibmHardwarePreview.constructionModeLabel
+                        ? ` · ${ibmHardwarePreview.constructionModeLabel}`
+                        : ""}
+                      {ibmHardwarePreview.fractionalModeLabel
+                        ? ` · ${ibmHardwarePreview.fractionalModeLabel}`
+                        : ""}
+                    </div>
+                    {ibmPreviewRecalculating ? (
+                      <div className="mb-2 rounded-lg border border-sky-900/60 bg-sky-950/20 px-2 py-1 text-[11px] text-sky-100">
+                        Recalculation in progress for the selected IBM hardware options. Updated
+                        depth and gate estimates will appear shortly.
+                      </div>
+                    ) : null}
+                    {ibmHardwarePreview.sourceLabel !== "Backend-aware estimate" &&
+                    !ibmPreviewRecalculating &&
+                    ibmHardwarePreview.fallbackReason ? (
+                      <div className="mb-2 rounded-lg border border-amber-900/60 bg-amber-950/20 px-2 py-1 text-[11px] text-amber-100">
+                        {ibmHardwarePreview.fallbackReason}
+                        {ibmHardwarePreview.selectedFailureType
+                          ? ` (${ibmHardwarePreview.selectedFailureType})`
+                          : ""}
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-5">
+                      <div>
+                        <div className="text-gray-500">
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled depth"
+                            : "Logical depth"}
+                        </div>
+                        <div className="font-mono text-gray-100">
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.totalDepth)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled gates"
+                            : "Logical total gates"}
+                        </div>
+                        <div className="font-mono text-gray-100">
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.totalGates)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled 2Q"
+                            : "Logical 2Q gates"}
+                        </div>
+                        <div className="font-mono text-gray-100">
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.twoQGates)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">
+                          {!ibmPreviewRecalculating &&
+                          ibmHardwarePreview.sourceLabel === "Backend-aware estimate"
+                            ? "Est. transpiled seq. 2Q"
+                            : "Logical seq. 2Q"}
+                        </div>
+                        <div className="font-mono text-gray-100">
+                          {ibmPreviewRecalculating
+                            ? "..."
+                            : formatText(ibmHardwarePreview.sequentialTwoQDepth)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">Heron r2 band</div>
+                        <div className="font-mono text-gray-100">
+                          &lt;{formatNumber(ibmHardwarePreview.okMax, 0)} /{" "}
+                          {formatNumber(ibmHardwarePreview.criticalMax, 0)}+
+                        </div>
+                      </div>
+                    </div>
+
+                    {!ibmPreviewRecalculating && ibmHardwarePreview.rating ? (
+                      <div
+                        className={`mt-2 rounded-lg border px-2 py-1.5 ${ibmHardwarePreview.rating.className}`}
+                      >
+                        <div className="font-semibold">{ibmHardwarePreview.rating.title}</div>
+                        <div className="mt-0.5 text-[11px]">{ibmHardwarePreview.rating.detail}</div>
+                      </div>
+                    ) : ibmPreviewRecalculating ? (
+                      <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
+                        Using the latest workbook and IBM settings to recompute the hardware
+                        preview.
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-[11px] text-gray-500">
+                        Recalculate or inspect the workbook to see the hardware preview
+                        before submission.
+                      </div>
+                    )}
+
+                    {!ibmPreviewRecalculating && ibmHardwarePreview.fractionalDepthComparison && (
+                      <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
+                        Fractional-gate comparison: standard{" "}
+                        {formatText(
+                          getRecordValue(ibmHardwarePreview.fractionalDepthComparison, "standard")
+                        )}{" "}
+                        vs fractional{" "}
+                        {formatText(
+                          getRecordValue(ibmHardwarePreview.fractionalDepthComparison, "fractional")
+                        )}{" "}
+                        sequential 2Q layers (
+                        {formatPercent(
+                          getRecordValue(ibmHardwarePreview.fractionalDepthComparison, "pct_delta"),
+                          1
+                        )}{" "}
+                        delta).
+                      </div>
+                    )}
+
+                    {!ibmPreviewRecalculating &&
+                    ibmHardwarePreview.constructionDepthComparison && (
+                      <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-950/60 px-2 py-1.5 text-[11px] text-gray-300">
+                        Construction comparison: current{" "}
+                        {formatText(
+                          getRecordValue(ibmHardwarePreview.constructionDepthComparison, "current")
+                        )}{" "}
+                        vs parallelized{" "}
+                        {formatText(
+                          getRecordValue(
+                            ibmHardwarePreview.constructionDepthComparison,
+                            "parallelized"
+                          )
+                        )}{" "}
+                        sequential 2Q layers (
+                        {formatPercent(
+                          getRecordValue(
+                            ibmHardwarePreview.constructionDepthComparison,
+                            "pct_delta"
+                          ),
+                          1
+                        )}{" "}
+                        delta).
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-gray-300">
+                    {isExactShotsMode ? (
+                      <>
+                        Internal QAOA used exact probabilities, so IBM hardware will
+                        use {formatNumber(plannedIbmShots, 0)} shots for comparison.
+                      </>
+                    ) : (
+                      <>
+                        IBM hardware uses the same shot count as the simulator
+                        setting for comparability: {formatNumber(plannedIbmShots, 0)} shots.
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <label className="block text-xs text-gray-300 mb-1.5">
                 Response level
               </label>
@@ -4357,12 +5369,27 @@ export default function QaoaRqpV9Page() {
               >
                 {WORKER_PROFILE_OPTIONS.map((option) => {
                   const info = workerProfileInfo(license, option.value);
-                  const allowed = isWorkerProfileAllowed(license, option.value);
+                  const licenseAllowed = isWorkerProfileAllowed(license, option.value);
+                  const problemAllowed = isWorkerProfileProblemAllowed(
+                    option.value,
+                    mode,
+                    knownQubits
+                  );
+                  const allowed = licenseAllowed && problemAllowed;
+                  const requiredLabel =
+                    !licenseAllowed
+                      ? requiredWorkerProfileText(info)
+                      : requiredProblemWorkerProfileInfo && knownQubits !== undefined
+                        ? `Requires ${requiredProblemWorkerProfileInfo.label} for ${formatNumber(
+                            knownQubits,
+                            0
+                          )} qubits`
+                        : "Not available";
 
                   return (
                     <option key={option.value} value={option.value} disabled={!allowed}>
                       {info.label} - {workerProfileResourceText(info)}
-                      {allowed ? "" : ` (${requiredWorkerProfileText(info)})`}
+                      {allowed ? "" : ` (${requiredLabel})`}
                     </option>
                   );
                 })}
@@ -4387,6 +5414,17 @@ export default function QaoaRqpV9Page() {
                     This worker profile is not available for the current key.
                   </div>
                 )}
+                {selectedWorkerProfileAllowed &&
+                  !selectedWorkerProfileProblemAllowed &&
+                  requiredProblemWorkerProfileInfo &&
+                  knownQubits !== undefined && (
+                    <div className="mt-2 rounded-lg border border-amber-700 bg-amber-950/30 p-2 text-amber-100">
+                      {formatNumber(knownQubits, 0)} qubits in{" "}
+                      {displayRunMode(mode)} require at least the{" "}
+                      {requiredProblemWorkerProfileInfo.label} worker profile (
+                      {workerProfileResourceText(requiredProblemWorkerProfileInfo)}).
+                    </div>
+                  )}
               </div>
 
               {settingsLoadedFromWorkbook && (
@@ -4693,6 +5731,14 @@ export default function QaoaRqpV9Page() {
                 className="mt-2 w-full rounded-lg bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
               >
                 Download Raw JSON Data
+              </button>
+
+              <button
+                onClick={downloadPdfReport}
+                disabled={!canDownloadPdfReport || pdfReportLoading}
+                className="mt-2 w-full rounded-lg bg-rose-500 hover:bg-rose-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
+              >
+                {pdfReportLoading ? "Preparing PDF..." : "Download PDF Report"}
               </button>
 
               <div className="mt-3 border-t border-slate-800 pt-3">
@@ -5069,7 +6115,7 @@ export default function QaoaRqpV9Page() {
                   <MemoryDiagnosticsChart metadata={activeWorkerMetadata} />
                 </Panel>
 
-                <Panel title="IBM / Qiskit Dry Run" tone="amber">
+                <Panel title={ibmDiagnosticsTitle} tone="amber">
                   <IbmCircuitDiagnostics metadata={ibmCircuit} />
                 </Panel>
               </div>
@@ -5157,8 +6203,13 @@ export default function QaoaRqpV9Page() {
                       value={formatText(getCircuitValue(circuit, "estimated_circuit_depth"))}
                     />
                     <InfoRow
-                      label="Estimated counts"
-                      value={formatText(getCircuitValue(circuit, "counts_are_estimated"))}
+                      label="Metric source"
+                      value={formatText(
+                        getCircuitValue(circuit, "metric_source") ??
+                          (getCircuitValue(circuit, "counts_are_estimated")
+                            ? "structural_formula"
+                            : "qiskit_logical_circuit")
+                      )}
                     />
                   </div>
                 </div>
@@ -5537,7 +6588,7 @@ export default function QaoaRqpV9Page() {
               </Panel>
             )}
 
-            {result && !result.error && secondOpinionModeChosen && (
+            {result && !result.error && secondOpinionModeChosen && !isIbmHardwareSecondOpinion && (
               <Panel
                 title={`Top Quantum Candidates (2nd opinion)${secondOpinionPanelSuffix}`}
                 tone="secondOpinion"
@@ -5556,6 +6607,47 @@ export default function QaoaRqpV9Page() {
                   <QuantumPlaceholder title="No 2nd opinion candidates">
                     {secondOpinion?.reason ??
                       `No ${secondOpinionSourceLabel} 2nd opinion candidates are available for this result.`}
+                  </QuantumPlaceholder>
+                )}
+              </Panel>
+            )}
+
+            {result && !result.error && secondOpinionModeChosen && isIbmHardwareSecondOpinion && (
+              <Panel
+                title={`Top Quantum Candidates by QUBO (2nd opinion)${secondOpinionPanelSuffix}`}
+                tone="secondOpinion"
+              >
+                {secondOpinionBestQubo.length > 0 ? (
+                  <CandidateTable
+                    rows={secondOpinionBestQubo}
+                    currencyCode={currencyCode}
+                    showProbability
+                  />
+                ) : (
+                  <QuantumPlaceholder title="No IBM hardware QUBO candidates">
+                    {secondOpinion?.reason ??
+                      `No ${secondOpinionSourceLabel} QUBO-ranked candidates are available for this result.`}
+                  </QuantumPlaceholder>
+                )}
+              </Panel>
+            )}
+
+            {result && !result.error && secondOpinionModeChosen && isIbmHardwareSecondOpinion && (
+              <Panel
+                title={`Top Quantum Samples by Probability / Hits (2nd opinion)${secondOpinionPanelSuffix}`}
+                tone="secondOpinion"
+              >
+                {secondOpinionSamples.length > 0 ? (
+                  <CandidateTable
+                    rows={secondOpinionSamples}
+                    currencyCode={currencyCode}
+                    showProbability
+                    showCount
+                  />
+                ) : (
+                  <QuantumPlaceholder title="No IBM hardware samples">
+                    {secondOpinion?.reason ??
+                      `No ${secondOpinionSourceLabel} hit-ranked samples are available for this result.`}
                   </QuantumPlaceholder>
                 )}
               </Panel>

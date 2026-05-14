@@ -31,6 +31,7 @@ from app.usage_policy import (
     EXPORT_MODE_INTERNAL_ONLY,
     EXPORT_MODE_LABELS,
     EXPORT_MODE_QISKIT_EXPORT,
+    QAOA_MODES,
     mode_diagnostics,
     runtime_estimate_payload,
 )
@@ -559,6 +560,7 @@ def build_inspection_response(
         "random_seed": getattr(policy_result.runtime_inputs, "random_seed", None),
         "export_mode": getattr(policy_result, "export_mode", DEFAULT_EXPORT_MODE),
         "export_mode_diagnostics": getattr(policy_result, "export_mode_diagnostics", {}),
+        "circuit": _circuit_report(optimizer),
         "cost_column_used": _safe_attr(optimizer, "input_cost_column"),
         "cost_column_internal": _safe_attr(optimizer, "internal_cost_column"),
         "cost_column_normalized": bool(getattr(optimizer, "cost_column_normalized", False)),
@@ -836,19 +838,7 @@ def _qiskit_second_opinion_report(optimizer) -> dict[str, Any]:
         )
 
     if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
-        return json_safe(
-            {
-                "available": False,
-                "enabled": True,
-                "label": label,
-                "source": "ibm_hardware",
-                "reason": "IBM Hardware execution is reserved for a later backend release.",
-                "summary": _empty_second_opinion_summary(label, "IBM Hardware later", source_label),
-                "samples": [],
-                "best_qubo": [],
-                "portfolio_contents": [],
-            }
-        )
+        return _ibm_hardware_second_opinion_report(optimizer, label=label, source_label=source_label)
 
     samples = getattr(optimizer, "samples_df", pd.DataFrame())
     exact = getattr(optimizer, "qaoa_exact_best_qubo_df", pd.DataFrame())
@@ -983,6 +973,146 @@ def _qiskit_second_opinion_report(optimizer) -> dict[str, Any]:
         )
 
 
+def _ibm_hardware_second_opinion_report(
+    optimizer,
+    *,
+    label: str,
+    source_label: str,
+) -> dict[str, Any]:
+    raw = _ibm_runtime_result(optimizer)
+    if not raw:
+        return json_safe(
+            {
+                "available": False,
+                "enabled": True,
+                "label": label,
+                "source": "ibm_hardware",
+                "reason": "IBM hardware execution was not available for this result.",
+                "summary": _empty_second_opinion_summary(label, "Unavailable", source_label),
+                "samples": [],
+                "best_qubo": [],
+                "portfolio_contents": [],
+            }
+        )
+
+    if not raw.get("available"):
+        return json_safe(
+            {
+                "available": False,
+                "enabled": True,
+                "label": label,
+                "source": "ibm_hardware",
+                "provider": raw.get("provider"),
+                "sdk": raw.get("sdk"),
+                "simulation": False,
+                "dry_run": False,
+                "hardware_submission": raw.get("hardware_submission"),
+                "instance": raw.get("instance"),
+                "backend_name": raw.get("backend_name"),
+                "job_id": raw.get("job_id"),
+                "shots": raw.get("shots"),
+                "shots_source": raw.get("shots_source"),
+                "comparability_note": raw.get("comparability_note"),
+                "parse_status": raw.get("parse_status"),
+                "timing": raw.get("timing"),
+                "warnings": raw.get("warnings") or [],
+                "reason": raw.get("reason"),
+                "error": raw.get("error"),
+                "result_snapshot": raw.get("result_snapshot"),
+                "summary": _empty_second_opinion_summary(label, "Unavailable", source_label),
+                "samples": [],
+                "best_qubo": [],
+                "portfolio_contents": [],
+            }
+        )
+
+    probabilities_by_bitstring = dict(raw.get("probabilities") or {})
+    measured_bitstrings = list(raw.get("measured_bitstrings_by_hits") or [])
+    counts = dict(raw.get("counts") or {})
+    if not measured_bitstrings:
+        measured_bitstrings = [
+            bitstring
+            for bitstring, _value in sorted(
+                counts.items(),
+                key=lambda item: (-float(item[1]), item[0]),
+            )
+        ]
+
+    sample_rows = []
+    for rank, bitstring in enumerate(measured_bitstrings[:20], start=1):
+        row = _candidate_row_for_bitstring(
+            optimizer,
+            bitstring,
+            probability=probabilities_by_bitstring.get(bitstring),
+            source="ibm_hardware_second_opinion",
+            selection_scope="IBM hardware measured candidates sorted by hits",
+        )
+        if row is not None:
+            row["rank"] = rank
+            row["count"] = _safe_int(counts.get(bitstring))
+            row["shots"] = _safe_int(raw.get("shots"))
+            sample_rows.append(row)
+
+    sample_df = _sort_df(pd.DataFrame(sample_rows), optimizer, "probability", False)
+    if "count" in sample_df.columns:
+        sample_df = sample_df.sort_values(by=["count", "qubo_value"], ascending=[False, True], kind="mergesort")
+
+    best_df = _sort_df(pd.DataFrame(sample_rows), optimizer, "qubo_value", True)
+    if len(best_df):
+        best_df = best_df.head(20).copy()
+        best_df["selection_scope"] = "IBM hardware measured candidates sorted by QUBO"
+        if "rank" in best_df.columns:
+            best_df = best_df.reset_index(drop=True)
+            best_df["rank"] = np.arange(1, len(best_df) + 1)
+
+    summary_row = best_df.iloc[0] if len(best_df) else (sample_df.iloc[0] if len(sample_df) else None)
+    summary = (
+        _candidate_summary(
+            summary_row,
+            title=label,
+            status="Available",
+            available=True,
+            source=source_label,
+            solver="Quantum / QAOA (2nd opinion)",
+        )
+        if summary_row is not None
+        else _empty_second_opinion_summary(label, "No measured candidates", source_label)
+    )
+    portfolio_contents = (
+        _portfolio_rows_for_candidate(optimizer, summary_row, "ibm_hardware_second_opinion")
+        if summary_row is not None
+        else []
+    )
+
+    return json_safe(
+        {
+            "available": bool(summary_row is not None and raw.get("available")),
+            "enabled": True,
+            "label": label,
+            "source": "ibm_hardware",
+            "provider": raw.get("provider"),
+            "sdk": raw.get("sdk"),
+            "simulation": False,
+            "dry_run": False,
+            "hardware_submission": raw.get("hardware_submission"),
+            "instance": raw.get("instance"),
+            "backend_name": raw.get("backend_name"),
+            "job_id": raw.get("job_id"),
+            "shots": raw.get("shots"),
+            "shots_source": raw.get("shots_source"),
+            "comparability_note": raw.get("comparability_note"),
+            "parse_status": raw.get("parse_status"),
+            "timing": raw.get("timing"),
+            "warnings": raw.get("warnings") or [],
+            "result_snapshot": raw.get("result_snapshot"),
+            "summary": summary,
+            "samples": _records(sample_df),
+            "best_qubo": _records(best_df),
+            "portfolio_contents": portfolio_contents,
+        }
+    )
+
+
 def _second_opinion_label(export_mode: str | None) -> str:
     if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
         return "Quantum (2nd opinion) - IBM Hardware"
@@ -1051,6 +1181,20 @@ def _qiskit_statevector_probabilities_by_optimizer_bitstring(optimizer) -> dict[
         optimizer_bitstring = qiskit_key[::-1]
         result[optimizer_bitstring] = result.get(optimizer_bitstring, 0.0) + value
     return result
+
+
+def _ibm_runtime_result(optimizer) -> dict[str, Any]:
+    raw = getattr(optimizer, "ibm_hardware_result", None)
+    if isinstance(raw, dict):
+        return json_safe(raw)
+    return {}
+
+
+def _ibm_preview_result(optimizer) -> dict[str, Any]:
+    raw = getattr(optimizer, "ibm_runtime_preview", None)
+    if isinstance(raw, dict):
+        return json_safe(raw)
+    return {}
 
 
 def _candidate_row_for_bitstring(
@@ -1440,13 +1584,75 @@ def _export_mode_diagnostics(optimizer) -> dict[str, Any]:
     payload.setdefault("export_mode", export_mode)
     payload.setdefault("export_mode_label", EXPORT_MODE_LABELS.get(export_mode, export_mode))
     payload.setdefault("hardware_submission", "not_configured")
+    ibm_runtime_settings = getattr(optimizer, "ibm_runtime_settings", None)
+    if isinstance(ibm_runtime_settings, dict):
+        payload.setdefault("ibm_instance", ibm_runtime_settings.get("instance"))
+        payload.setdefault("ibm_backend", ibm_runtime_settings.get("backend_name"))
+        payload.setdefault("ibm_backend_selection", ibm_runtime_settings.get("backend_selection"))
+        payload.setdefault("ibm_fractional_gates", ibm_runtime_settings.get("fractional_gates_enabled"))
+        payload.setdefault("ibm_fractional_mode_label", ibm_runtime_settings.get("fractional_mode_label"))
+        payload.setdefault(
+            "ibm_parallelization", ibm_runtime_settings.get("parallelized_construction_enabled")
+        )
+        payload.setdefault("ibm_construction_mode_label", ibm_runtime_settings.get("construction_mode_label"))
+        payload.setdefault("ibm_hardware_shots", ibm_runtime_settings.get("hardware_shots"))
+        payload.setdefault("ibm_hardware_shots_source", ibm_runtime_settings.get("hardware_shots_source"))
+        payload.setdefault("comparability_note", ibm_runtime_settings.get("comparability_note"))
     return json_safe(payload)
 
 
 def _ibm_export_report(optimizer, *, qaoa_executed: bool) -> dict[str, Any]:
     export_mode = _export_mode(optimizer)
     diagnostics = _export_mode_diagnostics(optimizer)
+    ibm_runtime_settings = getattr(optimizer, "ibm_runtime_settings", {}) or {}
+    use_fractional_gates = bool(ibm_runtime_settings.get("fractional_gates_enabled"))
+    parallelize_cost_terms = bool(ibm_runtime_settings.get("parallelized_construction_enabled"))
+    preview_result = _ibm_preview_result(optimizer)
     if not qaoa_executed:
+        if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN and preview_result.get("available"):
+            selected_preview = dict(preview_result.get("selected_preview") or {})
+            metadata = dict(
+                selected_preview.get("pretranspile")
+                or qaoa_ibm_circuit_metadata(
+                    optimizer,
+                    use_fractional_gates=use_fractional_gates,
+                    parallelize_cost_terms=parallelize_cost_terms,
+                )
+            )
+            post = dict(selected_preview.get("posttranspile") or {})
+            metadata.update(
+                json_safe(
+                    {
+                        "available": True,
+                        "provider": preview_result.get("provider", "ibm_quantum_platform"),
+                        "sdk": preview_result.get("sdk", "qiskit"),
+                        "export_mode": export_mode,
+                        "export_mode_label": diagnostics.get("export_mode_label"),
+                        "dry_run": True,
+                        "simulation": False,
+                        "hardware_submission": "preview_only",
+                        "instance": preview_result.get("instance"),
+                        "backend_name": preview_result.get("backend_name"),
+                        "backend_details": preview_result.get("backend_details"),
+                        "job_id": None,
+                        "shots": None,
+                        "shots_source": diagnostics.get("ibm_hardware_shots_source"),
+                        "comparability_note": diagnostics.get("comparability_note"),
+                        "parse_status": "preview_only",
+                        "warnings": selected_preview.get("warnings") or [],
+                        "posttranspile": post,
+                        "transpiled_depth": post.get("depth"),
+                        "transpiled_size": post.get("size"),
+                        "transpiled_gate_counts": post.get("gate_counts"),
+                        "transpiled_total_gates": post.get("total_gates"),
+                        "transpiled_two_qubit_gates": post.get("two_qubit_gates"),
+                        "transpiled_sequential_2q_depth": post.get("sequential_2q_depth"),
+                        "preview_comparison": preview_result.get("comparison") or {},
+                        "depth_reference": preview_result.get("depth_reference") or {},
+                    }
+                )
+            )
+            return json_safe(metadata)
         return json_safe(
             {
                 "available": False,
@@ -1459,14 +1665,55 @@ def _ibm_export_report(optimizer, *, qaoa_executed: bool) -> dict[str, Any]:
             }
         )
     if export_mode == EXPORT_MODE_QISKIT_EXPORT:
-        metadata = qaoa_ibm_circuit_metadata(optimizer)
+        metadata = qaoa_ibm_circuit_metadata(optimizer, use_fractional_gates=use_fractional_gates)
         metadata["export_mode"] = export_mode
         metadata["export_mode_label"] = diagnostics.get("export_mode_label")
         return json_safe(metadata)
     if export_mode == EXPORT_MODE_IBM_EXTERNAL_RUN:
-        reason = "IBM external run is reserved for a later backend release."
-    else:
-        reason = "Qiskit export was not requested for this run."
+        runtime_result = _ibm_runtime_result(optimizer)
+        metadata = dict(
+            runtime_result.get("pretranspile")
+            or qaoa_ibm_circuit_metadata(optimizer, use_fractional_gates=use_fractional_gates)
+        )
+        post = dict(runtime_result.get("posttranspile") or {})
+        metadata.update(
+            json_safe(
+                {
+                    "available": bool(runtime_result.get("available")),
+                    "provider": runtime_result.get("provider", "ibm_quantum"),
+                    "sdk": runtime_result.get("sdk", "qiskit"),
+                    "export_mode": export_mode,
+                    "export_mode_label": diagnostics.get("export_mode_label"),
+                    "dry_run": False,
+                    "simulation": False,
+                    "hardware_submission": runtime_result.get("hardware_submission", "requested"),
+                    "instance": runtime_result.get("instance"),
+                    "backend_name": runtime_result.get("backend_name"),
+                    "backend_details": runtime_result.get("backend_details"),
+                    "job_id": runtime_result.get("job_id"),
+                    "shots": runtime_result.get("shots"),
+                    "shots_source": runtime_result.get("shots_source"),
+                    "comparability_note": runtime_result.get("comparability_note"),
+                    "parse_status": runtime_result.get("parse_status"),
+                    "error": runtime_result.get("error"),
+                    "result_snapshot": runtime_result.get("result_snapshot"),
+                    "timing": runtime_result.get("timing"),
+                    "warnings": runtime_result.get("warnings") or [],
+                    "counts": runtime_result.get("counts") or {},
+                    "counts_qiskit": runtime_result.get("counts_qiskit") or {},
+                    "posttranspile": post,
+                    "transpiled_depth": post.get("depth"),
+                    "transpiled_size": post.get("size"),
+                    "transpiled_gate_counts": post.get("gate_counts"),
+                    "transpiled_total_gates": post.get("total_gates"),
+                    "transpiled_two_qubit_gates": post.get("two_qubit_gates"),
+                    "transpiled_sequential_2q_depth": post.get("sequential_2q_depth"),
+                    "depth_reference": runtime_result.get("depth_reference") or {},
+                    "reason": runtime_result.get("reason"),
+                }
+            )
+        )
+        return json_safe(metadata)
     return json_safe(
         {
             "available": False,
@@ -1474,7 +1721,7 @@ def _ibm_export_report(optimizer, *, qaoa_executed: bool) -> dict[str, Any]:
             "sdk": "qiskit",
             "export_mode": export_mode,
             "export_mode_label": diagnostics.get("export_mode_label"),
-            "reason": reason,
+            "reason": "Qiskit export was not requested for this run.",
             "hardware_submission": "not_configured",
         }
     )
@@ -1482,13 +1729,25 @@ def _ibm_export_report(optimizer, *, qaoa_executed: bool) -> dict[str, Any]:
 
 def _circuit_report(optimizer) -> dict[str, Any]:
     n_qubits = _safe_int(getattr(optimizer, "n", None))
-    layers = _safe_int(getattr(optimizer, "qaoa_p", None))
+    layers = _safe_int(getattr(optimizer, "qaoa_preview_layers", None))
+    if layers is None:
+        layers = _safe_int(getattr(optimizer, "qaoa_p", None))
     qubo = getattr(optimizer, "Q", np.array([]))
+    requested_run_mode = str(getattr(optimizer, "requested_run_mode", "") or "").strip().lower()
+    run_mode = str(getattr(optimizer, "run_mode", "") or "").strip().lower()
+    qaoa_requested = requested_run_mode in QAOA_MODES or run_mode in QAOA_MODES
     qaoa_configured = bool(getattr(optimizer, "enable_qaoa", False))
     qaoa_available = bool(len(getattr(optimizer, "samples_df", [])))
+    qaoa_executed = qaoa_configured or qaoa_available
     export_mode = _export_mode(optimizer)
     export_diagnostics = _export_mode_diagnostics(optimizer)
-    if not qaoa_configured and not qaoa_available:
+    ibm_runtime_settings = getattr(optimizer, "ibm_runtime_settings", {}) or {}
+    use_fractional_gates = bool(ibm_runtime_settings.get("fractional_gates_enabled"))
+    parallelize_cost_terms = bool(ibm_runtime_settings.get("parallelized_construction_enabled"))
+    preview_result = _ibm_preview_result(optimizer)
+    selected_preview = dict(preview_result.get("selected_preview") or {})
+    preview_post = dict(selected_preview.get("posttranspile") or {})
+    if not qaoa_requested and not qaoa_executed:
         return json_safe(
             {
                 "available": False,
@@ -1512,23 +1771,61 @@ def _circuit_report(optimizer) -> dict[str, Any]:
         one_qubit_cost_terms, two_qubit_cost_terms, qubo_nonzero_entries = _qubo_term_counts(qubo)
         n_qubits_int = max(int(n_qubits or 0), 0)
         layers_int = max(int(layers or 0), 0)
-        initial_hadamards = n_qubits_int
-        mixer_rx = layers_int * n_qubits_int
-        cost_rz = layers_int * (one_qubit_cost_terms + two_qubit_cost_terms)
-        two_qubit_gates = layers_int * two_qubit_cost_terms * 2
-        one_qubit_gates = initial_hadamards + mixer_rx + cost_rz
-        total_gates = one_qubit_gates + two_qubit_gates
-        sequential_2q_depth = layers_int * two_qubit_cost_terms * 2
-        estimated_circuit_depth = initial_hadamards + layers_int * (
-            max(1, one_qubit_cost_terms) + max(1, two_qubit_cost_terms * 3) + 1
+        qiskit_metadata = qaoa_ibm_circuit_metadata(
+            optimizer,
+            use_fractional_gates=use_fractional_gates,
+            parallelize_cost_terms=parallelize_cost_terms,
+            allow_preview_placeholders=not qaoa_executed,
         )
+        qiskit_available = bool(qiskit_metadata.get("qiskit_available"))
+        total_gates = (
+            _safe_int(qiskit_metadata.get("logical_total_gates_without_measurements"))
+            if qiskit_available
+            else None
+        )
+        one_qubit_gates = (
+            _safe_int(qiskit_metadata.get("logical_one_qubit_gates_without_measurements"))
+            if qiskit_available
+            else None
+        )
+        two_qubit_gates = (
+            _safe_int(qiskit_metadata.get("logical_two_qubit_gates_without_measurements"))
+            if qiskit_available
+            else None
+        )
+        sequential_2q_depth = (
+            _safe_int(qiskit_metadata.get("logical_sequential_2q_depth_without_measurements"))
+            if qiskit_available
+            else None
+        )
+        logical_depth = (
+            _safe_int(qiskit_metadata.get("qiskit_depth_without_measurements"))
+            if qiskit_available
+            else None
+        )
+        if total_gates is None:
+            initial_hadamards = n_qubits_int
+            mixer_rx = layers_int * n_qubits_int
+            cost_rz = layers_int * (one_qubit_cost_terms + two_qubit_cost_terms)
+            two_qubit_gates = layers_int * two_qubit_cost_terms * 2
+            one_qubit_gates = initial_hadamards + mixer_rx + cost_rz
+            total_gates = one_qubit_gates + two_qubit_gates
+            sequential_2q_depth = layers_int * two_qubit_cost_terms * 2
+            logical_depth = initial_hadamards + layers_int * (
+                max(1, one_qubit_cost_terms) + max(1, two_qubit_cost_terms * 3) + 1
+            )
         exact_probabilities = bool(
             getattr(optimizer, "qaoa_sim_exact_probabilities", False)
             or getattr(optimizer, "qaoa_limited_exact_probabilities", False)
         )
         qaoa_mode = str(getattr(optimizer, "qaoa_mode", "") or "")
-        shots_mode = "exact" if exact_probabilities or qaoa_mode == "exact_probs" else "sampling"
         qaoa_shots = _safe_int(getattr(optimizer, "qaoa_shots", None))
+        exact_mode_requested = run_mode == "qaoa_lightning_sim"
+        shots_mode = (
+            "exact"
+            if exact_probabilities or qaoa_mode == "exact_probs" or exact_mode_requested
+            else "sampling"
+        )
         return json_safe(
             {
                 "available": True,
@@ -1541,16 +1838,44 @@ def _circuit_report(optimizer) -> dict[str, Any]:
                 "qubo_nonzero_entries": int(qubo_nonzero_entries),
                 "one_qubit_cost_terms": int(one_qubit_cost_terms),
                 "two_qubit_cost_terms": int(two_qubit_cost_terms),
-                "total_gates": int(total_gates),
-                "one_qubit_gates": int(one_qubit_gates),
-                "two_qubit_gates": int(two_qubit_gates),
-                "sequential_2q_depth": int(sequential_2q_depth),
-                "estimated_circuit_depth": int(estimated_circuit_depth),
+                "total_gates": int(total_gates or 0),
+                "one_qubit_gates": int(one_qubit_gates or 0),
+                "two_qubit_gates": int(two_qubit_gates or 0),
+                "sequential_2q_depth": int(sequential_2q_depth or 0),
+                "estimated_circuit_depth": int(logical_depth or 0),
+                "metric_source": "qiskit_logical_circuit" if qiskit_available else "structural_formula",
+                "fractional_gates_enabled": bool(use_fractional_gates),
+                "fractional_mode_label": (
+                    "Prefer fractional gates" if use_fractional_gates else "Standard basis"
+                ),
+                "parallelized_construction_enabled": bool(parallelize_cost_terms),
+                "construction_mode_label": (
+                    "Parallelized construction"
+                    if parallelize_cost_terms
+                    else "Current / standard construction"
+                ),
                 "shots_mode": shots_mode,
                 "qaoa_shots": None if shots_mode == "exact" else qaoa_shots,
                 "qaoa_shots_display": "exact" if shots_mode == "exact" else (str(qaoa_shots) if qaoa_shots is not None else None),
-                "counts_are_estimated": True,
-                "ibm": _ibm_export_report(optimizer, qaoa_executed=True),
+                "counts_are_estimated": not qiskit_available,
+                "preview_backend_name": preview_result.get("backend_name"),
+                "preview_backend_details": preview_result.get("backend_details"),
+                "preview_fractional_gates_enabled": selected_preview.get("fractional_gates_enabled"),
+                "preview_fractional_mode_label": selected_preview.get("fractional_mode_label"),
+                "preview_parallelized_construction_enabled": selected_preview.get("parallelized_construction_enabled"),
+                "preview_construction_mode_label": selected_preview.get("construction_mode_label"),
+                "preview_transpiled_depth": preview_post.get("depth"),
+                "preview_transpiled_size": preview_post.get("size"),
+                "preview_transpiled_total_gates": preview_post.get("total_gates"),
+                "preview_transpiled_two_qubit_gates": preview_post.get("two_qubit_gates"),
+                "preview_transpiled_sequential_2q_depth": preview_post.get("sequential_2q_depth"),
+                "preview_warnings": selected_preview.get("warnings") or [],
+                "preview_comparison": preview_result.get("comparison") or {},
+                "preview_available": bool(selected_preview),
+                "preview_fallback_reason": preview_result.get("fallback_reason"),
+                "preview_selected_failure": preview_result.get("selected_failure") or {},
+                "preview_mode_failures": preview_result.get("mode_failures") or {},
+                "ibm": _ibm_export_report(optimizer, qaoa_executed=qaoa_executed),
             }
         )
     except Exception as exc:

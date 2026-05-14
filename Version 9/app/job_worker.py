@@ -15,6 +15,12 @@ from typing import Any
 from app.classical_solver import run_classical_optimizer
 from app.config import Config
 from app.excel_io import cleanup_temp_file, validate_required_input_sheets, workbook_structure
+from app.ibm_runtime import (
+    delete_ibm_runtime_token,
+    ibm_runtime_enabled_for_mode,
+    resolve_ibm_runtime_token,
+    run_ibm_second_opinion,
+)
 from app.job_storage import get_job_storage
 from app.job_store import get_job_store
 from app.key_store import get_key_store
@@ -76,6 +82,7 @@ def run_job(job_id: str) -> dict[str, Any]:
     optimizer = None
     policy_result = None
     execution_started = False
+    ibm_secret_ref = None
     previous_signal_handlers = _install_termination_handlers(job_id)
 
     try:
@@ -114,6 +121,8 @@ def run_job(job_id: str) -> dict[str, Any]:
             reporter.update(line, progress_pct=12.0, phase="model_validation")
         _append_mode_logs(logs, mode, inspection=False)
         policy_result = validate_problem_policy(usage_context, optimizer, mode, settings)
+        _apply_ibm_runtime_job_metadata(optimizer, policy_result, settings)
+        ibm_secret_ref = dict((settings or {}).get("ibm_runtime") or {}).get("secret_ref")
         seed_log = f"Random seed: {random_seed_display(policy_result.runtime_inputs.random_seed)}"
         logs.append(seed_log)
         reporter.update(seed_log, progress_pct=14.0, phase="model_validation")
@@ -159,6 +168,14 @@ def run_job(job_id: str) -> dict[str, Any]:
             logs.append(f"QAOA sample count: {int(len(getattr(optimizer, 'samples_df', [])))}")
             solver = f"classical_heuristic+{mode}"
             reporter.update(logs[-1], progress_pct=90.0, phase="optimization")
+            _run_ibm_second_opinion_async_if_requested(
+                optimizer,
+                usage_context=usage_context,
+                policy_result=policy_result,
+                settings=settings,
+                reporter=reporter,
+                logs=logs,
+            )
         elif mode == "classical_only":
             logs.append("QAOA execution status: disabled for classical_only mode.")
 
@@ -294,6 +311,7 @@ def run_job(job_id: str) -> dict[str, Any]:
         job_store.append_log(job_id, f"Job failed: {_safe_error_message(exc)}", phase="failed")
         return job_store.get_job(job_id) or {}
     finally:
+        delete_ibm_runtime_token(ibm_secret_ref)
         _restore_signal_handlers(previous_signal_handlers)
         if usage_context is not None:
             _release_job_lock(ledger, usage_context, job_id)
@@ -396,6 +414,143 @@ class JobProgressReporter:
 
     def memory_payload(self, *, force: bool = False) -> dict[str, Any]:
         return self.memory_tracker.snapshot(elapsed_sec=_elapsed(self.start_time), force=force)
+
+
+def _apply_ibm_runtime_job_metadata(optimizer, policy_result, settings: dict[str, Any]) -> None:
+    if (
+        optimizer is None
+        or policy_result is None
+        or not ibm_runtime_enabled_for_mode(getattr(policy_result, "export_mode", None))
+    ):
+        return
+    stored = dict((settings or {}).get("ibm_runtime") or {})
+    safe_settings = {
+        "instance": stored.get("instance"),
+        "backend_name": stored.get("backend_name"),
+        "backend_selection": stored.get("backend_selection"),
+        "fractional_gates_enabled": stored.get("fractional_gates_enabled"),
+        "fractional_mode_label": stored.get("fractional_mode_label"),
+        "parallelized_construction_enabled": stored.get("parallelized_construction_enabled"),
+        "construction_mode_label": stored.get("construction_mode_label"),
+        "hardware_shots": stored.get("hardware_shots"),
+        "hardware_shots_source": stored.get("hardware_shots_source"),
+        "comparability_note": stored.get("comparability_note"),
+        "token_required": True,
+    }
+    optimizer.ibm_runtime_settings = json_safe(safe_settings)
+    policy_result.export_mode_diagnostics.update(
+        json_safe(
+            {
+                "ibm_instance": safe_settings.get("instance"),
+                "ibm_backend": safe_settings.get("backend_name"),
+                "ibm_backend_selection": safe_settings.get("backend_selection"),
+                "ibm_fractional_gates": safe_settings.get("fractional_gates_enabled"),
+                "ibm_fractional_mode_label": safe_settings.get("fractional_mode_label"),
+                "ibm_parallelization": safe_settings.get("parallelized_construction_enabled"),
+                "ibm_construction_mode_label": safe_settings.get("construction_mode_label"),
+                "ibm_hardware_shots": safe_settings.get("hardware_shots"),
+                "ibm_hardware_shots_source": safe_settings.get("hardware_shots_source"),
+                "hardware_submission": "requested",
+                "comparability_note": safe_settings.get("comparability_note"),
+            }
+        )
+    )
+    policy_result.effective_settings.update(
+        json_safe(
+            {
+                "ibm_instance": safe_settings.get("instance"),
+                "ibm_backend": safe_settings.get("backend_name"),
+                "ibm_backend_selection": safe_settings.get("backend_selection"),
+                "ibm_fractional_gates": safe_settings.get("fractional_gates_enabled"),
+                "ibm_fractional_mode_label": safe_settings.get("fractional_mode_label"),
+                "ibm_parallelization": safe_settings.get("parallelized_construction_enabled"),
+                "ibm_construction_mode_label": safe_settings.get("construction_mode_label"),
+                "ibm_hardware_shots": safe_settings.get("hardware_shots"),
+                "ibm_hardware_shots_source": safe_settings.get("hardware_shots_source"),
+            }
+        )
+    )
+
+
+def _run_ibm_second_opinion_async_if_requested(
+    optimizer,
+    *,
+    usage_context,
+    policy_result,
+    settings: dict[str, Any],
+    reporter: JobProgressReporter,
+    logs: list[str],
+) -> dict[str, Any] | None:
+    if (
+        optimizer is None
+        or policy_result is None
+        or not ibm_runtime_enabled_for_mode(getattr(policy_result, "export_mode", None))
+    ):
+        return None
+    stored = dict((settings or {}).get("ibm_runtime") or {})
+    token = None
+    secret_ref = stored.get("secret_ref")
+    if not secret_ref:
+        optimizer.ibm_hardware_result = json_safe(
+            {
+                "available": False,
+                "enabled": True,
+                "source": "ibm_hardware",
+                "hardware_submission": "not_started",
+                "parse_status": "failed",
+                "reason": "IBM hardware execution was requested, but no transient token reference was stored.",
+                "error": {
+                    "code": "ibm_token_reference_missing",
+                    "message": "IBM hardware execution was requested, but no transient token reference was stored.",
+                },
+            }
+        )
+    else:
+        try:
+            token = resolve_ibm_runtime_token(secret_ref)
+        except Exception as exc:  # noqa: BLE001 - keep primary optimization result available
+            optimizer.ibm_hardware_result = json_safe(
+                {
+                    "available": False,
+                    "enabled": True,
+                    "source": "ibm_hardware",
+                    "hardware_submission": "not_started",
+                    "parse_status": "failed",
+                    "reason": f"IBM token could not be loaded for this job. {type(exc).__name__}",
+                    "error": {"type": type(exc).__name__, "message": str(exc)},
+                }
+            )
+            token = None
+
+    def emit_progress(message: str, *, phase: str | None = None, progress_pct: float | None = None) -> None:
+        logs.append(str(message))
+        reporter.update(
+            str(message),
+            phase=phase or "ibm_runtime",
+            progress_pct=progress_pct if progress_pct is not None else 95.0,
+        )
+
+    if token is not None:
+        optimizer.ibm_hardware_result = run_ibm_second_opinion(
+            optimizer,
+            token=token,
+            usage_context=usage_context,
+            ibm_settings=getattr(optimizer, "ibm_runtime_settings", {}) or {},
+            progress_callback=emit_progress,
+        )
+    if optimizer.ibm_hardware_result.get("available"):
+        logs.append(
+            f"IBM hardware completed on {optimizer.ibm_hardware_result.get('backend_name')} "
+            f"(job {optimizer.ibm_hardware_result.get('job_id') or 'n/a'})."
+        )
+        reporter.update(logs[-1], phase="ibm_completed", progress_pct=97.0)
+    else:
+        logs.append(
+            "IBM hardware second opinion unavailable; keeping the internal result. "
+            f"{optimizer.ibm_hardware_result.get('reason') or 'No measured IBM result could be decoded.'}"
+        )
+        reporter.update(logs[-1], phase="ibm_unavailable", progress_pct=97.0)
+    return None
 
 
 def _usage_context_from_job(job: dict[str, Any]):

@@ -11,7 +11,9 @@ qiskit>=2,<3
 qiskit-ibm-runtime>=0.46,<1
 quimb>=1.8,<2
 google-cloud-firestore
+google-cloud-secret-manager
 google-cloud-storage
 google-cloud-run
 flask-cors
 PyYAML
+reportlab>=4,<5
