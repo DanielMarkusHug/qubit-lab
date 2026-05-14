@@ -37,6 +37,8 @@ interface BaseApiResponse {
   errors?: string[];
   artifact_paths?: ArtifactPathMap;
   effective_settings?: JsonRecord;
+  config_source?: string;
+  workbook_metadata?: JsonRecord;
   [key: string]: unknown;
 }
 
@@ -176,6 +178,27 @@ function formatPercent(value: unknown): string {
     return formatValue(value);
   }
   return `${(value * 100).toFixed(0)}%`;
+}
+
+function formatBytes(value: unknown): string {
+  const size = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(size) || size < 0) {
+    return formatValue(value);
+  }
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatTimestamp(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return formatValue(value);
+  }
+  return new Date(value).toLocaleString();
 }
 
 function asTableCellValue(value: unknown): TableCellValue {
@@ -977,6 +1000,28 @@ export default function VqcClassifierPage() {
     return candidates.find((candidate) => isRecord(candidate)) as JsonRecord | undefined;
   }, [reportResponse, vqcResponse, baselinesResponse, planResponse, prepareResponse, inspectResponse]);
 
+  const latestWorkbookMetadata = useMemo<JsonRecord | undefined>(() => {
+    const candidates = [
+      reportResponse?.workbook_metadata,
+      vqcResponse?.workbook_metadata,
+      baselinesResponse?.workbook_metadata,
+      prepareResponse?.workbook_metadata,
+      inspectResponse?.workbook_metadata,
+    ];
+    return candidates.find((candidate) => isRecord(candidate)) as JsonRecord | undefined;
+  }, [reportResponse, vqcResponse, baselinesResponse, prepareResponse, inspectResponse]);
+
+  const latestConfigSource = useMemo<string | undefined>(() => {
+    const candidates = [
+      reportResponse?.config_source,
+      vqcResponse?.config_source,
+      baselinesResponse?.config_source,
+      prepareResponse?.config_source,
+      inspectResponse?.config_source,
+    ];
+    return candidates.find((candidate) => typeof candidate === "string" && candidate.trim()) as string | undefined;
+  }, [reportResponse, vqcResponse, baselinesResponse, prepareResponse, inspectResponse]);
+
   const allWarnings = useMemo(
     () =>
       [
@@ -1257,6 +1302,34 @@ export default function VqcClassifierPage() {
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none ring-0 placeholder:text-slate-500 focus:border-cyan-600"
               />
             </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selected workbook snapshot</div>
+                <div className="mt-3">
+                  <InfoGrid
+                    items={[
+                      { label: "Filename", value: workbookFile?.name },
+                      { label: "Size", value: workbookFile ? formatBytes(workbookFile.size) : null },
+                      { label: "Last modified", value: workbookFile ? formatTimestamp(workbookFile.lastModified) : null },
+                    ]}
+                  />
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Backend workbook snapshot</div>
+                <div className="mt-3">
+                  <InfoGrid
+                    items={[
+                      { label: "Config source", value: latestConfigSource ? formatLabel(latestConfigSource) : null },
+                      { label: "Filename", value: latestWorkbookMetadata?.filename },
+                      { label: "Size", value: latestWorkbookMetadata ? formatBytes(latestWorkbookMetadata.size_bytes) : null },
+                      { label: "SHA256", value: latestWorkbookMetadata?.sha256 },
+                    ]}
+                  />
+                </div>
+              </div>
+            </div>
           </Card>
 
           <Card
@@ -1272,7 +1345,11 @@ export default function VqcClassifierPage() {
                   onChange={(event) => setWorkbookFile(event.target.files?.[0] ?? null)}
                   className="mt-2 block w-full rounded-xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
                 />
-                <p className="mt-2 text-xs text-slate-500">{workbookFile ? workbookFile.name : "No workbook selected yet."}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {workbookFile
+                    ? `${workbookFile.name} · ${formatBytes(workbookFile.size)} · modified ${formatTimestamp(workbookFile.lastModified)}`
+                    : "No workbook selected yet."}
+                </p>
               </div>
               <div>
                 <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dataset upload</label>
