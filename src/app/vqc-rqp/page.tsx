@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import type { ChangeEvent, ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_VQC_API_BASE?.trim() ||
@@ -13,17 +13,27 @@ const ENDPOINTS = {
   inspectWorkbook: "/inspect-workbook",
   prepareData: "/prepare-data",
   planRun: "/plan-run",
-  runBaselines: "/run-baselines",
-  runVqc: "/run-vqc",
-  generateReport: "/generate-report",
+  executeRun: "/execute-run",
+  jobs: "/jobs",
 } as const;
 
 type PipelineStepKey = "inspect" | "prepare" | "plan" | "baselines" | "vqc" | "report";
-type PipelineStepStatus = "pending" | "done" | "error";
+type PipelineStepStatus = "pending" | "running" | "done" | "error" | "cancelled";
+type JobStatusValue = "idle" | "queued" | "running" | "completed" | "failed" | "cancelled";
+type LogLevel = "info" | "success" | "warning" | "error";
 type ArtifactPathMap = Record<string, string>;
 type JsonRecord = Record<string, unknown>;
 type TableCellValue = string | number | boolean | null | undefined;
 type MetricTableRow = Record<string, TableCellValue>;
+
+interface ClientLogEntry {
+  id: string;
+  timestamp: string;
+  source: "client" | "backend";
+  level: LogLevel;
+  stage?: string | null;
+  message: string;
+}
 
 interface HealthResponse {
   status: string;
@@ -112,6 +122,57 @@ interface GenerateReportResponse extends BaseApiResponse {
   model_comparison?: MetricTableRow[];
 }
 
+interface ExecuteRunResponse extends BaseApiResponse {
+  job_id?: string;
+  job_status?: JobStatusValue;
+  current_stage?: string | null;
+  progress?: number;
+  stage_status?: Record<string, string>;
+  result_summaries?: Record<string, JsonRecord>;
+  message?: string;
+}
+
+interface JobStatusResponse extends BaseApiResponse {
+  job_id?: string;
+  job_status?: JobStatusValue;
+  current_stage?: string | null;
+  message?: string | null;
+  progress?: number;
+  stage_status?: Record<string, string>;
+  result_summaries?: Record<string, JsonRecord>;
+  cancel_requested?: boolean;
+  created_at?: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+}
+
+interface JobLogResponse extends BaseApiResponse {
+  job_id?: string;
+  job_status?: JobStatusValue;
+  current_stage?: string | null;
+  log_entries?: Array<{
+    timestamp?: string;
+    level?: string;
+    stage?: string | null;
+    message?: string;
+  }>;
+}
+
+interface JobListResponse extends BaseApiResponse {
+  jobs?: Array<{
+    job_id?: string;
+    job_status?: JobStatusValue;
+    current_stage?: string | null;
+    message?: string | null;
+    progress?: number;
+    updated_at?: string | null;
+    created_at?: string | null;
+  }>;
+}
+
+type JobListEntry = NonNullable<JobListResponse["jobs"]>[number];
+
 const INITIAL_STEPS: Record<PipelineStepKey, PipelineStepStatus> = {
   inspect: "pending",
   prepare: "pending",
@@ -121,8 +182,23 @@ const INITIAL_STEPS: Record<PipelineStepKey, PipelineStepStatus> = {
   report: "pending",
 };
 
+function cloneInitialSteps(): Record<PipelineStepKey, PipelineStepStatus> {
+  return { ...INITIAL_STEPS };
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return isRecord(value) ? value : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item ?? "")).filter(Boolean);
 }
 
 function toStringArray(value: unknown): string[] {
@@ -162,17 +238,6 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function asRecord(value: unknown): JsonRecord | null {
-  return isRecord(value) ? value : null;
-}
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.map((item) => String(item)).filter(Boolean);
-}
-
 function formatPercent(value: unknown): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return formatValue(value);
@@ -201,6 +266,14 @@ function formatTimestamp(value: unknown): string {
   return new Date(value).toLocaleString();
 }
 
+function formatIsoTimestamp(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    return "-";
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
 function asTableCellValue(value: unknown): TableCellValue {
   if (value === null || value === undefined) {
     return value;
@@ -211,26 +284,14 @@ function asTableCellValue(value: unknown): TableCellValue {
   return formatValue(value);
 }
 
-function parseShape(value: unknown): { rows: number | null; columns: number | null } {
-  if (!Array.isArray(value) || value.length < 2) {
-    return { rows: null, columns: null };
-  }
-  const rows = typeof value[0] === "number" ? value[0] : Number(value[0]);
-  const columns = typeof value[1] === "number" ? value[1] : Number(value[1]);
-  return {
-    rows: Number.isFinite(rows) ? rows : null,
-    columns: Number.isFinite(columns) ? columns : null,
-  };
-}
-
 function orderedKeys(record: JsonRecord, preferred: string[]): string[] {
   const seen = new Set<string>();
   const keys: string[] = [];
 
   preferred.forEach((key) => {
     if (key in record) {
-      seen.add(key);
       keys.push(key);
+      seen.add(key);
     }
   });
 
@@ -263,38 +324,49 @@ function metricEntries(metrics: JsonRecord): Array<{ key: string; value: unknown
     "true_positives",
     "true_negatives",
   ];
-  const excluded = new Set([
-    "confusion_matrix",
-    "class_distribution",
-    "per_class_precision",
-    "per_class_recall",
-    "per_class_f1",
-    "warnings",
-  ]);
+  const excluded = new Set(["confusion_matrix", "class_distribution", "per_class_precision", "per_class_recall", "per_class_f1", "warnings"]);
 
   return orderedKeys(metrics, preferred)
     .filter((key) => !excluded.has(key))
     .map((key) => ({ key, value: metrics[key] }));
 }
 
-function summarizeMandatoryBaselines(status: unknown): string {
-  const record = asRecord(status);
-  if (!record) {
-    return "-";
+function normalizeStageStatus(value: string | undefined): PipelineStepStatus {
+  switch ((value ?? "").toLowerCase()) {
+    case "done":
+    case "completed":
+      return "done";
+    case "running":
+    case "queued":
+      return "running";
+    case "failed":
+    case "error":
+      return "error";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return "pending";
   }
+}
 
-  const forced = asStringArray(record.forced);
-  if (forced.length) {
-    return `Required baselines enforced (${forced.map(formatLabel).join(", ")})`;
+function buildStepStatusFromJob(status: JobStatusResponse | null): Record<PipelineStepKey, PipelineStepStatus> | null {
+  const stageStatus = asRecord(status?.stage_status);
+  if (!stageStatus) {
+    return null;
   }
-
-  return "All mandatory baselines enabled";
+  return {
+    inspect: normalizeStageStatus(typeof stageStatus.inspect === "string" ? stageStatus.inspect : undefined),
+    prepare: normalizeStageStatus(typeof stageStatus.prepare === "string" ? stageStatus.prepare : undefined),
+    plan: normalizeStageStatus(typeof stageStatus.plan === "string" ? stageStatus.plan : undefined),
+    baselines: normalizeStageStatus(typeof stageStatus.baselines === "string" ? stageStatus.baselines : undefined),
+    vqc: normalizeStageStatus(typeof stageStatus.vqc === "string" ? stageStatus.vqc : undefined),
+    report: normalizeStageStatus(typeof stageStatus.report === "string" ? stageStatus.report : undefined),
+  };
 }
 
 function mergeWarnings(existing: string[], incoming: string[]): string[] {
   const seen = new Set<string>();
   const merged: string[] = [];
-
   for (const warning of [...existing, ...incoming]) {
     const trimmed = warning.trim();
     if (!trimmed) {
@@ -306,7 +378,6 @@ function mergeWarnings(existing: string[], incoming: string[]): string[] {
       merged.push(trimmed);
     }
   }
-
   return merged;
 }
 
@@ -337,13 +408,13 @@ function extractErrorMessage(payload: unknown): string {
       return payload.detail;
     }
     if (isRecord(payload.detail)) {
-      const errors = toStringArray(payload.detail.errors);
-      const warnings = toStringArray(payload.detail.warnings);
-      if (errors.length) {
-        return errors.join(" | ");
+      const detailErrors = toStringArray(payload.detail.errors);
+      const detailWarnings = toStringArray(payload.detail.warnings);
+      if (detailErrors.length) {
+        return detailErrors.join(" | ");
       }
-      if (warnings.length) {
-        return warnings.join(" | ");
+      if (detailWarnings.length) {
+        return detailWarnings.join(" | ");
       }
     }
     const errors = toStringArray(payload.errors);
@@ -355,9 +426,7 @@ function extractErrorMessage(payload: unknown): string {
 }
 
 async function getJson<T>(endpoint: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    method: "GET",
-  });
+  const response = await fetch(`${API_BASE}${endpoint}`, { method: "GET" });
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     throw new Error(extractErrorMessage(payload));
@@ -375,6 +444,70 @@ async function postMultipart<T>(endpoint: string, formData: FormData): Promise<T
     throw new Error(extractErrorMessage(payload));
   }
   return payload as T;
+}
+
+async function postEmpty<T>(endpoint: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: "POST",
+  });
+  const payload = await parseResponseJson(response);
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(payload));
+  }
+  return payload as T;
+}
+
+function combineLogEntries(clientEntries: ClientLogEntry[], backendResponse: JobLogResponse | null): ClientLogEntry[] {
+  const backendEntries = (backendResponse?.log_entries ?? []).map((entry, index) => ({
+    id: `backend-${entry.timestamp ?? "t"}-${index}-${entry.message ?? "log"}`,
+    timestamp: entry.timestamp ?? new Date().toISOString(),
+    source: "backend" as const,
+    level: (entry.level === "warning" || entry.level === "error" ? entry.level : "info") as LogLevel,
+    stage: entry.stage ?? undefined,
+    message: entry.message ?? "Backend event",
+  }));
+  return [...clientEntries, ...backendEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+}
+
+function parameterItemsFromEffectiveSettings(
+  effectiveSettings: JsonRecord | undefined,
+  section: "model" | "training",
+): Array<{ label: string; value: unknown }> {
+  const record = asRecord(effectiveSettings?.[section]) ?? {};
+  if (section === "model") {
+    return [
+      { label: "Feature map", value: record.feature_map_type },
+      { label: "Feature repeats", value: record.feature_map_repeats },
+      { label: "Ansatz", value: record.ansatz_type },
+      { label: "Ansatz reps", value: record.ansatz_reps },
+      { label: "Qubits", value: record.n_qubits },
+      { label: "Entanglement", value: record.entanglement },
+      { label: "Backend", value: record.backend },
+      { label: "Shots mode", value: record.shots_mode },
+    ];
+  }
+  return [
+    { label: "Optimizer", value: record.optimizer },
+    { label: "Iterations", value: record.iterations },
+    { label: "Learning rate", value: record.learning_rate },
+    { label: "Batch size", value: record.batch_size },
+    { label: "Repeats", value: record.repeats },
+    { label: "Early stopping", value: record.early_stopping },
+    { label: "Patience", value: record.patience },
+    { label: "Validation metric", value: record.validation_metric },
+  ];
+}
+
+function summarizeMandatoryBaselines(status: unknown): string {
+  const record = asRecord(status);
+  if (!record) {
+    return "-";
+  }
+  const forced = asStringArray(record.forced);
+  if (forced.length) {
+    return `Required baselines enforced (${forced.map(formatLabel).join(", ")})`;
+  }
+  return "All mandatory baselines enabled";
 }
 
 function Card({
@@ -408,9 +541,13 @@ function StepPill({ label, status }: { label: string; status: PipelineStepStatus
   const styles =
     status === "done"
       ? "border-emerald-800/70 bg-emerald-950/60 text-emerald-300"
-      : status === "error"
-        ? "border-rose-800/70 bg-rose-950/60 text-rose-300"
-        : "border-slate-700 bg-slate-900 text-slate-300";
+      : status === "running"
+        ? "border-cyan-800/70 bg-cyan-950/60 text-cyan-300"
+        : status === "error"
+          ? "border-rose-800/70 bg-rose-950/60 text-rose-300"
+          : status === "cancelled"
+            ? "border-amber-800/70 bg-amber-950/60 text-amber-300"
+            : "border-slate-700 bg-slate-900 text-slate-300";
 
   return (
     <div className={`rounded-xl border px-3 py-2 ${styles}`}>
@@ -420,13 +557,50 @@ function StepPill({ label, status }: { label: string; status: PipelineStepStatus
   );
 }
 
-function InfoGrid({ items }: { items: Array<{ label: string; value: unknown }> }) {
+function StatusBadge({ value }: { value: string | undefined | null }) {
+  const normalized = (value ?? "").toLowerCase();
+  const classes =
+    normalized === "completed" || normalized === "done"
+      ? "border-emerald-800/70 bg-emerald-950/50 text-emerald-300"
+      : normalized === "running" || normalized === "queued"
+        ? "border-cyan-800/70 bg-cyan-950/50 text-cyan-300"
+        : normalized === "failed" || normalized === "error"
+          ? "border-rose-800/70 bg-rose-950/50 text-rose-300"
+          : normalized === "cancelled"
+            ? "border-amber-800/70 bg-amber-950/50 text-amber-300"
+            : "border-slate-700 bg-slate-900 text-slate-300";
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {items.map((item) => (
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${classes}`}>
+      {formatLabel(normalized || "idle")}
+    </span>
+  );
+}
+
+function InfoGrid({ items }: { items: Array<{ label: string; value: unknown }> }) {
+  const visibleItems = items.filter(({ value }) => value !== undefined);
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {visibleItems.map((item) => (
         <div key={item.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
           <div className="mt-2 break-words text-sm text-slate-100">{formatValue(item.value)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DetailList({ items }: { items: Array<{ label: string; value: unknown }> }) {
+  const visibleItems = items.filter(({ value }) => value !== null && value !== undefined && value !== "");
+  if (!visibleItems.length) {
+    return <p className="text-sm text-slate-500">No details available yet.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {visibleItems.map((item) => (
+        <div key={item.label} className="flex items-start justify-between gap-4 text-sm">
+          <span className="text-slate-400">{item.label}</span>
+          <span className="max-w-[65%] text-right text-slate-100">{formatValue(item.value)}</span>
         </div>
       ))}
     </div>
@@ -437,7 +611,6 @@ function TagList({ values }: { values: string[] }) {
   if (!values.length) {
     return <p className="text-sm text-slate-500">-</p>;
   }
-
   return (
     <div className="flex flex-wrap gap-2">
       {values.map((value) => (
@@ -445,36 +618,6 @@ function TagList({ values }: { values: string[] }) {
           {value}
         </span>
       ))}
-    </div>
-  );
-}
-
-function KeyValueBlock({ title, value }: { title: string; value: unknown }) {
-  if (!isRecord(value)) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</div>
-        <div className="mt-2 text-sm text-slate-100">{formatValue(value)}</div>
-      </div>
-    );
-  }
-
-  const entries = Object.entries(value);
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</div>
-      <div className="mt-3 space-y-2">
-        {entries.length ? (
-          entries.map(([key, entryValue]) => (
-            <div key={key} className="flex items-start justify-between gap-4 text-sm">
-              <span className="text-slate-400">{formatLabel(key)}</span>
-              <span className="max-w-[60%] text-right text-slate-100">{formatValue(entryValue)}</span>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm text-slate-500">No values available.</p>
-        )}
-      </div>
     </div>
   );
 }
@@ -502,9 +645,9 @@ function GenericTable({ rows }: { rows: MetricTableRow[] }) {
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-800 bg-slate-900/50">
+        <tbody className="divide-y divide-slate-800 bg-slate-900/40">
           {rows.map((row, index) => (
-            <tr key={`${index}-${String(row.model ?? row.name ?? "row")}`}>
+            <tr key={`row-${index}`}>
               {columns.map((column) => (
                 <td key={column} className="px-3 py-2 align-top text-slate-100">
                   {formatValue(row[column])}
@@ -518,375 +661,333 @@ function GenericTable({ rows }: { rows: MetricTableRow[] }) {
   );
 }
 
-function ArtifactList({ artifactPaths }: { artifactPaths: ArtifactPathMap | undefined }) {
-  if (!artifactPaths || !Object.keys(artifactPaths).length) {
+function ArtifactList({ artifacts }: { artifacts?: ArtifactPathMap }) {
+  if (!artifacts || !Object.keys(artifacts).length) {
     return <p className="text-sm text-slate-500">No artifact paths available yet.</p>;
   }
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-800">
-      {Object.entries(artifactPaths).map(([key, value]) => (
-        <div
-          key={key}
-          className="grid gap-2 border-b border-slate-800 bg-slate-950/60 p-3 last:border-b-0 md:grid-cols-[170px_1fr]"
-        >
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{formatLabel(key)}</div>
-          <div className="break-all font-mono text-xs text-cyan-200">{value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DetailList({ items }: { items: Array<{ label: string; value: unknown }> }) {
-  const visibleItems = items.filter(({ value }) => value !== null && value !== undefined && value !== "");
-
-  if (!visibleItems.length) {
-    return <p className="text-sm text-slate-500">No details available yet.</p>;
-  }
-
   return (
     <div className="space-y-2">
-      {visibleItems.map((item) => (
-        <div key={item.label} className="flex items-start justify-between gap-4 text-sm">
-          <span className="text-slate-400">{item.label}</span>
-          <span className="max-w-[65%] text-right text-slate-100">{formatValue(item.value)}</span>
+      {Object.entries(artifacts).map(([name, path]) => (
+        <div key={name} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{formatLabel(name)}</div>
+          <div className="mt-2 break-all font-mono text-xs text-slate-200">{path}</div>
         </div>
       ))}
     </div>
   );
 }
 
-function MetricSummaryTable({ metrics }: { metrics: unknown }) {
-  const record = asRecord(metrics);
-  if (!record) {
-    return <p className="text-sm text-slate-500">No metrics available yet.</p>;
-  }
-
-  const entries = metricEntries(record);
-  if (!entries.length) {
-    return <p className="text-sm text-slate-500">No summary metrics available.</p>;
-  }
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-800">
-      <table className="min-w-full text-sm">
-        <thead className="bg-slate-950/70">
-          <tr>
-            <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Metric</th>
-            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Value</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800 bg-slate-900/50">
-          {entries.map(({ key, value }) => (
-            <tr key={key}>
-              <td className="px-3 py-2 text-slate-300">{formatLabel(key)}</td>
-              <td className="px-3 py-2 text-right text-slate-100">{formatValue(value)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ConfusionMatrixTable({ matrix, title }: { matrix: unknown; title: string }) {
-  if (!Array.isArray(matrix) || !matrix.length || !Array.isArray(matrix[0])) {
+function MetricSummaryTable({ title, metrics }: { title: string; metrics: JsonRecord | null }) {
+  if (!metrics) {
     return null;
   }
-
-  const matrixRows = matrix as unknown[][];
-  const size = matrixRows.length;
-
+  const rows = metricEntries(metrics).map(({ key, value }) => ({
+    metric: formatLabel(key),
+    value: asTableCellValue(value),
+  }));
+  if (!rows.length) {
+    return null;
+  }
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</div>
-      <div className="mt-3 overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr>
-              <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Actual \ Pred</th>
-              {Array.from({ length: size }).map((_, index) => (
-                <th key={index} className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  {index}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {matrixRows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                <td className="px-3 py-2 text-slate-300">{rowIndex}</td>
-                {row.map((value, columnIndex) => (
-                  <td key={columnIndex} className="px-3 py-2 text-right text-slate-100">
-                    {formatValue(value)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-slate-200">{title}</p>
+      <GenericTable rows={rows} />
     </div>
   );
 }
 
-function ClassDistributionTable({ distribution }: { distribution: unknown }) {
-  const record = asRecord(distribution);
-  if (!record) {
+function ConfusionMatrixTable({ title, matrix }: { title: string; matrix: unknown }) {
+  if (!Array.isArray(matrix) || !matrix.length) {
+    return null;
+  }
+  const rows = matrix.map((row, rowIndex) => {
+    if (!Array.isArray(row)) {
+      return { actual: rowIndex };
+    }
+    const record: MetricTableRow = { actual: rowIndex };
+    row.forEach((value, columnIndex) => {
+      record[`pred_${columnIndex}`] = asTableCellValue(value);
+    });
+    return record;
+  });
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-slate-200">{title}</p>
+      <GenericTable rows={rows} />
+    </div>
+  );
+}
+
+function ClassDistributionTable({ distribution }: { distribution: JsonRecord | null }) {
+  if (!distribution) {
     return <p className="text-sm text-slate-500">No class distribution available yet.</p>;
   }
 
-  const nestedKeys = ["total", "train", "validation", "test"].filter((key) => asRecord(record[key]));
-  if (nestedKeys.length) {
-    const rows: MetricTableRow[] = [];
-    nestedKeys.forEach((split) => {
-      const splitRecord = asRecord(record[split]);
-      if (!splitRecord) {
-        return;
-      }
-      Object.entries(splitRecord).forEach(([label, count]) => {
-        rows.push({ split: formatLabel(split), class: label, count: asTableCellValue(count) });
-      });
+  const rows: MetricTableRow[] = [];
+  Object.entries(distribution).forEach(([split, rawValue]) => {
+    const splitRecord = asRecord(rawValue);
+    if (!splitRecord) {
+      rows.push({ split: formatLabel(split), class: "-", count: asTableCellValue(rawValue) });
+      return;
+    }
+    Object.entries(splitRecord).forEach(([label, count]) => {
+      rows.push({ split: formatLabel(split), class: label, count: asTableCellValue(count) });
     });
-    return <GenericTable rows={rows} />;
-  }
+  });
 
-  const rows = Object.entries(record).map(([label, count]) => ({ class: label, count: asTableCellValue(count) }));
   return <GenericTable rows={rows} />;
 }
 
-function PreprocessingSummaryPanel({ summary }: { summary: unknown }) {
-  const record = asRecord(summary);
-  if (!record) {
+function PreprocessingSummaryPanel({ summary }: { summary: JsonRecord | null }) {
+  if (!summary) {
     return <p className="text-sm text-slate-500">No preprocessing summary available yet.</p>;
   }
 
-  const featureResolution = asRecord(record.feature_resolution) ?? {};
-  const sampling = asRecord(record.sampling) ?? {};
-  const split = asRecord(record.split) ?? {};
-  const balancing = asRecord(record.balancing) ?? {};
-  const encoding = asRecord(record.encoding) ?? {};
-  const featureSelection = asRecord(record.feature_selection) ?? {};
-  const reduction = asRecord(record.quantum_feature_reduction) ?? {};
-  const inputShape = parseShape(record.input_shape);
-  const sampledShape = parseShape(record.sampled_shape);
+  const featureResolution = asRecord(summary.feature_resolution);
+  const sampling = asRecord(summary.sampling);
+  const split = asRecord(summary.split);
+  const balancing = asRecord(summary.balancing);
+  const encoding = asRecord(summary.encoding);
+  const featureSelection = asRecord(summary.feature_selection);
+  const quantumReduction = asRecord(summary.quantum_feature_reduction);
 
   return (
     <div className="space-y-4">
       <InfoGrid
         items={[
-          { label: "Dataset", value: record.dataset_name },
-          { label: "Input rows", value: inputShape.rows },
-          { label: "Input columns", value: inputShape.columns },
-          { label: "Sampled rows", value: sampledShape.rows },
-          { label: "Sampled columns", value: sampledShape.columns },
-          { label: "Mode", value: record.classification_mode },
-          { label: "Label classes", value: record.label_classes },
-          { label: "Sampling applied", value: sampling.applied },
+          { label: "Dataset", value: summary.dataset_name },
+          {
+            label: "Input shape",
+            value: Array.isArray(summary.input_shape) ? summary.input_shape.join(" x ") : summary.input_shape,
+          },
+          {
+            label: "Sampled shape",
+            value: Array.isArray(summary.sampled_shape) ? summary.sampled_shape.join(" x ") : summary.sampled_shape,
+          },
+          { label: "Classification mode", value: summary.classification_mode },
+          { label: "Label classes", value: summary.label_classes },
         ]}
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Features used</div>
-          <div className="mt-3">
-            <TagList values={asStringArray(featureResolution.feature_columns)} />
-          </div>
-          <div className="mt-4">
-            <DetailList
-              items={[
-                { label: "Requested", value: asStringArray(featureResolution.requested_input_features) },
-                { label: "Missing requested", value: asStringArray(featureResolution.missing_requested_features) },
-                { label: "Excluded by role", value: asStringArray(featureResolution.excluded_by_role) },
-                { label: "Inference fallback", value: featureResolution.used_inference },
-              ]}
-            />
-          </div>
-        </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card title="Feature Resolution">
+          <DetailList
+            items={[
+              { label: "Requested features", value: featureResolution?.requested_input_features },
+              { label: "Used features", value: featureResolution?.feature_columns },
+              { label: "Missing requested features", value: featureResolution?.missing_requested_features },
+              { label: "Excluded by role", value: featureResolution?.excluded_by_role },
+              { label: "Used inference fallback", value: featureResolution?.used_inference },
+            ]}
+          />
+        </Card>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Split & sampling</div>
-          <div className="mt-3">
-            <DetailList
-              items={[
-                { label: "Sampling", value: sampling.applied ? `${sampling.strategy_requested ?? "applied"} (${sampling.rows_before} -> ${sampling.rows_after})` : "Not applied" },
-                { label: "Split strategy", value: split.strategy_effective ?? split.strategy_requested },
-                {
-                  label: "Split sizes",
-                  value:
-                    split.train_size !== undefined || split.validation_size !== undefined || split.test_size !== undefined
-                      ? `${formatPercent(split.train_size)} / ${formatPercent(split.validation_size)} / ${formatPercent(split.test_size)}`
-                      : null,
-                },
-                { label: "Time column used", value: split.time_column_used },
-                { label: "Fallback reason", value: split.fallback_reason },
-              ]}
-            />
-          </div>
-        </div>
+        <Card title="Split + Sampling">
+          <DetailList
+            items={[
+              { label: "Sampling applied", value: sampling?.applied },
+              { label: "Sampling strategy", value: sampling?.strategy_requested },
+              { label: "Rows before", value: sampling?.rows_before },
+              { label: "Rows after", value: sampling?.rows_after },
+              { label: "Split strategy", value: split?.strategy_effective ?? split?.strategy_requested },
+              { label: "Train / Val / Test", value: `${formatPercent(split?.train_size)} / ${formatPercent(split?.validation_size)} / ${formatPercent(split?.test_size)}` },
+              { label: "Time column", value: split?.time_column_used },
+              { label: "Fallback reason", value: split?.fallback_reason },
+            ]}
+          />
+        </Card>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Encoding & balancing</div>
-          <div className="mt-3">
-            <DetailList
-              items={[
-                { label: "Numeric columns", value: asStringArray(encoding.numeric_columns) },
-                { label: "Categorical columns", value: asStringArray(encoding.categorical_columns) },
-                { label: "Numeric scaling", value: encoding.numeric_scaling },
-                { label: "Categorical encoding", value: encoding.categorical_encoding },
-                { label: "Missing numeric", value: encoding.missing_numeric },
-                { label: "Missing categorical", value: encoding.missing_categorical },
-                { label: "Balancing", value: balancing.applied ? balancing.strategy : `${balancing.strategy ?? "none"} (not applied)` },
-              ]}
-            />
-          </div>
-        </div>
+        <Card title="Encoding + Balancing">
+          <DetailList
+            items={[
+              { label: "Numeric columns", value: encoding?.numeric_columns },
+              { label: "Categorical columns", value: encoding?.categorical_columns },
+              { label: "Missing numeric", value: encoding?.missing_numeric },
+              { label: "Missing categorical", value: encoding?.missing_categorical },
+              { label: "Categorical encoding", value: encoding?.categorical_encoding },
+              { label: "Numeric scaling", value: encoding?.numeric_scaling },
+              { label: "Balancing applied", value: balancing?.applied },
+              { label: "Balancing strategy", value: balancing?.strategy },
+            ]}
+          />
+        </Card>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Feature reduction</div>
-          <div className="mt-3">
-            <DetailList
-              items={[
-                { label: "Feature selection", value: featureSelection.method },
-                { label: "Selected feature count", value: featureSelection.selected_feature_count },
-                { label: "Selected feature names", value: asStringArray(featureSelection.selected_feature_names) },
-                { label: "Quantum reduction", value: reduction.method },
-                { label: "Quantum target dim", value: reduction.target_dim },
-                { label: "Quantum feature names", value: asStringArray(reduction.selected_feature_names) },
-              ]}
-            />
-          </div>
-        </div>
+        <Card title="Feature Reduction">
+          <DetailList
+            items={[
+              { label: "Selection method", value: featureSelection?.method },
+              { label: "Score", value: featureSelection?.score_name },
+              { label: "Max selected features", value: featureSelection?.max_selected_features },
+              { label: "Input feature count", value: featureSelection?.input_feature_count },
+              { label: "Selected feature count", value: featureSelection?.selected_feature_count },
+              { label: "Selected features", value: featureSelection?.selected_feature_names },
+              { label: "Quantum reduction method", value: quantumReduction?.method },
+              { label: "Target quantum dimension", value: quantumReduction?.target_dim },
+              { label: "Quantum features", value: quantumReduction?.selected_feature_names },
+            ]}
+          />
+        </Card>
       </div>
     </div>
   );
 }
 
-function MandatoryBaselineStatusPanel({ status }: { status: unknown }) {
-  const record = asRecord(status);
-  if (!record) {
-    return <p className="text-sm text-slate-500">No mandatory baseline details available yet.</p>;
+function MandatoryBaselineStatusPanel({ status }: { status: JsonRecord | null }) {
+  if (!status) {
+    return <p className="text-sm text-slate-500">Workbook baseline status has not been parsed yet.</p>;
   }
-
-  const requested = asRecord(record.requested) ?? {};
-  const effective = asRecord(record.effective) ?? record;
-  const rows: MetricTableRow[] = ["logistic_regression", "random_forest", "gradient_boosting"].map((name) => ({
-    baseline: formatLabel(name),
-    requested: asTableCellValue(requested[name]),
-    effective: asTableCellValue(effective[name]),
-  }));
-  const forced = asStringArray(record.forced);
-
-  return (
-    <div className="space-y-3">
-      <GenericTable rows={rows} />
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
-        {forced.length ? `Forced on for reporting consistency: ${forced.map(formatLabel).join(", ")}.` : "All mandatory baselines were already enabled in the workbook."}
-      </div>
-    </div>
-  );
+  const rows: MetricTableRow[] = [
+    { status: "Enabled", models: asStringArray(status.enabled).join(", ") || "-" },
+    { status: "Disabled", models: asStringArray(status.disabled).join(", ") || "-" },
+    { status: "Forced", models: asStringArray(status.forced).join(", ") || "-" },
+  ];
+  return <GenericTable rows={rows} />;
 }
 
-function TrainingHistorySummaryPanel({ summary, vqcMetrics }: { summary: unknown; vqcMetrics: unknown }) {
-  const summaryRecord = asRecord(summary) ?? {};
-  const metricRecord = asRecord(vqcMetrics) ?? {};
-
+function TrainingHistorySummaryPanel({ summary }: { summary: JsonRecord | null }) {
+  if (!summary) {
+    return <p className="text-sm text-slate-500">Training history becomes available after a VQC run.</p>;
+  }
   return (
     <DetailList
       items={[
-        { label: "Iterations requested", value: summaryRecord.iterations_requested },
-        { label: "Repeats requested", value: summaryRecord.repeats_requested },
-        { label: "Optimization trace points", value: summaryRecord.history_points },
-        { label: "Best validation primary metric", value: summaryRecord.best_validation_primary_metric },
-        { label: "Primary metric", value: metricRecord.primary_metric_name },
-        { label: "Primary metric (val)", value: metricRecord.primary_metric_validation },
-        { label: "Primary metric (test)", value: metricRecord.primary_metric_test },
+        { label: "Iterations requested", value: summary.iterations_requested },
+        { label: "Repeats requested", value: summary.repeats_requested },
+        { label: "Optimization trace points", value: summary.history_points },
+        { label: "Best validation metric", value: summary.best_validation_primary_metric },
+        { label: "Best validation metric name", value: summary.primary_metric_name },
+        { label: "Stopped early", value: summary.early_stopped },
       ]}
     />
   );
 }
 
-function BaselineComparisonPreviewPanel({ preview }: { preview: unknown }) {
-  const record = asRecord(preview);
-  if (!record) {
-    return <p className="text-sm text-slate-500">No comparison preview available.</p>;
+function BaselineComparisonPreviewPanel({ preview }: { preview: JsonRecord | null }) {
+  const rows = Array.isArray(preview?.rows) ? (preview?.rows as MetricTableRow[]) : [];
+  if (!rows.length) {
+    return <p className="text-sm text-slate-500">Comparison preview appears after both baselines and VQC complete.</p>;
   }
-
-  const rows = Array.isArray(record.rows)
-    ? record.rows
-        .filter(isRecord)
-        .map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, asTableCellValue(value)])) as MetricTableRow)
-    : [];
-
   return (
     <div className="space-y-3">
-      <DetailList items={[{ label: "Primary metric", value: record.primary_metric_name }]} />
+      <p className="text-sm font-medium text-slate-200">
+        Primary metric: {formatValue(preview?.primary_metric_name)}
+      </p>
       <GenericTable rows={rows} />
     </div>
   );
 }
 
-function RunSummaryPanel({ summary }: { summary: unknown }) {
-  const record = asRecord(summary);
-  if (!record) {
-    return <p className="text-sm text-slate-500">No run summary available yet.</p>;
+function RunSummaryPanel({ summary }: { summary: JsonRecord | null }) {
+  if (!summary) {
+    return <p className="text-sm text-slate-500">Run summary becomes available after report generation.</p>;
   }
-
-  const datasetSummary = asRecord(record.dataset_summary) ?? {};
-  const warnings = asStringArray(record.main_warnings);
-  const selectedFeatures = asStringArray(record.selected_features);
-  const quantumFeatures = asStringArray(record.quantum_features);
 
   return (
     <div className="space-y-4">
       <InfoGrid
         items={[
-          { label: "Status", value: record.status },
-          { label: "Generated at", value: record.generated_at },
-          { label: "Dataset file", value: datasetSummary.dataset_file },
-          { label: "Label column", value: record.label_column },
-          { label: "Classification mode", value: record.classification_mode },
-          { label: "Number of classes", value: record.number_of_classes },
-          { label: "Train rows", value: record.train_rows },
-          { label: "Validation rows", value: record.validation_rows },
-          { label: "Test rows", value: record.test_rows },
-          { label: "Qubits", value: record.n_qubits },
-          { label: "Feature map", value: record.feature_map_type },
-          { label: "Ansatz", value: record.ansatz_type },
-          { label: "Ansatz reps", value: record.ansatz_reps },
-          { label: "Backend", value: record.backend },
-          { label: "Best baseline", value: record.best_baseline_model },
-          { label: "Baselines complete", value: record.mandatory_baselines_complete },
-          { label: "VQC complete", value: record.vqc_complete },
+          { label: "Status", value: summary.status },
+          { label: "Generated at", value: formatIsoTimestamp(summary.generated_at) },
+          { label: "Dataset file", value: summary.dataset_file },
+          { label: "Label column", value: summary.label_column },
+          { label: "Classification mode", value: summary.classification_mode },
+          { label: "Number of classes", value: summary.number_of_classes },
+          { label: "Train rows", value: summary.train_rows },
+          { label: "Validation rows", value: summary.validation_rows },
+          { label: "Test rows", value: summary.test_rows },
+          { label: "Qubits", value: summary.n_qubits },
+          { label: "Feature map", value: summary.feature_map_type },
+          { label: "Ansatz", value: summary.ansatz_type },
+          { label: "Ansatz reps", value: summary.ansatz_reps },
+          { label: "Backend", value: summary.backend },
+          { label: "Best baseline", value: summary.best_baseline_model },
+          { label: "Baselines complete", value: summary.mandatory_baselines_complete },
+          { label: "VQC complete", value: summary.vqc_complete },
         ]}
       />
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selected features</div>
-          <div className="mt-3">
-            <TagList values={selectedFeatures} />
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Quantum features</div>
-          <div className="mt-3">
-            <TagList values={quantumFeatures} />
-          </div>
-        </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card title="Main Warnings">
+          <TagList values={toStringArray(summary.main_warnings)} />
+        </Card>
+        <Card title="Report Artifacts">
+          <TagList values={toStringArray(summary.artifact_list)} />
+        </Card>
       </div>
+    </div>
+  );
+}
 
-      {warnings.length ? (
-        <div className="rounded-xl border border-amber-900/70 bg-amber-950/40 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-300">Main warnings</div>
-          <ul className="mt-3 space-y-2 text-sm text-amber-100">
-            {warnings.map((warning, index) => (
-              <li key={`${warning}-${index}`}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+function LogStreamPanel({ entries }: { entries: ClientLogEntry[] }) {
+  if (!entries.length) {
+    return <p className="text-sm text-slate-500">Client and backend events will appear here as the run progresses.</p>;
+  }
+  return (
+    <div className="space-y-3">
+      {entries.slice(0, 20).map((entry) => {
+        const tone =
+          entry.level === "error"
+            ? "border-rose-900/70 bg-rose-950/40"
+            : entry.level === "warning"
+              ? "border-amber-900/70 bg-amber-950/40"
+              : entry.level === "success"
+                ? "border-emerald-900/70 bg-emerald-950/40"
+                : "border-slate-800 bg-slate-950/40";
+        return (
+          <div key={entry.id} className={`rounded-xl border p-3 ${tone}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+              <span>
+                {formatIsoTimestamp(entry.timestamp)} · {formatLabel(entry.source)}
+                {entry.stage ? ` · ${formatLabel(entry.stage)}` : ""}
+              </span>
+              <span className="uppercase tracking-[0.18em]">{entry.level}</span>
+            </div>
+            <p className="mt-2 text-sm text-slate-100">{entry.message}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BacklogPanel({
+  jobs,
+  currentJobId,
+  onSelect,
+}: {
+  jobs: JobListEntry[];
+  currentJobId: string;
+  onSelect: (jobId: string) => void;
+}) {
+  if (!jobs.length) {
+    return <p className="text-sm text-slate-500">Recent async jobs will show up here once a run has been queued.</p>;
+  }
+  return (
+    <div className="space-y-3">
+      {jobs.map((job) => {
+        const isCurrent = job.job_id === currentJobId;
+        return (
+          <button
+            key={job.job_id}
+            type="button"
+            onClick={() => job.job_id && onSelect(job.job_id)}
+            className={[
+              "w-full rounded-xl border p-3 text-left transition",
+              isCurrent ? "border-cyan-700 bg-cyan-950/30" : "border-slate-800 bg-slate-950/40 hover:border-slate-700",
+            ].join(" ")}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate font-mono text-xs text-slate-200">{job.job_id}</div>
+                <div className="mt-1 text-xs text-slate-400">
+                  {formatLabel(job.current_stage ?? "idle")} · {formatIsoTimestamp(job.updated_at ?? job.created_at)}
+                </div>
+              </div>
+              <StatusBadge value={job.job_status} />
+            </div>
+            {job.message ? <p className="mt-2 text-sm text-slate-300">{job.message}</p> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -894,12 +995,12 @@ function RunSummaryPanel({ summary }: { summary: unknown }) {
 export default function VqcClassifierPage() {
   const [workbookFile, setWorkbookFile] = useState<File | null>(null);
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
-  const [datasetPath, setDatasetPath] = useState("");
+  const [datasetPathInput, setDatasetPathInput] = useState("");
   const [jobId, setJobId] = useState("");
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
-  const [currentStage, setCurrentStage] = useState("Idle");
   const [lastError, setLastError] = useState<string | null>(null);
-  const [stepStatus, setStepStatus] = useState<Record<PipelineStepKey, PipelineStepStatus>>(INITIAL_STEPS);
+  const [stepStatus, setStepStatus] = useState<Record<PipelineStepKey, PipelineStepStatus>>(() => cloneInitialSteps());
+  const [clientLogEntries, setClientLogEntries] = useState<ClientLogEntry[]>([]);
 
   const [healthResponse, setHealthResponse] = useState<HealthResponse | null>(null);
   const [inspectResponse, setInspectResponse] = useState<InspectWorkbookResponse | null>(null);
@@ -908,845 +1009,1073 @@ export default function VqcClassifierPage() {
   const [baselinesResponse, setBaselinesResponse] = useState<RunBaselinesResponse | null>(null);
   const [vqcResponse, setVqcResponse] = useState<RunVqcResponse | null>(null);
   const [reportResponse, setReportResponse] = useState<GenerateReportResponse | null>(null);
+  const [executeResponse, setExecuteResponse] = useState<ExecuteRunResponse | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
+  const [jobLogResponse, setJobLogResponse] = useState<JobLogResponse | null>(null);
+  const [jobListResponse, setJobListResponse] = useState<JobListResponse | null>(null);
 
-  const requestInFlight = activeRequest !== null;
+  function pushClientLog(level: LogLevel, message: string, stage?: PipelineStepKey | string | null) {
+    setClientLogEntries((entries) => [
+      {
+        id: `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: new Date().toISOString(),
+        source: "client",
+        level,
+        stage,
+        message,
+      },
+      ...entries,
+    ]);
+  }
 
-  function resetPipelineFrom(step: PipelineStepKey) {
-    if (step === "inspect") {
-      setInspectResponse(null);
-      setPrepareResponse(null);
-      setPlanResponse(null);
-      setBaselinesResponse(null);
-      setVqcResponse(null);
-      setReportResponse(null);
-      setJobId("");
-      setStepStatus(INITIAL_STEPS);
-      return;
-    }
-
-    if (step === "prepare") {
-      setPrepareResponse(null);
-      setPlanResponse(null);
-      setBaselinesResponse(null);
-      setVqcResponse(null);
-      setReportResponse(null);
-      setStepStatus((previous) => ({
-        ...previous,
-        prepare: "pending",
-        plan: "pending",
-        baselines: "pending",
-        vqc: "pending",
-        report: "pending",
-      }));
-      return;
-    }
-
-    if (step === "plan") {
-      setPlanResponse(null);
-      setBaselinesResponse(null);
-      setVqcResponse(null);
-      setReportResponse(null);
-      setStepStatus((previous) => ({
-        ...previous,
-        plan: "pending",
-        baselines: "pending",
-        vqc: "pending",
-        report: "pending",
-      }));
-      return;
-    }
-
-    if (step === "baselines") {
-      setBaselinesResponse(null);
-      setVqcResponse(null);
-      setReportResponse(null);
-      setStepStatus((previous) => ({
-        ...previous,
-        baselines: "pending",
-        vqc: "pending",
-        report: "pending",
-      }));
-      return;
-    }
-
-    if (step === "vqc") {
-      setVqcResponse(null);
-      setReportResponse(null);
-      setStepStatus((previous) => ({
-        ...previous,
-        vqc: "pending",
-        report: "pending",
-      }));
-      return;
-    }
-
+  function resetForWorkbookChange() {
+    setPrepareResponse(null);
+    setPlanResponse(null);
+    setBaselinesResponse(null);
+    setVqcResponse(null);
     setReportResponse(null);
+    setExecuteResponse(null);
+    setJobStatus(null);
+    setJobLogResponse(null);
+    setJobId("");
+    setStepStatus(cloneInitialSteps());
+  }
+
+  function resetForDataChange() {
+    setPrepareResponse(null);
+    setPlanResponse(null);
+    setBaselinesResponse(null);
+    setVqcResponse(null);
+    setReportResponse(null);
+    setExecuteResponse(null);
+    setJobStatus(null);
+    setJobLogResponse(null);
+    setJobId("");
     setStepStatus((previous) => ({
-      ...previous,
+      inspect: previous.inspect,
+      prepare: "pending",
+      plan: "pending",
+      baselines: "pending",
+      vqc: "pending",
       report: "pending",
     }));
   }
 
-  const effectiveSettings = useMemo<JsonRecord | undefined>(() => {
-    const candidates = [
-      reportResponse?.effective_settings,
-      vqcResponse?.effective_settings,
-      baselinesResponse?.effective_settings,
-      planResponse?.effective_settings,
-      prepareResponse?.effective_settings,
-      inspectResponse?.effective_settings,
-    ];
+  function syncResultSummaries(status: JobStatusResponse) {
+    const summaries = asRecord(status.result_summaries) ?? {};
+    const effectiveSettings = asRecord(status.effective_settings) ?? {};
+    const commonPayload = {
+      status: "ok",
+      job_id: status.job_id,
+      artifact_paths: status.artifact_paths ?? {},
+      effective_settings: effectiveSettings,
+      config_source: status.config_source,
+      workbook_metadata: status.workbook_metadata ?? {},
+      warnings: extractWarnings(status),
+      errors: [],
+    };
 
-    return candidates.find((candidate) => isRecord(candidate)) as JsonRecord | undefined;
-  }, [reportResponse, vqcResponse, baselinesResponse, planResponse, prepareResponse, inspectResponse]);
+    const planSummary = asRecord(summaries.plan);
+    if (planSummary) {
+      setPlanResponse((previous) => ({
+        ...(previous ?? {}),
+        ...commonPayload,
+        ...planSummary,
+      }));
+    }
 
-  const latestWorkbookMetadata = useMemo<JsonRecord | undefined>(() => {
-    const candidates = [
-      reportResponse?.workbook_metadata,
-      vqcResponse?.workbook_metadata,
-      baselinesResponse?.workbook_metadata,
-      prepareResponse?.workbook_metadata,
-      inspectResponse?.workbook_metadata,
-    ];
-    return candidates.find((candidate) => isRecord(candidate)) as JsonRecord | undefined;
-  }, [reportResponse, vqcResponse, baselinesResponse, prepareResponse, inspectResponse]);
+    const baselineSummary = asRecord(summaries.baselines);
+    if (baselineSummary) {
+      setBaselinesResponse((previous) => ({
+        ...(previous ?? {}),
+        ...commonPayload,
+        ...baselineSummary,
+      }));
+    }
 
-  const latestConfigSource = useMemo<string | undefined>(() => {
-    const candidates = [
-      reportResponse?.config_source,
-      vqcResponse?.config_source,
-      baselinesResponse?.config_source,
-      prepareResponse?.config_source,
-      inspectResponse?.config_source,
-    ];
-    return candidates.find((candidate) => typeof candidate === "string" && candidate.trim()) as string | undefined;
-  }, [reportResponse, vqcResponse, baselinesResponse, prepareResponse, inspectResponse]);
+    const vqcSummary = asRecord(summaries.vqc);
+    if (vqcSummary) {
+      setVqcResponse((previous) => ({
+        ...(previous ?? {}),
+        ...commonPayload,
+        ...vqcSummary,
+      }));
+    }
 
-  const allWarnings = useMemo(
-    () =>
-      [
-        inspectResponse,
-        prepareResponse,
-        planResponse,
-        baselinesResponse,
-        vqcResponse,
-        reportResponse,
-      ].reduce((collected, response) => mergeWarnings(collected, extractWarnings(response)), [] as string[]),
-    [inspectResponse, prepareResponse, planResponse, baselinesResponse, vqcResponse, reportResponse],
-  );
+    const reportSummary = asRecord(summaries.report);
+    if (reportSummary) {
+      setReportResponse((previous) => ({
+        ...(previous ?? {}),
+        ...commonPayload,
+        ...reportSummary,
+      }));
+    }
+  }
 
-  async function runStep<T>(
-    step: PipelineStepKey | null,
-    label: string,
-    action: () => Promise<T>,
-    onSuccess?: (response: T) => void,
-  ): Promise<void> {
-    setActiveRequest(label);
-    setCurrentStage(label);
-    setLastError(null);
-
+  async function refreshRecentJobs() {
     try {
-      const response = await action();
-      if (step) {
-        setStepStatus((previous) => ({ ...previous, [step]: "done" }));
-      }
-      onSuccess?.(response);
-      setCurrentStage(`${label} complete`);
+      const response = await getJson<JobListResponse>(`${ENDPOINTS.jobs}?limit=8`);
+      setJobListResponse(response);
+    } catch {
+      // keep the page quiet if recent job polling fails
+    }
+  }
+
+  async function checkBackend() {
+    setActiveRequest("Checking backend");
+    setLastError(null);
+    try {
+      const response = await getJson<HealthResponse>(ENDPOINTS.health);
+      setHealthResponse(response);
+      pushClientLog("success", "Backend connectivity verified.", "inspect");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "The request failed.";
-      if (step) {
-        setStepStatus((previous) => ({ ...previous, [step]: "error" }));
-      }
+      const message = error instanceof Error ? error.message : "Check backend failed.";
+      setHealthResponse(null);
       setLastError(message);
-      setCurrentStage(`${label} failed`);
+      pushClientLog("error", `Backend check failed: ${message}`, "inspect");
     } finally {
       setActiveRequest(null);
     }
   }
 
-  async function handleHealthCheck() {
-    await runStep(null, "Check backend", () => getJson<HealthResponse>(ENDPOINTS.health), (response) => {
-      setHealthResponse(response);
-    });
-  }
+  async function inspectWorkbook(file: File, options?: { chainPrepare?: boolean }) {
+    setActiveRequest("Inspecting workbook");
+    setLastError(null);
+    setStepStatus((previous) => ({
+      ...cloneInitialSteps(),
+      inspect: "running",
+      prepare: previous.prepare === "done" && options?.chainPrepare ? "pending" : "pending",
+    }));
 
-  async function handleInspectWorkbook() {
-    if (!workbookFile) {
-      setLastError("Please choose an Excel workbook before inspecting.");
-      return;
-    }
-
-    resetPipelineFrom("inspect");
-    const formData = new FormData();
-    formData.append("file", workbookFile);
-
-    await runStep("inspect", "Inspect workbook", () => postMultipart<InspectWorkbookResponse>(ENDPOINTS.inspectWorkbook, formData), (response) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await postMultipart<InspectWorkbookResponse>(ENDPOINTS.inspectWorkbook, formData);
       setInspectResponse(response);
-    });
-  }
+      setStepStatus((previous) => ({ ...previous, inspect: "done" }));
+      pushClientLog("success", `Workbook inspected: ${file.name}`, "inspect");
 
-  async function handlePrepareData() {
-    if (!workbookFile) {
-      setLastError("Please choose an Excel workbook before preparing data.");
-      return;
-    }
-
-    resetPipelineFrom("prepare");
-    const formData = new FormData();
-    formData.append("workbook", workbookFile);
-    if (datasetFile) {
-      formData.append("dataset", datasetFile);
-    }
-
-    await runStep("prepare", "Prepare data", () => postMultipart<PrepareDataResponse>(ENDPOINTS.prepareData, formData), (response) => {
-      setPrepareResponse(response);
-      if (response.job_id) {
-        setJobId(response.job_id);
+      if (options?.chainPrepare && (datasetFile || datasetPathInput.trim())) {
+        await prepareData({
+          workbookOverride: file,
+          datasetOverride: datasetFile,
+          datasetPathOverride: datasetPathInput.trim(),
+        });
       }
-    });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Workbook inspection failed.";
+      setStepStatus((previous) => ({ ...previous, inspect: "error" }));
+      setLastError(message);
+      pushClientLog("error", `Workbook inspection failed: ${message}`, "inspect");
+    } finally {
+      setActiveRequest(null);
+    }
   }
 
-  async function handlePlanRun() {
-    if (!workbookFile) {
-      setLastError("Please choose an Excel workbook before planning the run.");
-      return;
+  async function runPlan(targetJobId: string, workbookOverride?: File | null) {
+    if (!targetJobId) {
+      return null;
     }
 
-    resetPipelineFrom("plan");
-    const formData = new FormData();
-    formData.append("workbook", workbookFile);
-    if (jobId) {
-      formData.append("job_id", jobId);
-    }
+    setStepStatus((previous) => ({ ...previous, plan: "running" }));
+    pushClientLog("info", `Refreshing runtime estimate for ${targetJobId}.`, "plan");
 
-    await runStep("plan", "Plan run", () => postMultipart<PlanRunResponse>(ENDPOINTS.planRun, formData), (response) => {
+    try {
+      const formData = new FormData();
+      formData.append("job_id", targetJobId);
+      const workbookToUse = workbookOverride ?? workbookFile;
+      if (workbookToUse) {
+        formData.append("workbook", workbookToUse);
+      }
+      const response = await postMultipart<PlanRunResponse>(ENDPOINTS.planRun, formData);
       setPlanResponse(response);
-      if (response.job_id) {
-        setJobId(response.job_id);
+      setStepStatus((previous) => ({ ...previous, plan: "done" }));
+      pushClientLog("success", `Planning estimate refreshed for ${targetJobId}.`, "plan");
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Run planning failed.";
+      setStepStatus((previous) => ({ ...previous, plan: "error" }));
+      setLastError(message);
+      pushClientLog("error", `Run planning failed: ${message}`, "plan");
+      return null;
+    }
+  }
+
+  async function prepareData(options?: {
+    workbookOverride?: File | null;
+    datasetOverride?: File | null;
+    datasetPathOverride?: string;
+  }) {
+    const workbookToUse = options?.workbookOverride ?? workbookFile;
+    const datasetToUse = options?.datasetOverride ?? datasetFile;
+    const datasetPathToUse = (options?.datasetPathOverride ?? datasetPathInput).trim();
+
+    if (!workbookToUse) {
+      const message = "Load a workbook first so we have a config to inspect and prepare against.";
+      setLastError(message);
+      pushClientLog("warning", message, "prepare");
+      return null;
+    }
+
+    setActiveRequest("Preparing data");
+    setLastError(null);
+    setStepStatus((previous) => ({
+      ...previous,
+      prepare: "running",
+      plan: "pending",
+      baselines: "pending",
+      vqc: "pending",
+      report: "pending",
+    }));
+
+    try {
+      const formData = new FormData();
+      formData.append("workbook", workbookToUse);
+      if (datasetToUse) {
+        formData.append("dataset", datasetToUse);
+      } else if (datasetPathToUse) {
+        formData.append("dataset_path", datasetPathToUse);
       }
-    });
+
+      const response = await postMultipart<PrepareDataResponse>(ENDPOINTS.prepareData, formData);
+      setPrepareResponse(response);
+      setJobId(response.job_id ?? "");
+      setStepStatus((previous) => ({ ...previous, prepare: "done" }));
+      pushClientLog("success", `Prepared data for ${response.dataset_file ?? "dataset"} as ${response.job_id}.`, "prepare");
+
+      if (response.job_id) {
+        await runPlan(response.job_id, workbookToUse);
+        await refreshRecentJobs();
+      }
+
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Data preparation failed.";
+      setStepStatus((previous) => ({ ...previous, prepare: "error" }));
+      setLastError(message);
+      pushClientLog("error", `Data preparation failed: ${message}`, "prepare");
+      return null;
+    } finally {
+      setActiveRequest(null);
+    }
   }
 
-  async function handleRunBaselines() {
-    if (!jobId.trim()) {
-      setLastError("Please prepare data first or paste an existing job ID before running baselines.");
+  async function refreshJobState(targetJobId: string, silent = true) {
+    try {
+      const [statusResponse, logResponse] = await Promise.all([
+        getJson<JobStatusResponse>(`${ENDPOINTS.jobs}/${encodeURIComponent(targetJobId)}`),
+        getJson<JobLogResponse>(`${ENDPOINTS.jobs}/${encodeURIComponent(targetJobId)}/log?tail=200`),
+      ]);
+
+      setJobStatus(statusResponse);
+      setJobLogResponse(logResponse);
+      if (statusResponse.job_id) {
+        setJobId(statusResponse.job_id);
+      }
+
+      const mappedSteps = buildStepStatusFromJob(statusResponse);
+      if (mappedSteps) {
+        setStepStatus(mappedSteps);
+      }
+      syncResultSummaries(statusResponse);
+
+      if (statusResponse.job_status === "completed") {
+        pushClientLog("success", `Async run ${targetJobId} completed.`, statusResponse.current_stage);
+        setActiveRequest(null);
+      } else if (statusResponse.job_status === "failed") {
+        pushClientLog("error", `Async run ${targetJobId} failed.`, statusResponse.current_stage);
+        setActiveRequest(null);
+      } else if (statusResponse.job_status === "cancelled") {
+        pushClientLog("warning", `Async run ${targetJobId} was cancelled.`, statusResponse.current_stage);
+        setActiveRequest(null);
+      }
+
+      await refreshRecentJobs();
+    } catch (error) {
+      if (!silent) {
+        const message = error instanceof Error ? error.message : "Job refresh failed.";
+        setLastError(message);
+        pushClientLog("error", `Could not refresh job ${targetJobId}: ${message}`);
+      }
+    }
+  }
+
+  async function executeRun() {
+    let ensuredJobId = jobId.trim();
+    setLastError(null);
+
+    if (!ensuredJobId) {
+      const prepared = await prepareData();
+      ensuredJobId = prepared?.job_id ?? "";
+    }
+
+    if (!ensuredJobId) {
       return;
     }
 
-    resetPipelineFrom("baselines");
-    const formData = new FormData();
-    formData.append("job_id", jobId.trim());
-    if (workbookFile) {
-      formData.append("workbook", workbookFile);
+    setActiveRequest("Queuing async run");
+    try {
+      const formData = new FormData();
+      formData.append("job_id", ensuredJobId);
+      if (workbookFile) {
+        formData.append("workbook", workbookFile);
+      }
+      const response = await postMultipart<ExecuteRunResponse>(ENDPOINTS.executeRun, formData);
+      setExecuteResponse(response);
+      setJobId(response.job_id ?? ensuredJobId);
+      pushClientLog("info", `Queued async run for ${response.job_id ?? ensuredJobId}.`, "plan");
+      await refreshJobState(response.job_id ?? ensuredJobId, false);
+      setActiveRequest(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Execute run failed.";
+      setLastError(message);
+      pushClientLog("error", `Execute run failed: ${message}`, "plan");
+      setActiveRequest(null);
     }
-
-    await runStep("baselines", "Run baselines", () => postMultipart<RunBaselinesResponse>(ENDPOINTS.runBaselines, formData), (response) => {
-      setBaselinesResponse(response);
-    });
   }
 
-  async function handleRunVqc() {
+  async function cancelJob() {
     if (!jobId.trim()) {
-      setLastError("Please prepare data first or paste an existing job ID before running VQC.");
       return;
     }
-
-    resetPipelineFrom("vqc");
-    const formData = new FormData();
-    formData.append("job_id", jobId.trim());
-    if (workbookFile) {
-      formData.append("workbook", workbookFile);
+    setActiveRequest("Requesting cancel");
+    setLastError(null);
+    try {
+      await postEmpty(`${ENDPOINTS.jobs}/${encodeURIComponent(jobId.trim())}/cancel`);
+      pushClientLog("warning", `Cancellation requested for ${jobId.trim()}.`, "vqc");
+      await refreshJobState(jobId.trim(), false);
+      setActiveRequest(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cancel request failed.";
+      setLastError(message);
+      pushClientLog("error", `Cancel request failed: ${message}`, "vqc");
+      setActiveRequest(null);
     }
-
-    await runStep("vqc", "Run VQC", () => postMultipart<RunVqcResponse>(ENDPOINTS.runVqc, formData), (response) => {
-      setVqcResponse(response);
-    });
   }
 
-  async function handleGenerateReport() {
-    if (!jobId.trim()) {
-      setLastError("Please prepare data first or paste an existing job ID before generating the report.");
+  async function loadJob(targetJobId: string) {
+    if (!targetJobId.trim()) {
       return;
     }
-
-    resetPipelineFrom("report");
-    const formData = new FormData();
-    formData.append("job_id", jobId.trim());
-    if (workbookFile) {
-      formData.append("workbook", workbookFile);
-    }
-
-    await runStep("report", "Generate report", () => postMultipart<GenerateReportResponse>(ENDPOINTS.generateReport, formData), (response) => {
-      setReportResponse(response);
-    });
+    setJobId(targetJobId.trim());
+    setActiveRequest("Loading job");
+    setLastError(null);
+    pushClientLog("info", `Loading async job ${targetJobId.trim()}.`);
+    await refreshJobState(targetJobId.trim(), false);
+    setActiveRequest(null);
   }
 
-  const configurationSummary = useMemo(() => {
-    const dataset = isRecord(effectiveSettings?.dataset) ? effectiveSettings?.dataset : {};
-    const model = isRecord(effectiveSettings?.model) ? effectiveSettings?.model : {};
-    const training = isRecord(effectiveSettings?.training) ? effectiveSettings?.training : {};
+  function handleWorkbookChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setWorkbookFile(file);
+    resetForWorkbookChange();
+    pushClientLog("info", `Selected workbook snapshot: ${file.name}.`, "inspect");
+    void inspectWorkbook(file, { chainPrepare: Boolean(datasetFile || datasetPathInput.trim()) });
+  }
 
-    return [
-      { label: "Dataset file", value: prepareResponse?.dataset_file ?? dataset.dataset_file },
-      { label: "Label column", value: prepareResponse?.label_column ?? dataset.label_column },
-      {
-        label: "Task / mode",
-        value:
-          reportResponse?.run_summary && isRecord(reportResponse.run_summary)
-            ? reportResponse.run_summary.classification_mode
-            : prepareResponse?.inferred_classification_mode ?? inspectResponse?.inferred_classification_mode ?? dataset.task_type,
-      },
-      {
-        label: "Number of classes",
-        value:
-          reportResponse?.run_summary && isRecord(reportResponse.run_summary)
-            ? reportResponse.run_summary.number_of_classes
-            : vqcResponse?.number_of_classes ?? baselinesResponse?.number_of_classes,
-      },
-      { label: "Selected features", value: prepareResponse?.number_of_selected_features },
-      { label: "Quantum features", value: prepareResponse?.number_of_quantum_features ?? model.n_quantum_features },
-      { label: "Qubits", value: model.n_qubits },
-      { label: "Feature map", value: inspectResponse?.feature_map_type ?? model.feature_map_type },
-      { label: "Ansatz", value: inspectResponse?.ansatz_type ?? model.ansatz_type },
-      { label: "Ansatz reps", value: model.ansatz_reps },
-      { label: "Iterations", value: training.iterations },
-      { label: "Early stopping", value: training.early_stopping },
-      { label: "Backend", value: model.backend },
-      { label: "Shots mode", value: model.shots_mode },
-      { label: "Mandatory baselines", value: summarizeMandatoryBaselines(inspectResponse?.mandatory_baseline_status) },
-    ];
-  }, [effectiveSettings, prepareResponse, inspectResponse, reportResponse, vqcResponse, baselinesResponse]);
+  function handleDatasetFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setDatasetFile(file);
+    setDatasetPathInput("");
+    resetForDataChange();
+    pushClientLog("info", `Selected dataset snapshot: ${file.name}.`, "prepare");
+    void prepareData({ datasetOverride: file, datasetPathOverride: "" });
+  }
 
-  const highlightedArtifacts = useMemo(() => {
-    const reportArtifacts = reportResponse?.artifact_paths ?? {};
-    const keys = [
-      "result_report",
-      "run_summary",
-      "final_model_comparison",
-      "exported_pennylane_model",
-      "exported_notebook",
-      "results_readme",
-    ];
-    return Object.fromEntries(Object.entries(reportArtifacts).filter(([key]) => keys.includes(key)));
-  }, [reportResponse]);
+  async function handleDatasetPathSubmit() {
+    if (!datasetPathInput.trim()) {
+      return;
+    }
+    setDatasetFile(null);
+    resetForDataChange();
+    pushClientLog("info", `Preparing data from dataset path: ${datasetPathInput.trim()}.`, "prepare");
+    await prepareData({ datasetOverride: null, datasetPathOverride: datasetPathInput.trim() });
+  }
+
+  useEffect(() => {
+    void checkBackend();
+    void refreshRecentJobs();
+  }, []);
+
+  const isJobActive = useMemo(() => {
+    const status = (jobStatus?.job_status ?? executeResponse?.job_status ?? "").toLowerCase();
+    return status === "queued" || status === "running";
+  }, [executeResponse?.job_status, jobStatus?.job_status]);
+
+  useEffect(() => {
+    if (!jobId || !isJobActive) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void refreshJobState(jobId, true);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [isJobActive, jobId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void refreshRecentJobs();
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const currentEffectiveSettings = useMemo(() => {
+    return (
+      asRecord(jobStatus?.effective_settings) ??
+      asRecord(reportResponse?.effective_settings) ??
+      asRecord(vqcResponse?.effective_settings) ??
+      asRecord(baselinesResponse?.effective_settings) ??
+      asRecord(planResponse?.effective_settings) ??
+      asRecord(prepareResponse?.effective_settings) ??
+      asRecord(inspectResponse?.effective_settings) ??
+      null
+    );
+  }, [
+    baselinesResponse?.effective_settings,
+    inspectResponse?.effective_settings,
+    jobStatus?.effective_settings,
+    planResponse?.effective_settings,
+    prepareResponse?.effective_settings,
+    reportResponse?.effective_settings,
+    vqcResponse?.effective_settings,
+  ]);
+
+  const currentWarnings = useMemo(() => {
+    let merged: string[] = [];
+    [
+      inspectResponse,
+      prepareResponse,
+      planResponse,
+      baselinesResponse,
+      vqcResponse,
+      reportResponse,
+      executeResponse,
+      jobStatus,
+      jobLogResponse,
+      jobListResponse,
+    ].forEach((response) => {
+      merged = mergeWarnings(merged, extractWarnings(response));
+    });
+    return merged;
+  }, [
+    baselinesResponse,
+    executeResponse,
+    inspectResponse,
+    jobListResponse,
+    jobLogResponse,
+    jobStatus,
+    planResponse,
+    prepareResponse,
+    reportResponse,
+    vqcResponse,
+  ]);
+
+  const combinedLogEntries = useMemo(
+    () => combineLogEntries(clientLogEntries, jobLogResponse),
+    [clientLogEntries, jobLogResponse],
+  );
+
+  const selectedWorkbookSnapshot = workbookFile
+    ? [
+        { label: "Filename", value: workbookFile.name },
+        { label: "Size", value: formatBytes(workbookFile.size) },
+        { label: "Last modified", value: formatTimestamp(workbookFile.lastModified) },
+      ]
+    : [];
+
+  const backendWorkbookSnapshot = useMemo(() => {
+    return (
+      asRecord(jobStatus?.workbook_metadata) ??
+      asRecord(reportResponse?.workbook_metadata) ??
+      asRecord(vqcResponse?.workbook_metadata) ??
+      asRecord(planResponse?.workbook_metadata) ??
+      asRecord(prepareResponse?.workbook_metadata) ??
+      asRecord(inspectResponse?.workbook_metadata) ??
+      null
+    );
+  }, [
+    inspectResponse?.workbook_metadata,
+    jobStatus?.workbook_metadata,
+    planResponse?.workbook_metadata,
+    prepareResponse?.workbook_metadata,
+    reportResponse?.workbook_metadata,
+    vqcResponse?.workbook_metadata,
+  ]);
+
+  const modelSettings = parameterItemsFromEffectiveSettings(currentEffectiveSettings ?? undefined, "model");
+  const trainingSettings = parameterItemsFromEffectiveSettings(currentEffectiveSettings ?? undefined, "training");
+  const currentRuntimeEstimate = asRecord(planResponse?.runtime_estimate);
+  const currentMemoryEstimate = asRecord(planResponse?.memory_estimate);
+  const currentCircuitEstimate = asRecord(planResponse?.circuit_estimate);
+  const currentVqcWorkload = asRecord(planResponse?.vqc_workload_estimate);
+  const currentHardwareFeasibility = asRecord(planResponse?.hardware_feasibility);
+  const currentRecommendations = planResponse?.recommendations ?? [];
+  const currentRunSummary = asRecord(reportResponse?.run_summary);
+  const currentStageLabel = jobStatus?.current_stage ?? executeResponse?.current_stage ?? activeRequest ?? "Ready";
+  const currentJobStatus = jobStatus?.job_status ?? executeResponse?.job_status ?? "idle";
+  const prepareArtifacts = prepareResponse?.artifact_paths;
+  const reportArtifacts = reportResponse?.artifact_paths;
+  const backlogJobs = jobListResponse?.jobs ?? [];
+  const currentDatasetSettings = asRecord(currentEffectiveSettings?.dataset);
+  const currentStatusMessage = jobStatus?.message ?? "Ready for the next step.";
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        <header className="mb-8 rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-8 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">VQC RQP</p>
-          <h1 className="mt-3 text-4xl font-semibold text-white">VQC Classifier RQP</h1>
-          <p className="mt-4 max-w-3xl text-base text-slate-300">
-            Configure, prepare, benchmark, and report quantum classification workflows for labeled tabular datasets.
-          </p>
-          <p className="mt-3 max-w-3xl text-sm text-slate-400">
-            Excel-configured VQC experiments with mandatory classical baselines and downloadable reports.
-          </p>
-        </header>
+      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm">
+          <div className="max-w-4xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">VQC Classifier RQP</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-50">
+              Configure, prepare, benchmark, and report quantum classification workflows for labeled tabular datasets.
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+              Excel-configured VQC experiments with mandatory classical baselines, async run orchestration, and local report artifacts.
+            </p>
+          </div>
+        </section>
 
-        <div className="mb-8 grid gap-3 md:grid-cols-6">
-          <StepPill label="Inspect" status={stepStatus.inspect} />
-          <StepPill label="Prepare" status={stepStatus.prepare} />
-          <StepPill label="Plan" status={stepStatus.plan} />
-          <StepPill label="Baselines" status={stepStatus.baselines} />
-          <StepPill label="VQC" status={stepStatus.vqc} />
-          <StepPill label="Report" status={stepStatus.report} />
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
-          <Card
-            title="Status"
-            subtitle="Keep an eye on the local backend, active run context, and the stage we are currently moving through."
-            accent
-          >
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Backend health</div>
-                <div className="mt-2 text-lg font-medium text-slate-100">
-                  {healthResponse?.status === "ok" ? "Healthy" : "Unchecked"}
-                </div>
-                <div className="mt-1 text-sm text-slate-400">
-                  {healthResponse ? `${healthResponse.app ?? "Backend"} ${healthResponse.version ?? ""}`.trim() : "Use the check button to verify connectivity."}
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Current stage</div>
-                <div className="mt-2 text-lg font-medium text-slate-100">{currentStage}</div>
-                <div className="mt-1 text-sm text-slate-400">{requestInFlight ? "A request is in progress." : "Ready for the next step."}</div>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
-              <div>
-                <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">API base URL</label>
-                <div className="mt-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3 font-mono text-sm text-cyan-200">
-                  {API_BASE}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleHealthCheck}
-                disabled={requestInFlight}
-                className="rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
-              >
-                {activeRequest === "Check backend" ? "Checking..." : "Check backend"}
-              </button>
-            </div>
-
-            <div className="mt-4">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Current job ID</label>
-              <input
-                value={jobId}
-                onChange={(event) => setJobId(event.target.value)}
-                placeholder="Auto-filled after /prepare-data or paste an existing job ID"
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none ring-0 placeholder:text-slate-500 focus:border-cyan-600"
+        <Card
+          title="Status"
+          subtitle="Keep an eye on backend health, the active job context, and the stage we are currently moving through."
+          accent
+        >
+          <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
+            <div className="space-y-4">
+              <InfoGrid
+                items={[
+                  { label: "Backend health", value: healthResponse?.status ?? "Unchecked" },
+                  { label: "API base URL", value: API_BASE },
+                  { label: "Current stage", value: currentStageLabel },
+                  { label: "Job status", value: currentJobStatus },
+                  { label: "Current job ID", value: jobId || "Auto-filled after data preparation or async load" },
+                  { label: "Progress", value: typeof jobStatus?.progress === "number" ? formatPercent(jobStatus.progress) : "-" },
+                  { label: "Config source", value: jobStatus?.config_source ?? reportResponse?.config_source ?? prepareResponse?.config_source ?? inspectResponse?.config_source ?? "-" },
+                  { label: "Status message", value: currentStatusMessage },
+                ]}
               />
-            </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selected workbook snapshot</div>
-                <div className="mt-3">
-                  <InfoGrid
-                    items={[
-                      { label: "Filename", value: workbookFile?.name },
-                      { label: "Size", value: workbookFile ? formatBytes(workbookFile.size) : null },
-                      { label: "Last modified", value: workbookFile ? formatTimestamp(workbookFile.lastModified) : null },
-                    ]}
-                  />
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Backend workbook snapshot</div>
-                <div className="mt-3">
-                  <InfoGrid
-                    items={[
-                      { label: "Config source", value: latestConfigSource ? formatLabel(latestConfigSource) : null },
-                      { label: "Filename", value: latestWorkbookMetadata?.filename },
-                      { label: "Size", value: latestWorkbookMetadata ? formatBytes(latestWorkbookMetadata.size_bytes) : null },
-                      { label: "SHA256", value: latestWorkbookMetadata?.sha256 },
-                    ]}
-                  />
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card
-            title="Upload & Run"
-            subtitle="Upload the workbook, optionally upload the dataset directly, and then drive the local pipeline step by step."
-          >
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div>
-                <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Excel workbook</label>
-                <input
-                  type="file"
-                  accept=".xlsx,.xlsm,.xls"
-                  onChange={(event) => setWorkbookFile(event.target.files?.[0] ?? null)}
-                  className="mt-2 block w-full rounded-xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
-                />
-                <p className="mt-2 text-xs text-slate-500">
-                  {workbookFile
-                    ? `${workbookFile.name} · ${formatBytes(workbookFile.size)} · modified ${formatTimestamp(workbookFile.lastModified)}`
-                    : "No workbook selected yet."}
-                </p>
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dataset upload</label>
-                <input
-                  type="file"
-                  accept=".csv,.parquet"
-                  onChange={(event) => setDatasetFile(event.target.files?.[0] ?? null)}
-                  className="mt-2 block w-full rounded-xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-100 hover:file:bg-slate-600"
-                />
-                <p className="mt-2 text-xs text-slate-500">{datasetFile ? datasetFile.name : "If omitted, the backend uses dataset_file from the workbook."}</p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <StepPill label="Inspect" status={stepStatus.inspect} />
+                <StepPill label="Prepare" status={stepStatus.prepare} />
+                <StepPill label="Plan" status={stepStatus.plan} />
+                <StepPill label="Baselines" status={stepStatus.baselines} />
+                <StepPill label="VQC" status={stepStatus.vqc} />
+                <StepPill label="Report" status={stepStatus.report} />
               </div>
             </div>
 
-            <div className="mt-4">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dataset path reference</label>
-              <input
-                value={datasetPath}
-                onChange={(event) => setDatasetPath(event.target.value)}
-                placeholder="Optional note, e.g. /path/to/Base.csv"
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-600"
-              />
-              <p className="mt-2 text-xs text-slate-500">
-                This field is a local reminder for now. When no dataset is uploaded, the backend still reads the dataset reference from the workbook.
-              </p>
-            </div>
-
-            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <button
-                type="button"
-                onClick={handleInspectWorkbook}
-                disabled={requestInFlight}
-                className="rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
-              >
-                {activeRequest === "Inspect workbook" ? "Inspecting..." : "Inspect workbook"}
-              </button>
-              <button
-                type="button"
-                onClick={handlePrepareData}
-                disabled={requestInFlight}
-                className="rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
-              >
-                {activeRequest === "Prepare data" ? "Preparing..." : "Prepare data"}
-              </button>
-              <button
-                type="button"
-                onClick={handlePlanRun}
-                disabled={requestInFlight}
-                className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-800/60 disabled:text-slate-500"
-              >
-                {activeRequest === "Plan run" ? "Planning..." : "Plan run"}
-              </button>
-              <button
-                type="button"
-                onClick={handleRunBaselines}
-                disabled={requestInFlight}
-                className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-800/60 disabled:text-slate-500"
-              >
-                {activeRequest === "Run baselines" ? "Running..." : "Run baselines"}
-              </button>
-              <button
-                type="button"
-                onClick={handleRunVqc}
-                disabled={requestInFlight}
-                className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-800/60 disabled:text-slate-500"
-              >
-                {activeRequest === "Run VQC" ? "Training..." : "Run VQC"}
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerateReport}
-                disabled={requestInFlight}
-                className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-800/60 disabled:text-slate-500"
-              >
-                {activeRequest === "Generate report" ? "Generating..." : "Generate report"}
-              </button>
-            </div>
-
-            {lastError ? (
-              <div className="mt-5 rounded-xl border border-rose-900/70 bg-rose-950/50 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-300">Last error</div>
-                <div className="mt-2 text-sm text-rose-100">{lastError}</div>
-              </div>
-            ) : null}
-          </Card>
-        </div>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-2">
-          <Card title="Configuration Summary" subtitle="Parsed and effective settings gathered from the workbook and later pipeline steps.">
-            <InfoGrid items={configurationSummary} />
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selected features</div>
-                <div className="mt-3">
-                  <TagList values={prepareResponse?.selected_features ?? []} />
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Quantum features</div>
-                <div className="mt-3">
-                  <TagList values={prepareResponse?.quantum_feature_names ?? []} />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Mandatory baseline status</div>
-              <div className="mt-3">
-                <MandatoryBaselineStatusPanel status={inspectResponse?.mandatory_baseline_status} />
-              </div>
-            </div>
-          </Card>
-
-          <Card title="Warnings" subtitle="Warnings are merged across inspect, prepare, planning, baselines, VQC, and reporting so nothing gets lost.">
-            {allWarnings.length ? (
-              <div className="space-y-3">
-                {allWarnings.map((warning, index) => (
-                  <div key={`${warning}-${index}`} className="rounded-xl border border-amber-900/70 bg-amber-950/40 p-4">
-                    <div className="text-sm text-amber-100">{warning}</div>
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Selected Workbook Snapshot</p>
+                {selectedWorkbookSnapshot.length ? (
+                  <div className="mt-3">
+                    <DetailList items={selectedWorkbookSnapshot} />
                   </div>
-                ))}
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">No workbook selected yet.</p>
+                )}
               </div>
-            ) : (
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-500">
-                No warnings yet. That usually means we have not run much of the pipeline yet, or the current configuration is clean.
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Backend Workbook Snapshot</p>
+                {backendWorkbookSnapshot ? (
+                  <div className="mt-3">
+                    <DetailList
+                      items={[
+                        { label: "Filename", value: backendWorkbookSnapshot.filename },
+                        { label: "Size", value: formatBytes(backendWorkbookSnapshot.size_bytes) },
+                        { label: "SHA-256", value: backendWorkbookSnapshot.sha256 },
+                      ]}
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">The backend snapshot appears after inspect, prepare, or async execution.</p>
+                )}
               </div>
-            )}
-          </Card>
-        </div>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-2">
-          <Card title="Data Preparation Summary" subtitle="Prepared-data output from /prepare-data, including row counts, feature counts, class balance, and saved local artifacts.">
-            <InfoGrid
-              items={[
-                { label: "Input rows", value: prepareResponse?.number_of_rows_input },
-                { label: "Input features", value: prepareResponse?.number_of_features_input },
-                { label: "Selected features", value: prepareResponse?.number_of_selected_features },
-                { label: "Quantum features", value: prepareResponse?.number_of_quantum_features },
-                { label: "Train rows", value: prepareResponse?.train_rows },
-                { label: "Validation rows", value: prepareResponse?.validation_rows },
-                { label: "Test rows", value: prepareResponse?.test_rows },
-                { label: "Classification mode", value: prepareResponse?.inferred_classification_mode },
-              ]}
-            />
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Class distribution</div>
-                <div className="mt-3">
-                  <ClassDistributionTable distribution={prepareResponse?.class_distribution} />
-                </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => void checkBackend()}
+                  disabled={activeRequest !== null}
+                  className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Check backend
+                </button>
+                {activeRequest ? <span className="self-center text-sm text-slate-400">{activeRequest}…</span> : null}
               </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Preprocessing summary</div>
-                <div className="mt-3">
-                  <PreprocessingSummaryPanel summary={prepareResponse?.preprocessing_summary} />
-                </div>
-              </div>
+              {lastError ? (
+                <div className="rounded-2xl border border-rose-900/70 bg-rose-950/40 p-4 text-sm text-rose-200">{lastError}</div>
+              ) : null}
             </div>
+          </div>
+        </Card>
 
-            <div className="mt-4">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Artifact paths</div>
-              <ArtifactList artifactPaths={prepareResponse?.artifact_paths} />
-            </div>
-          </Card>
-
-          <Card title="Run Plan" subtitle="Feasibility and workload estimates produced by /plan-run. These are especially useful before we commit to baseline or VQC execution.">
-            <InfoGrid
-              items={[
-                {
-                  label: "Runtime class",
-                  value:
-                    planResponse?.runtime_estimate && isRecord(planResponse.runtime_estimate)
-                      ? planResponse.runtime_estimate.overall_runtime_class ?? planResponse.runtime_estimate.runtime_class
-                      : null,
-                },
-                { label: "Memory class", value: planResponse?.memory_estimate && isRecord(planResponse.memory_estimate) ? planResponse.memory_estimate.memory_class : null },
-                {
-                  label: "Est. circuit evaluations",
-                  value:
-                    planResponse?.vqc_workload_estimate && isRecord(planResponse.vqc_workload_estimate)
-                      ? planResponse.vqc_workload_estimate.approximate_circuit_forward_passes
-                      : null,
-                },
-                {
-                  label: "Trainable parameters",
-                  value:
-                    planResponse?.circuit_estimate && isRecord(planResponse.circuit_estimate)
-                      ? planResponse.circuit_estimate.estimated_trainable_parameters
-                      : null,
-                },
-                {
-                  label: "Feature map",
-                  value:
-                    planResponse?.circuit_estimate && isRecord(planResponse.circuit_estimate)
-                      ? planResponse.circuit_estimate.feature_map_type
-                      : inspectResponse?.feature_map_type,
-                },
-                {
-                  label: "Ansatz",
-                  value:
-                    planResponse?.circuit_estimate && isRecord(planResponse.circuit_estimate)
-                      ? planResponse.circuit_estimate.ansatz_type
-                      : inspectResponse?.ansatz_type,
-                },
-                {
-                  label: "Qubits",
-                  value:
-                    planResponse?.circuit_estimate && isRecord(planResponse.circuit_estimate)
-                      ? planResponse.circuit_estimate.n_qubits
-                      : null,
-                },
-                {
-                  label: "Baseline runtime",
-                  value:
-                    planResponse?.baseline_workload_estimate && isRecord(planResponse.baseline_workload_estimate)
-                      ? planResponse.baseline_workload_estimate.baseline_runtime_class
-                      : null,
-                },
-              ]}
-            />
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <KeyValueBlock title="Hardware feasibility" value={planResponse?.hardware_feasibility} />
-              <KeyValueBlock title="Circuit estimate" value={planResponse?.circuit_estimate} />
-            </div>
-
-            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Recommendations</div>
-              {planResponse?.recommendations?.length ? (
-                <ul className="mt-3 space-y-2 text-sm text-slate-200">
-                  {planResponse.recommendations.map((recommendation, index) => (
-                    <li key={`${recommendation}-${index}`} className="rounded-lg bg-slate-900/70 px-3 py-2">
-                      {recommendation}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 text-sm text-slate-500">No planning recommendations yet.</p>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-2">
-          <Card title="Baseline Results" subtitle="Mandatory classical baselines. This card stays generic so it can handle both binary and multiclass metric sets without fuss.">
-            {baselinesResponse?.baseline_metrics && isRecord(baselinesResponse.baseline_metrics) ? (
+        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <aside className="space-y-6">
+            <Card
+              title="Config Load"
+              subtitle="Load a workbook once. The page inspects it automatically and uses it as the current configuration snapshot."
+            >
               <div className="space-y-4">
-                {Object.entries(baselinesResponse.baseline_metrics).map(([modelName, metrics]) => {
-                  const metricRecord = asRecord(metrics);
-                  const validationRecord = asRecord(metricRecord?.validation);
-                  const testRecord = asRecord(metricRecord?.test);
-
-                  return (
-                    <div key={modelName} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{formatLabel(modelName)}</div>
-                      <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                        <div>
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Validation</div>
-                          <MetricSummaryTable metrics={validationRecord} />
-                        </div>
-                        <div>
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Test</div>
-                          <MetricSummaryTable metrics={testRecord} />
-                        </div>
-                      </div>
-                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                        <ConfusionMatrixTable matrix={validationRecord?.confusion_matrix} title="Validation confusion matrix" />
-                        <ConfusionMatrixTable matrix={testRecord?.confusion_matrix} title="Test confusion matrix" />
-                      </div>
-                    </div>
-                  );
-                })}
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Workbook</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xlsm,.xls"
+                    onChange={handleWorkbookChange}
+                    className="block w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3 text-sm text-slate-200 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-950 hover:file:bg-cyan-400"
+                  />
+                </label>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
+                  {workbookFile ? (
+                    <p>
+                      Loaded <span className="font-medium text-slate-100">{workbookFile.name}</span>. Inspect runs automatically and downstream cards refresh from the current workbook snapshot.
+                    </p>
+                  ) : (
+                    <p>Select the workbook you want this run to trust. Re-select it after editing on disk so the browser sends the updated bytes.</p>
+                  )}
+                </div>
               </div>
-            ) : (
-              <p className="text-sm text-slate-500">Run baselines to see logistic regression, random forest, and gradient boosting results here.</p>
-            )}
+            </Card>
 
-            <div className="mt-4">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Model comparison</div>
-              <GenericTable rows={baselinesResponse?.model_comparison ?? []} />
+            <Card
+              title="Data Load"
+              subtitle="Load a dataset file or point at a dataset path. Preparation runs automatically and refreshes the runtime estimate."
+            >
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dataset Upload</span>
+                  <input
+                    type="file"
+                    accept=".csv,.parquet"
+                    onChange={handleDatasetFileChange}
+                    className="block w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3 text-sm text-slate-200 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-950 hover:file:bg-cyan-400"
+                  />
+                </label>
+
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dataset Path</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={datasetPathInput}
+                      onChange={(event) => setDatasetPathInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleDatasetPathSubmit();
+                        }
+                      }}
+                      placeholder="Optional path the backend can resolve"
+                      className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleDatasetPathSubmit()}
+                      disabled={activeRequest !== null || !datasetPathInput.trim()}
+                      className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Use path
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
+                  {datasetFile ? (
+                    <p>
+                      Loaded <span className="font-medium text-slate-100">{datasetFile.name}</span>. Preparation runs automatically and creates a new job context.
+                    </p>
+                  ) : datasetPathInput.trim() ? (
+                    <p>Dataset path is ready. Press Enter or use the path button to prepare from that location.</p>
+                  ) : (
+                    <p>If you skip the upload, the backend can fall back to the workbook dataset reference or a manual path you enter here.</p>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <Card
+              title="Job Selection"
+              subtitle="Track the current job, revisit a previous async run, or inspect the active job before executing again."
+            >
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={jobId}
+                    onChange={(event) => setJobId(event.target.value)}
+                    placeholder="Enter an existing async job ID"
+                    className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void loadJob(jobId)}
+                    disabled={activeRequest !== null || !jobId.trim()}
+                    className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Load
+                  </button>
+                </div>
+                <DetailList
+                  items={[
+                    { label: "Current job ID", value: jobId || "-" },
+                    { label: "Status", value: currentJobStatus },
+                    { label: "Current stage", value: currentStageLabel },
+                    { label: "Updated", value: formatIsoTimestamp(jobStatus?.updated_at ?? jobStatus?.created_at) },
+                  ]}
+                />
+              </div>
+            </Card>
+
+            <Card
+              title="VQC Parameters"
+              subtitle="Workbook-driven for now. This panel makes the current circuit choices visible before we wire interactive overrides."
+            >
+              <DetailList items={modelSettings} />
+            </Card>
+
+            <Card
+              title="Optimizer Parameters"
+              subtitle="These values come from the current effective workbook settings and the active job context."
+            >
+              <DetailList items={trainingSettings} />
+            </Card>
+
+            <Card
+              title="Estimated Run Time"
+              subtitle="Auto-refreshed after data preparation. This is the right place to sanity-check whether a heavier VQC run still fits an interactive workflow."
+            >
+              <div className="space-y-4">
+                <InfoGrid
+                  items={[
+                    {
+                      label: "Runtime class",
+                      value: currentRuntimeEstimate?.overall_runtime_class ?? currentRuntimeEstimate?.runtime_class,
+                    },
+                    { label: "Memory class", value: currentMemoryEstimate?.memory_class },
+                    {
+                      label: "Circuit evaluations",
+                      value: currentVqcWorkload?.approximate_circuit_forward_passes,
+                    },
+                    { label: "Trainable parameters", value: currentCircuitEstimate?.estimated_trainable_parameters },
+                    { label: "Baseline runtime", value: asRecord(planResponse?.baseline_workload_estimate)?.baseline_runtime_class },
+                    { label: "Hardware mode", value: currentHardwareFeasibility?.recommended_hardware_mode },
+                  ]}
+                />
+                {currentRecommendations.length ? (
+                  <div>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Recommendations</p>
+                    <TagList values={currentRecommendations} />
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">The estimate appears after plan generation. For now, this page updates it automatically after prepare.</p>
+                )}
+              </div>
+            </Card>
+
+            <Card
+              title="Execute Run"
+              subtitle="Queue the remaining stages asynchronously. The backend will plan, run baselines, run VQC, and generate the report in the background."
+            >
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => void executeRun()}
+                  disabled={activeRequest !== null || isJobActive || !workbookFile}
+                  className="w-full rounded-xl bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Execute run
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void cancelJob()}
+                  disabled={activeRequest !== null || !isJobActive || !jobId.trim()}
+                  className="w-full rounded-xl border border-amber-800/70 bg-amber-950/40 px-4 py-3 text-sm font-medium text-amber-200 transition hover:bg-amber-950/60 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Cancel job
+                </button>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
+                  <p>
+                    Config load triggers inspect automatically. Data load triggers prepare and planning automatically. Execute run handles the async orchestration from there.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </aside>
+
+          <section className="space-y-6">
+            <div className="grid gap-6 2xl:grid-cols-2">
+              <Card
+                title="Client Log"
+                subtitle="A blended view of browser events and backend job log lines so we can see what the operator did and what the run is doing."
+              >
+                <LogStreamPanel entries={combinedLogEntries} />
+              </Card>
+
+              <Card
+                title="Backlog"
+                subtitle="Recent async jobs, ready to reopen or compare. This is the first step toward the same backlog mindset the QAOA flow already has."
+              >
+                <BacklogPanel jobs={backlogJobs} currentJobId={jobId} onSelect={(selectedJobId) => void loadJob(selectedJobId)} />
+              </Card>
             </div>
 
-            <div className="mt-4">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Artifact paths</div>
-              <ArtifactList artifactPaths={baselinesResponse?.artifact_paths} />
-            </div>
-          </Card>
-
-          <Card title="VQC Results" subtitle="Validation and test metrics from the PennyLane classifier, along with training summary, circuit summary, and any classical comparison preview already available.">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Validation metrics</div>
-                <div className="mt-3">
-                  <MetricSummaryTable metrics={vqcResponse?.validation_metrics} />
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Test metrics</div>
-                <div className="mt-3">
-                  <MetricSummaryTable metrics={vqcResponse?.test_metrics} />
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Training history summary</div>
-                <div className="mt-3">
-                  <TrainingHistorySummaryPanel summary={vqcResponse?.training_history_summary} vqcMetrics={vqcResponse?.vqc_metrics} />
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Circuit summary</div>
-                <div className="mt-3">
-                  <DetailList
+            <div className="grid gap-6 2xl:grid-cols-2">
+              <Card
+                title="Configuration Summary"
+                subtitle="The current dataset, task framing, and effective model settings flowing through the backend."
+              >
+                <div className="space-y-4">
+                  <InfoGrid
                     items={[
-                      { label: "Feature map", value: asRecord(vqcResponse?.circuit_summary)?.feature_map_type },
-                      { label: "Ansatz", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_type },
-                      { label: "Ansatz reps", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_reps },
-                      { label: "Qubits", value: asRecord(vqcResponse?.circuit_summary)?.n_qubits },
-                      { label: "Backend", value: asRecord(vqcResponse?.circuit_summary)?.backend },
-                      { label: "Device", value: asRecord(vqcResponse?.circuit_summary)?.device },
-                      { label: "Shots mode", value: asRecord(vqcResponse?.circuit_summary)?.shots_mode },
-                      { label: "Trainable parameters", value: asRecord(vqcResponse?.circuit_summary)?.trainable_parameters },
+                      { label: "Dataset file", value: prepareResponse?.dataset_file ?? currentDatasetSettings?.dataset_file },
+                      { label: "Label column", value: prepareResponse?.label_column ?? currentDatasetSettings?.label_column },
+                      {
+                        label: "Classification mode",
+                        value:
+                          prepareResponse?.inferred_classification_mode ??
+                          inspectResponse?.inferred_classification_mode ??
+                          currentRunSummary?.classification_mode,
+                      },
+                      {
+                        label: "Number of classes",
+                        value:
+                          currentRunSummary?.number_of_classes ??
+                          vqcResponse?.number_of_classes ??
+                          baselinesResponse?.number_of_classes,
+                      },
+                      { label: "Selected features", value: prepareResponse?.number_of_selected_features },
+                      { label: "Quantum features", value: prepareResponse?.number_of_quantum_features },
+                      { label: "Qubits", value: asRecord(currentEffectiveSettings?.model)?.n_qubits },
+                      { label: "Feature map", value: asRecord(currentEffectiveSettings?.model)?.feature_map_type },
+                      { label: "Ansatz", value: asRecord(currentEffectiveSettings?.model)?.ansatz_type },
+                      { label: "Ansatz reps", value: asRecord(currentEffectiveSettings?.model)?.ansatz_reps },
+                      { label: "Backend", value: asRecord(currentEffectiveSettings?.model)?.backend },
+                      { label: "Shots mode", value: asRecord(currentEffectiveSettings?.model)?.shots_mode },
+                      {
+                        label: "Mandatory baselines",
+                        value: summarizeMandatoryBaselines(inspectResponse?.mandatory_baseline_status),
+                      },
+                      { label: "Iterations", value: asRecord(currentEffectiveSettings?.training)?.iterations },
+                      { label: "Early stopping", value: asRecord(currentEffectiveSettings?.training)?.early_stopping },
                     ]}
                   />
+
+                  <Card title="Mandatory Baseline Status">
+                    <MandatoryBaselineStatusPanel status={asRecord(inspectResponse?.mandatory_baseline_status)} />
+                  </Card>
                 </div>
-              </div>
-            </div>
+              </Card>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <ConfusionMatrixTable matrix={asRecord(vqcResponse?.validation_metrics)?.confusion_matrix} title="Validation confusion matrix" />
-              <ConfusionMatrixTable matrix={asRecord(vqcResponse?.test_metrics)?.confusion_matrix} title="Test confusion matrix" />
-            </div>
+              <Card
+                title="Warnings"
+                subtitle="Warnings are deduplicated across workbook inspection, preparation, async execution, and reporting so the important caveats stay visible."
+              >
+                {currentWarnings.length ? (
+                  <div className="space-y-3">
+                    {currentWarnings.map((warning) => (
+                      <div key={warning} className="rounded-xl border border-amber-900/70 bg-amber-950/30 p-3 text-sm text-amber-200">
+                        {warning}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-emerald-900/70 bg-emerald-950/20 p-4 text-sm text-emerald-200">
+                    No active warnings. This usually means the latest configuration, preparation, and async stages all agreed with each other.
+                  </div>
+                )}
+              </Card>
 
-            {vqcResponse?.baseline_comparison_preview ? (
-              <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Baseline comparison preview</div>
-                <div className="mt-3">
-                  <BaselineComparisonPreviewPanel preview={vqcResponse.baseline_comparison_preview} />
+              <Card
+                title="Data Preparation Summary"
+                subtitle="Prepared shapes, feature counts, class balance, and preprocessing choices from the current job context."
+              >
+                <div className="space-y-4">
+                  <InfoGrid
+                    items={[
+                      { label: "Input rows", value: prepareResponse?.number_of_rows_input },
+                      { label: "Input features", value: prepareResponse?.number_of_features_input },
+                      { label: "Selected features", value: prepareResponse?.number_of_selected_features },
+                      { label: "Quantum features", value: prepareResponse?.number_of_quantum_features },
+                      { label: "Train rows", value: prepareResponse?.train_rows },
+                      { label: "Validation rows", value: prepareResponse?.validation_rows },
+                      { label: "Test rows", value: prepareResponse?.test_rows },
+                      { label: "Prepared job ID", value: prepareResponse?.job_id ?? jobId },
+                    ]}
+                  />
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-200">Selected features</p>
+                    <TagList values={prepareResponse?.selected_features ?? []} />
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-200">Quantum feature names</p>
+                    <TagList values={prepareResponse?.quantum_feature_names ?? []} />
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-200">Class distribution</p>
+                    <ClassDistributionTable distribution={asRecord(prepareResponse?.class_distribution)} />
+                  </div>
+                  <PreprocessingSummaryPanel summary={asRecord(prepareResponse?.preprocessing_summary)} />
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-200">Artifact paths</p>
+                    <ArtifactList artifacts={prepareArtifacts} />
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/40 p-4 text-sm text-amber-100">
-                Classical baselines have not been run for this job yet, or no comparison preview is available. Completed VQC reports still require the mandatory baselines.
-              </div>
-            )}
+              </Card>
 
-            <div className="mt-4">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Artifact paths</div>
-              <ArtifactList artifactPaths={vqcResponse?.artifact_paths} />
-            </div>
-          </Card>
-        </div>
-
-        <div className="mt-6">
-          <Card
-            title="Final Report"
-            subtitle="Report generation stays local for now. We surface the key summary, the final model comparison, consolidated warnings, and the artifact paths you can inspect on disk."
-            accent
-          >
-            <InfoGrid
-              items={[
-                { label: "Report generated", value: reportResponse?.report_generated },
-                { label: "Job ID", value: reportResponse?.job_id ?? jobId },
-                {
-                  label: "VQC complete",
-                  value: reportResponse?.run_summary && isRecord(reportResponse.run_summary) ? reportResponse.run_summary.vqc_complete : null,
-                },
-                {
-                  label: "Baselines complete",
-                  value:
-                    reportResponse?.run_summary && isRecord(reportResponse.run_summary)
-                      ? reportResponse.run_summary.mandatory_baselines_complete
-                      : null,
-                },
-              ]}
-            />
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Run summary</div>
-                <div className="mt-3">
-                  <RunSummaryPanel summary={reportResponse?.run_summary} />
+              <Card
+                title="Run Plan"
+                subtitle="Workload, runtime, memory, and circuit estimates automatically refreshed from the prepared dataset and current workbook settings."
+              >
+                <div className="space-y-4">
+                  <InfoGrid
+                    items={[
+                      { label: "Runtime class", value: currentRuntimeEstimate?.overall_runtime_class ?? currentRuntimeEstimate?.runtime_class },
+                      { label: "Memory class", value: currentMemoryEstimate?.memory_class },
+                      { label: "Circuit forward passes", value: currentVqcWorkload?.approximate_circuit_forward_passes },
+                      { label: "Gradient eval upper bound", value: currentVqcWorkload?.approximate_gradient_circuit_evaluations_upper_bound },
+                      { label: "Trainable parameters", value: currentCircuitEstimate?.estimated_trainable_parameters },
+                      { label: "Entangling layers", value: currentCircuitEstimate?.estimated_entangling_layers },
+                      { label: "Two-qubit gate class", value: currentCircuitEstimate?.estimated_two_qubit_gate_class },
+                      { label: "Hardware mode", value: currentHardwareFeasibility?.recommended_hardware_mode },
+                    ]}
+                  />
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <Card title="Hardware Feasibility">
+                      <DetailList
+                        items={[
+                          { label: "Training on hardware supported", value: currentHardwareFeasibility?.hardware_supported_for_training },
+                          { label: "Replay supported", value: currentHardwareFeasibility?.hardware_supported_for_replay },
+                          { label: "Recommended mode", value: currentHardwareFeasibility?.recommended_hardware_mode },
+                          { label: "Warnings", value: currentHardwareFeasibility?.hardware_warnings },
+                        ]}
+                      />
+                    </Card>
+                    <Card title="Recommendations">
+                      <TagList values={currentRecommendations} />
+                    </Card>
+                  </div>
+                  <ArtifactList artifacts={planResponse?.artifact_paths} />
                 </div>
-              </div>
-              <KeyValueBlock title="Highlighted report artifacts" value={highlightedArtifacts} />
-            </div>
+              </Card>
 
-            <div className="mt-4">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Final model comparison</div>
-              <GenericTable rows={reportResponse?.model_comparison ?? []} />
-            </div>
+              <Card
+                title="Baseline Results"
+                subtitle="Mandatory classical baselines now arrive through the async pipeline and remain the reference frame for any VQC claim."
+              >
+                <div className="space-y-5">
+                  {Array.isArray(baselinesResponse?.model_comparison) && baselinesResponse?.model_comparison.length ? (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-slate-200">Model comparison</p>
+                      <GenericTable rows={baselinesResponse.model_comparison} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">Baseline comparison will appear after the async baseline stage completes.</p>
+                  )}
 
-            <div className="mt-4">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">All artifact paths</div>
-              <ArtifactList artifactPaths={reportResponse?.artifact_paths} />
+                  {Object.entries(asRecord(baselinesResponse?.baseline_metrics) ?? {}).map(([modelName, rawBundle]) => {
+                    const bundle = asRecord(rawBundle);
+                    const validationMetrics = asRecord(bundle?.validation);
+                    const testMetrics = asRecord(bundle?.test);
+                    return (
+                      <div key={modelName} className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                        <p className="text-sm font-medium text-slate-100">{formatLabel(modelName)}</p>
+                        <div className="grid gap-4 xl:grid-cols-2">
+                          <MetricSummaryTable title="Validation metrics" metrics={validationMetrics} />
+                          <MetricSummaryTable title="Test metrics" metrics={testMetrics} />
+                          <ConfusionMatrixTable title="Validation confusion matrix" matrix={validationMetrics?.confusion_matrix} />
+                          <ConfusionMatrixTable title="Test confusion matrix" matrix={testMetrics?.confusion_matrix} />
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <ArtifactList artifacts={baselinesResponse?.artifact_paths} />
+                </div>
+              </Card>
+
+              <Card
+                title="VQC Results"
+                subtitle="Validation and test metrics, circuit summary, training trace summary, and the baseline comparison preview all come together here."
+              >
+                <div className="space-y-5">
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <MetricSummaryTable title="Validation metrics" metrics={asRecord(vqcResponse?.validation_metrics)} />
+                    <MetricSummaryTable title="Test metrics" metrics={asRecord(vqcResponse?.test_metrics)} />
+                    <ConfusionMatrixTable title="Validation confusion matrix" matrix={asRecord(vqcResponse?.validation_metrics)?.confusion_matrix} />
+                    <ConfusionMatrixTable title="Test confusion matrix" matrix={asRecord(vqcResponse?.test_metrics)?.confusion_matrix} />
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <Card title="Training History Summary">
+                      <TrainingHistorySummaryPanel summary={asRecord(vqcResponse?.training_history_summary)} />
+                    </Card>
+                    <Card title="Circuit Summary">
+                      <DetailList
+                        items={[
+                          { label: "Feature map", value: asRecord(vqcResponse?.circuit_summary)?.feature_map_type },
+                          { label: "Feature repeats", value: asRecord(vqcResponse?.circuit_summary)?.feature_map_repeats },
+                          { label: "Ansatz", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_type },
+                          { label: "Ansatz reps", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_reps },
+                          { label: "Qubits", value: asRecord(vqcResponse?.circuit_summary)?.n_qubits },
+                          { label: "Backend", value: asRecord(vqcResponse?.circuit_summary)?.backend },
+                          { label: "Shots mode", value: asRecord(vqcResponse?.circuit_summary)?.shots_mode },
+                          { label: "Measurement", value: asRecord(vqcResponse?.circuit_summary)?.measurement },
+                          { label: "Readout", value: asRecord(vqcResponse?.circuit_summary)?.readout_type },
+                          {
+                            label: "Quantum parameters",
+                            value: asRecord(vqcResponse?.circuit_summary)?.quantum_parameter_count,
+                          },
+                          {
+                            label: "Readout parameters",
+                            value: asRecord(vqcResponse?.circuit_summary)?.readout_parameter_count,
+                          },
+                        ]}
+                      />
+                    </Card>
+                  </div>
+
+                  <Card title="Baseline Comparison Preview">
+                    <BaselineComparisonPreviewPanel preview={asRecord(vqcResponse?.baseline_comparison_preview)} />
+                  </Card>
+
+                  <ArtifactList artifacts={vqcResponse?.artifact_paths} />
+                </div>
+              </Card>
+
+              <Card
+                title="Final Report"
+                subtitle="Reporting stays local for now. We surface the run summary, final model comparison, and the artifact paths the backend generated."
+              >
+                <div className="space-y-5">
+                  <InfoGrid
+                    items={[
+                      { label: "Report generated", value: reportResponse?.report_generated },
+                      { label: "Job ID", value: reportResponse?.job_id ?? jobId },
+                      { label: "VQC complete", value: currentRunSummary?.vqc_complete },
+                      { label: "Baselines complete", value: currentRunSummary?.mandatory_baselines_complete },
+                    ]}
+                  />
+                  <RunSummaryPanel summary={currentRunSummary} />
+                  {Array.isArray(reportResponse?.model_comparison) && reportResponse?.model_comparison.length ? (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-slate-200">Final model comparison</p>
+                      <GenericTable rows={reportResponse.model_comparison} />
+                    </div>
+                  ) : null}
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-200">Artifact paths</p>
+                    <ArtifactList artifacts={reportArtifacts} />
+                  </div>
+                </div>
+              </Card>
             </div>
-          </Card>
+          </section>
         </div>
       </div>
     </main>
