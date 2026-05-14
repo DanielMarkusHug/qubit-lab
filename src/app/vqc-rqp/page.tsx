@@ -22,7 +22,8 @@ type PipelineStepKey = "inspect" | "prepare" | "plan" | "baselines" | "vqc" | "r
 type PipelineStepStatus = "pending" | "done" | "error";
 type ArtifactPathMap = Record<string, string>;
 type JsonRecord = Record<string, unknown>;
-type MetricTableRow = Record<string, string | number | boolean | null | undefined>;
+type TableCellValue = string | number | boolean | null | undefined;
+type MetricTableRow = Record<string, TableCellValue>;
 
 interface HealthResponse {
   status: string;
@@ -175,6 +176,16 @@ function formatPercent(value: unknown): string {
     return formatValue(value);
   }
   return `${(value * 100).toFixed(0)}%`;
+}
+
+function asTableCellValue(value: unknown): TableCellValue {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  return formatValue(value);
 }
 
 function parseShape(value: unknown): { rows: number | null; columns: number | null } {
@@ -598,13 +609,13 @@ function ClassDistributionTable({ distribution }: { distribution: unknown }) {
         return;
       }
       Object.entries(splitRecord).forEach(([label, count]) => {
-        rows.push({ split: formatLabel(split), class: label, count });
+        rows.push({ split: formatLabel(split), class: label, count: asTableCellValue(count) });
       });
     });
     return <GenericTable rows={rows} />;
   }
 
-  const rows = Object.entries(record).map(([label, count]) => ({ class: label, count }));
+  const rows = Object.entries(record).map(([label, count]) => ({ class: label, count: asTableCellValue(count) }));
   return <GenericTable rows={rows} />;
 }
 
