@@ -10,6 +10,7 @@ const API_BASE =
 
 const ENDPOINTS = {
   health: "/health",
+  licenseStatus: "/license-status",
   inspectWorkbook: "/inspect-workbook",
   prepareData: "/prepare-data",
   planRun: "/plan-run",
@@ -25,6 +26,9 @@ type ArtifactPathMap = Record<string, string>;
 type JsonRecord = Record<string, unknown>;
 type TableCellValue = string | number | boolean | null | undefined;
 type MetricTableRow = Record<string, TableCellValue>;
+type OptimizerOption = "adam" | "cobyla" | "spsa";
+type FeatureMapOption = "angle" | "zz_like" | "iqp" | "amplitude" | "basis";
+type AnsatzOption = "hardware_efficient" | "custom_rx_ry_cz" | "strongly_entangling" | "real_amplitudes_like" | "basic_entangler";
 
 interface ClientLogEntry {
   id: string;
@@ -39,6 +43,34 @@ interface HealthResponse {
   status: string;
   app?: string;
   version?: string;
+}
+
+interface LicenseStatusResponse {
+  status: string;
+  usage_level: string;
+  display_name: string;
+  valid_for?: string[];
+  key_id?: string | null;
+  name?: string | null;
+  organization?: string | null;
+  expires_at?: string | null;
+  remaining_runs?: string | number | null;
+  features?: string[];
+}
+
+interface ParameterOverridesState {
+  featureMapType: FeatureMapOption;
+  featureMapRepeats: number;
+  ansatzType: AnsatzOption;
+  ansatzReps: number;
+  nQubits: number;
+  iterations: number;
+  learningRate: number;
+  repeats: number;
+  batchSize: number;
+  optimizer: OptimizerOption;
+  earlyStopping: boolean;
+  patience: number;
 }
 
 interface BaseApiResponse {
@@ -391,6 +423,10 @@ function extractWarnings(response: unknown): string[] {
   return mergeWarnings(directWarnings, [...directErrors, ...runSummaryWarnings]);
 }
 
+function requestHeaders(apiKey: string) {
+  return apiKey.trim() ? { "X-API-Key": apiKey.trim() } : undefined;
+}
+
 async function parseResponseJson(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
@@ -425,8 +461,8 @@ function extractErrorMessage(payload: unknown): string {
   return "The request failed.";
 }
 
-async function getJson<T>(endpoint: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, { method: "GET" });
+async function getJson<T>(endpoint: string, apiKey = ""): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, { method: "GET", headers: requestHeaders(apiKey) });
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     throw new Error(extractErrorMessage(payload));
@@ -434,10 +470,11 @@ async function getJson<T>(endpoint: string): Promise<T> {
   return payload as T;
 }
 
-async function postMultipart<T>(endpoint: string, formData: FormData): Promise<T> {
+async function postMultipart<T>(endpoint: string, formData: FormData, apiKey = ""): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     body: formData,
+    headers: requestHeaders(apiKey),
   });
   const payload = await parseResponseJson(response);
   if (!response.ok) {
@@ -446,15 +483,75 @@ async function postMultipart<T>(endpoint: string, formData: FormData): Promise<T
   return payload as T;
 }
 
-async function postEmpty<T>(endpoint: string): Promise<T> {
+async function postEmpty<T>(endpoint: string, apiKey = ""): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
+    headers: requestHeaders(apiKey),
   });
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     throw new Error(extractErrorMessage(payload));
   }
   return payload as T;
+}
+
+function defaultParameterOverrides(): ParameterOverridesState {
+  return {
+    featureMapType: "angle",
+    featureMapRepeats: 1,
+    ansatzType: "hardware_efficient",
+    ansatzReps: 1,
+    nQubits: 4,
+    iterations: 50,
+    learningRate: 0.01,
+    repeats: 1,
+    batchSize: 32,
+    optimizer: "adam",
+    earlyStopping: true,
+    patience: 8,
+  };
+}
+
+function hydrateOverridesFromSettings(settings: JsonRecord | null): ParameterOverridesState {
+  const model = asRecord(settings?.model);
+  const training = asRecord(settings?.training);
+  const defaults = defaultParameterOverrides();
+  return {
+    featureMapType: (typeof model?.feature_map_type === "string" ? model.feature_map_type : defaults.featureMapType) as FeatureMapOption,
+    featureMapRepeats: Number(model?.feature_map_repeats ?? defaults.featureMapRepeats),
+    ansatzType: (typeof model?.ansatz_type === "string" ? model.ansatz_type : defaults.ansatzType) as AnsatzOption,
+    ansatzReps: Number(model?.ansatz_reps ?? defaults.ansatzReps),
+    nQubits: Number(model?.n_qubits ?? defaults.nQubits),
+    iterations: Number(training?.iterations ?? defaults.iterations),
+    learningRate: Number(training?.learning_rate ?? defaults.learningRate),
+    repeats: Number(training?.repeats ?? defaults.repeats),
+    batchSize: Number(training?.batch_size ?? defaults.batchSize),
+    optimizer: (typeof training?.optimizer === "string" ? training.optimizer : defaults.optimizer) as OptimizerOption,
+    earlyStopping: Boolean(training?.early_stopping ?? defaults.earlyStopping),
+    patience: Number(training?.patience ?? defaults.patience),
+  };
+}
+
+function buildConfigOverridesPayload(overrides: ParameterOverridesState): JsonRecord {
+  return {
+    model: {
+      feature_map_type: overrides.featureMapType,
+      feature_map_repeats: overrides.featureMapRepeats,
+      ansatz_type: overrides.ansatzType,
+      ansatz_reps: overrides.ansatzReps,
+      n_qubits: overrides.nQubits,
+      n_quantum_features: overrides.nQubits,
+    },
+    training: {
+      optimizer: overrides.optimizer,
+      iterations: overrides.iterations,
+      learning_rate: overrides.learningRate,
+      repeats: overrides.repeats,
+      batch_size: overrides.batchSize,
+      early_stopping: overrides.earlyStopping,
+      patience: overrides.patience,
+    },
+  };
 }
 
 function combineLogEntries(clientEntries: ClientLogEntry[], backendResponse: JobLogResponse | null): ClientLogEntry[] {
@@ -467,35 +564,6 @@ function combineLogEntries(clientEntries: ClientLogEntry[], backendResponse: Job
     message: entry.message ?? "Backend event",
   }));
   return [...clientEntries, ...backendEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
-}
-
-function parameterItemsFromEffectiveSettings(
-  effectiveSettings: JsonRecord | undefined,
-  section: "model" | "training",
-): Array<{ label: string; value: unknown }> {
-  const record = asRecord(effectiveSettings?.[section]) ?? {};
-  if (section === "model") {
-    return [
-      { label: "Feature map", value: record.feature_map_type },
-      { label: "Feature repeats", value: record.feature_map_repeats },
-      { label: "Ansatz", value: record.ansatz_type },
-      { label: "Ansatz reps", value: record.ansatz_reps },
-      { label: "Qubits", value: record.n_qubits },
-      { label: "Entanglement", value: record.entanglement },
-      { label: "Backend", value: record.backend },
-      { label: "Shots mode", value: record.shots_mode },
-    ];
-  }
-  return [
-    { label: "Optimizer", value: record.optimizer },
-    { label: "Iterations", value: record.iterations },
-    { label: "Learning rate", value: record.learning_rate },
-    { label: "Batch size", value: record.batch_size },
-    { label: "Repeats", value: record.repeats },
-    { label: "Early stopping", value: record.early_stopping },
-    { label: "Patience", value: record.patience },
-    { label: "Validation metric", value: record.validation_metric },
-  ];
 }
 
 function summarizeMandatoryBaselines(status: unknown): string {
@@ -922,29 +990,27 @@ function LogStreamPanel({ entries }: { entries: ClientLogEntry[] }) {
     return <p className="text-sm text-slate-500">Client and backend events will appear here as the run progresses.</p>;
   }
   return (
-    <div className="space-y-3">
-      {entries.slice(0, 20).map((entry) => {
-        const tone =
-          entry.level === "error"
-            ? "border-rose-900/70 bg-rose-950/40"
-            : entry.level === "warning"
-              ? "border-amber-900/70 bg-amber-950/40"
-              : entry.level === "success"
-                ? "border-emerald-900/70 bg-emerald-950/40"
-                : "border-slate-800 bg-slate-950/40";
-        return (
-          <div key={entry.id} className={`rounded-xl border p-3 ${tone}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-              <span>
-                {formatIsoTimestamp(entry.timestamp)} · {formatLabel(entry.source)}
-                {entry.stage ? ` · ${formatLabel(entry.stage)}` : ""}
-              </span>
-              <span className="uppercase tracking-[0.18em]">{entry.level}</span>
+    <div className="h-64 overflow-y-auto rounded-xl border border-slate-800 bg-black/30 p-3 font-mono text-xs text-slate-200">
+      <div className="space-y-1.5">
+        {entries.slice(0, 120).map((entry) => {
+          const tone =
+            entry.level === "error"
+              ? "text-rose-300"
+              : entry.level === "warning"
+                ? "text-amber-300"
+                : entry.level === "success"
+                  ? "text-emerald-300"
+                  : "text-slate-200";
+          return (
+            <div key={entry.id} className="leading-5">
+              <span className="text-slate-500">{formatIsoTimestamp(entry.timestamp)}</span>{" "}
+              <span className="text-cyan-300">{entry.source === "backend" ? "backend" : "client"}</span>
+              {entry.stage ? <span className="text-slate-500"> [{entry.stage}]</span> : null}{" "}
+              <span className={tone}>{entry.message}</span>
             </div>
-            <p className="mt-2 text-sm text-slate-100">{entry.message}</p>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -962,7 +1028,7 @@ function BacklogPanel({
     return <p className="text-sm text-slate-500">Recent async jobs will show up here once a run has been queued.</p>;
   }
   return (
-    <div className="space-y-3">
+    <div className="h-64 overflow-y-auto space-y-3 pr-1">
       {jobs.map((job) => {
         const isCurrent = job.job_id === currentJobId;
         return (
@@ -993,6 +1059,8 @@ function BacklogPanel({
 }
 
 export default function VqcClassifierPage() {
+  const [apiKey, setApiKey] = useState("");
+  const [license, setLicense] = useState<LicenseStatusResponse | null>(null);
   const [workbookFile, setWorkbookFile] = useState<File | null>(null);
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
   const [datasetPathInput, setDatasetPathInput] = useState("");
@@ -1001,6 +1069,8 @@ export default function VqcClassifierPage() {
   const [lastError, setLastError] = useState<string | null>(null);
   const [stepStatus, setStepStatus] = useState<Record<PipelineStepKey, PipelineStepStatus>>(() => cloneInitialSteps());
   const [clientLogEntries, setClientLogEntries] = useState<ClientLogEntry[]>([]);
+  const [parameterOverrides, setParameterOverrides] = useState<ParameterOverridesState>(() => defaultParameterOverrides());
+  const [parameterOverridesDirty, setParameterOverridesDirty] = useState(false);
 
   const [healthResponse, setHealthResponse] = useState<HealthResponse | null>(null);
   const [inspectResponse, setInspectResponse] = useState<InspectWorkbookResponse | null>(null);
@@ -1039,6 +1109,7 @@ export default function VqcClassifierPage() {
     setJobLogResponse(null);
     setJobId("");
     setStepStatus(cloneInitialSteps());
+    setParameterOverridesDirty(false);
   }
 
   function resetForDataChange() {
@@ -1059,6 +1130,16 @@ export default function VqcClassifierPage() {
       vqc: "pending",
       report: "pending",
     }));
+  }
+
+  function applySettingsToOverrides(settings: JsonRecord | null) {
+    setParameterOverrides(hydrateOverridesFromSettings(settings));
+    setParameterOverridesDirty(false);
+  }
+
+  function updateOverride<K extends keyof ParameterOverridesState>(key: K, value: ParameterOverridesState[K]) {
+    setParameterOverrides((previous) => ({ ...previous, [key]: value }));
+    setParameterOverridesDirty(true);
   }
 
   function syncResultSummaries(status: JobStatusResponse) {
@@ -1114,7 +1195,7 @@ export default function VqcClassifierPage() {
 
   async function refreshRecentJobs() {
     try {
-      const response = await getJson<JobListResponse>(`${ENDPOINTS.jobs}?limit=8`);
+      const response = await getJson<JobListResponse>(`${ENDPOINTS.jobs}?limit=8`, apiKey);
       setJobListResponse(response);
     } catch {
       // keep the page quiet if recent job polling fails
@@ -1125,7 +1206,7 @@ export default function VqcClassifierPage() {
     setActiveRequest("Checking backend");
     setLastError(null);
     try {
-      const response = await getJson<HealthResponse>(ENDPOINTS.health);
+      const response = await getJson<HealthResponse>(ENDPOINTS.health, apiKey);
       setHealthResponse(response);
       pushClientLog("success", "Backend connectivity verified.", "inspect");
     } catch (error) {
@@ -1133,6 +1214,26 @@ export default function VqcClassifierPage() {
       setHealthResponse(null);
       setLastError(message);
       pushClientLog("error", `Backend check failed: ${message}`, "inspect");
+    } finally {
+      setActiveRequest(null);
+    }
+  }
+
+  async function checkLicense() {
+    setActiveRequest("Checking access");
+    setLastError(null);
+    try {
+      const response = await getJson<LicenseStatusResponse>(ENDPOINTS.licenseStatus, apiKey);
+      setLicense(response);
+      pushClientLog(
+        "success",
+        `Access ready: ${response.display_name}${response.valid_for?.length ? ` (${response.valid_for.join(", ")})` : ""}.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "License check failed.";
+      setLicense(null);
+      setLastError(message);
+      pushClientLog("error", `Access check failed: ${message}`);
     } finally {
       setActiveRequest(null);
     }
@@ -1150,8 +1251,9 @@ export default function VqcClassifierPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const response = await postMultipart<InspectWorkbookResponse>(ENDPOINTS.inspectWorkbook, formData);
+      const response = await postMultipart<InspectWorkbookResponse>(ENDPOINTS.inspectWorkbook, formData, apiKey);
       setInspectResponse(response);
+      applySettingsToOverrides(asRecord(response.effective_settings));
       setStepStatus((previous) => ({ ...previous, inspect: "done" }));
       pushClientLog("success", `Workbook inspected: ${file.name}`, "inspect");
 
@@ -1187,7 +1289,10 @@ export default function VqcClassifierPage() {
       if (workbookToUse) {
         formData.append("workbook", workbookToUse);
       }
-      const response = await postMultipart<PlanRunResponse>(ENDPOINTS.planRun, formData);
+      if (parameterOverridesDirty) {
+        formData.append("config_overrides", JSON.stringify(buildConfigOverridesPayload(parameterOverrides)));
+      }
+      const response = await postMultipart<PlanRunResponse>(ENDPOINTS.planRun, formData, apiKey);
       setPlanResponse(response);
       setStepStatus((previous) => ({ ...previous, plan: "done" }));
       pushClientLog("success", `Planning estimate refreshed for ${targetJobId}.`, "plan");
@@ -1237,7 +1342,7 @@ export default function VqcClassifierPage() {
         formData.append("dataset_path", datasetPathToUse);
       }
 
-      const response = await postMultipart<PrepareDataResponse>(ENDPOINTS.prepareData, formData);
+      const response = await postMultipart<PrepareDataResponse>(ENDPOINTS.prepareData, formData, apiKey);
       setPrepareResponse(response);
       setJobId(response.job_id ?? "");
       setStepStatus((previous) => ({ ...previous, prepare: "done" }));
@@ -1263,14 +1368,17 @@ export default function VqcClassifierPage() {
   async function refreshJobState(targetJobId: string, silent = true) {
     try {
       const [statusResponse, logResponse] = await Promise.all([
-        getJson<JobStatusResponse>(`${ENDPOINTS.jobs}/${encodeURIComponent(targetJobId)}`),
-        getJson<JobLogResponse>(`${ENDPOINTS.jobs}/${encodeURIComponent(targetJobId)}/log?tail=200`),
+        getJson<JobStatusResponse>(`${ENDPOINTS.jobs}/${encodeURIComponent(targetJobId)}`, apiKey),
+        getJson<JobLogResponse>(`${ENDPOINTS.jobs}/${encodeURIComponent(targetJobId)}/log?tail=200`, apiKey),
       ]);
 
       setJobStatus(statusResponse);
       setJobLogResponse(logResponse);
       if (statusResponse.job_id) {
         setJobId(statusResponse.job_id);
+      }
+      if (!parameterOverridesDirty) {
+        applySettingsToOverrides(asRecord(statusResponse.effective_settings));
       }
 
       const mappedSteps = buildStepStatusFromJob(statusResponse);
@@ -1320,7 +1428,10 @@ export default function VqcClassifierPage() {
       if (workbookFile) {
         formData.append("workbook", workbookFile);
       }
-      const response = await postMultipart<ExecuteRunResponse>(ENDPOINTS.executeRun, formData);
+      if (parameterOverridesDirty) {
+        formData.append("config_overrides", JSON.stringify(buildConfigOverridesPayload(parameterOverrides)));
+      }
+      const response = await postMultipart<ExecuteRunResponse>(ENDPOINTS.executeRun, formData, apiKey);
       setExecuteResponse(response);
       setJobId(response.job_id ?? ensuredJobId);
       pushClientLog("info", `Queued async run for ${response.job_id ?? ensuredJobId}.`, "plan");
@@ -1341,7 +1452,7 @@ export default function VqcClassifierPage() {
     setActiveRequest("Requesting cancel");
     setLastError(null);
     try {
-      await postEmpty(`${ENDPOINTS.jobs}/${encodeURIComponent(jobId.trim())}/cancel`);
+      await postEmpty(`${ENDPOINTS.jobs}/${encodeURIComponent(jobId.trim())}/cancel`, apiKey);
       pushClientLog("warning", `Cancellation requested for ${jobId.trim()}.`, "vqc");
       await refreshJobState(jobId.trim(), false);
       setActiveRequest(null);
@@ -1425,6 +1536,16 @@ export default function VqcClassifierPage() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (!jobId || !workbookFile || stepStatus.prepare !== "done" || !parameterOverridesDirty) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      void runPlan(jobId);
+    }, 450);
+    return () => window.clearTimeout(timeout);
+  }, [jobId, parameterOverrides, parameterOverridesDirty, stepStatus.prepare, workbookFile]);
+
   const currentEffectiveSettings = useMemo(() => {
     return (
       asRecord(jobStatus?.effective_settings) ??
@@ -1480,6 +1601,7 @@ export default function VqcClassifierPage() {
     () => combineLogEntries(clientLogEntries, jobLogResponse),
     [clientLogEntries, jobLogResponse],
   );
+  const hasAccess = license?.status === "active";
 
   const selectedWorkbookSnapshot = workbookFile
     ? [
@@ -1508,8 +1630,6 @@ export default function VqcClassifierPage() {
     vqcResponse?.workbook_metadata,
   ]);
 
-  const modelSettings = parameterItemsFromEffectiveSettings(currentEffectiveSettings ?? undefined, "model");
-  const trainingSettings = parameterItemsFromEffectiveSettings(currentEffectiveSettings ?? undefined, "training");
   const currentRuntimeEstimate = asRecord(planResponse?.runtime_estimate);
   const currentMemoryEstimate = asRecord(planResponse?.memory_estimate);
   const currentCircuitEstimate = asRecord(planResponse?.circuit_estimate);
@@ -1617,6 +1737,49 @@ export default function VqcClassifierPage() {
 
         <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
           <aside className="space-y-6">
+            <Card
+              title="Access"
+              subtitle="Use the same access-key workflow as QAOA. A blank key still lets you activate the public demo for local testing."
+            >
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">QAOA / VQC access key</span>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder="Paste the same key you use for QAOA, or leave blank for demo"
+                    className="block w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-600"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void checkLicense()}
+                  disabled={activeRequest !== null}
+                  className="w-full rounded-xl bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Check license or demo
+                </button>
+                {license ? (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
+                    <DetailList
+                      items={[
+                        { label: "Access level", value: license.display_name },
+                        { label: "Usage level", value: license.usage_level },
+                        { label: "Valid for", value: license.valid_for },
+                        { label: "Remaining runs", value: license.remaining_runs },
+                        { label: "Organization", value: license.organization },
+                      ]}
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
+                    Check access first so the page knows whether you are running under a shared QAOA/VQC key or the public demo profile.
+                  </div>
+                )}
+              </div>
+            </Card>
+
             <Card
               title="Config Load"
               subtitle="Load a workbook once. The page inspects it automatically and uses it as the current configuration snapshot."
@@ -1734,16 +1897,167 @@ export default function VqcClassifierPage() {
 
             <Card
               title="VQC Parameters"
-              subtitle="Workbook-driven for now. This panel makes the current circuit choices visible before we wire interactive overrides."
+              subtitle="These controls are now live planning and execution overrides. They stay close to the QAOA left-rail pattern: inspect the workbook, then tune locally."
             >
-              <DetailList items={modelSettings} />
+              <div className="grid gap-3">
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Feature map</span>
+                  <select
+                    value={parameterOverrides.featureMapType}
+                    onChange={(event) => updateOverride("featureMapType", event.target.value as FeatureMapOption)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                  >
+                    <option value="angle">Angle</option>
+                    <option value="zz_like">ZZ-like</option>
+                    <option value="iqp">IQP</option>
+                    <option value="amplitude">Amplitude</option>
+                    <option value="basis">Basis</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Ansatz</span>
+                  <select
+                    value={parameterOverrides.ansatzType}
+                    onChange={(event) => updateOverride("ansatzType", event.target.value as AnsatzOption)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                  >
+                    <option value="hardware_efficient">Hardware efficient</option>
+                    <option value="custom_rx_ry_cz">Custom RX-RY-CZ</option>
+                    <option value="strongly_entangling">Strongly entangling</option>
+                    <option value="real_amplitudes_like">Real amplitudes-like</option>
+                    <option value="basic_entangler">Basic entangler</option>
+                  </select>
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Qubits</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={32}
+                      value={parameterOverrides.nQubits}
+                      onChange={(event) => updateOverride("nQubits", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Ansatz reps</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={parameterOverrides.ansatzReps}
+                      onChange={(event) => updateOverride("ansatzReps", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Feature-map repeats</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={parameterOverrides.featureMapRepeats}
+                    onChange={(event) => updateOverride("featureMapRepeats", Number(event.target.value))}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                  />
+                </label>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  These overrides flow into planning and async execution. The workbook remains the base config, and the override delta is layered on top.
+                </p>
+              </div>
             </Card>
 
             <Card
               title="Optimizer Parameters"
-              subtitle="These values come from the current effective workbook settings and the active job context."
+              subtitle="Lean, QAOA-style tuning controls for the parameters that most strongly affect runtime and convergence."
             >
-              <DetailList items={trainingSettings} />
+              <div className="grid gap-3">
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Optimizer</span>
+                  <select
+                    value={parameterOverrides.optimizer}
+                    onChange={(event) => updateOverride("optimizer", event.target.value as OptimizerOption)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                  >
+                    <option value="adam">Adam</option>
+                    <option value="cobyla">COBYLA</option>
+                    <option value="spsa">SPSA</option>
+                  </select>
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Iterations</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={5000}
+                      value={parameterOverrides.iterations}
+                      onChange={(event) => updateOverride("iterations", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Learning rate</span>
+                    <input
+                      type="number"
+                      min={0.0001}
+                      max={1}
+                      step="0.0001"
+                      value={parameterOverrides.learningRate}
+                      onChange={(event) => updateOverride("learningRate", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Repeats</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={parameterOverrides.repeats}
+                      onChange={(event) => updateOverride("repeats", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Batch size</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={4096}
+                      value={parameterOverrides.batchSize}
+                      onChange={(event) => updateOverride("batchSize", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-3 text-sm text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={parameterOverrides.earlyStopping}
+                      onChange={(event) => updateOverride("earlyStopping", event.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Early stopping
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Patience</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={parameterOverrides.patience}
+                      onChange={(event) => updateOverride("patience", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
+                </div>
+              </div>
             </Card>
 
             <Card
@@ -1786,7 +2100,7 @@ export default function VqcClassifierPage() {
                 <button
                   type="button"
                   onClick={() => void executeRun()}
-                  disabled={activeRequest !== null || isJobActive || !workbookFile}
+                  disabled={activeRequest !== null || isJobActive || !workbookFile || !hasAccess}
                   className="w-full rounded-xl bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Execute run
@@ -1803,6 +2117,9 @@ export default function VqcClassifierPage() {
                   <p>
                     Config load triggers inspect automatically. Data load triggers prepare and planning automatically. Execute run handles the async orchestration from there.
                   </p>
+                  {!hasAccess ? (
+                    <p className="mt-2 text-amber-200">Check license or demo first. We’re following the same access-first pattern as QAOA now.</p>
+                  ) : null}
                 </div>
               </div>
             </Card>
