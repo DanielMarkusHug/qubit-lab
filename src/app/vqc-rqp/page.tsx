@@ -254,6 +254,20 @@ function metricEntries(metrics: JsonRecord): Array<{ key: string; value: unknown
     .map((key) => ({ key, value: metrics[key] }));
 }
 
+function summarizeMandatoryBaselines(status: unknown): string {
+  const record = asRecord(status);
+  if (!record) {
+    return "-";
+  }
+
+  const forced = asStringArray(record.forced);
+  if (forced.length) {
+    return `Required baselines enforced (${forced.map(formatLabel).join(", ")})`;
+  }
+
+  return "All mandatory baselines enabled";
+}
+
 function mergeWarnings(existing: string[], incoming: string[]): string[] {
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -726,6 +740,134 @@ function PreprocessingSummaryPanel({ summary }: { summary: unknown }) {
   );
 }
 
+function MandatoryBaselineStatusPanel({ status }: { status: unknown }) {
+  const record = asRecord(status);
+  if (!record) {
+    return <p className="text-sm text-slate-500">No mandatory baseline details available yet.</p>;
+  }
+
+  const requested = asRecord(record.requested) ?? {};
+  const effective = asRecord(record.effective) ?? record;
+  const rows: MetricTableRow[] = ["logistic_regression", "random_forest", "gradient_boosting"].map((name) => ({
+    baseline: formatLabel(name),
+    requested: asTableCellValue(requested[name]),
+    effective: asTableCellValue(effective[name]),
+  }));
+  const forced = asStringArray(record.forced);
+
+  return (
+    <div className="space-y-3">
+      <GenericTable rows={rows} />
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
+        {forced.length ? `Forced on for reporting consistency: ${forced.map(formatLabel).join(", ")}.` : "All mandatory baselines were already enabled in the workbook."}
+      </div>
+    </div>
+  );
+}
+
+function TrainingHistorySummaryPanel({ summary, vqcMetrics }: { summary: unknown; vqcMetrics: unknown }) {
+  const summaryRecord = asRecord(summary) ?? {};
+  const metricRecord = asRecord(vqcMetrics) ?? {};
+
+  return (
+    <DetailList
+      items={[
+        { label: "Iterations requested", value: summaryRecord.iterations_requested },
+        { label: "Repeats requested", value: summaryRecord.repeats_requested },
+        { label: "Optimization trace points", value: summaryRecord.history_points },
+        { label: "Best validation primary metric", value: summaryRecord.best_validation_primary_metric },
+        { label: "Primary metric", value: metricRecord.primary_metric_name },
+        { label: "Primary metric (val)", value: metricRecord.primary_metric_validation },
+        { label: "Primary metric (test)", value: metricRecord.primary_metric_test },
+      ]}
+    />
+  );
+}
+
+function BaselineComparisonPreviewPanel({ preview }: { preview: unknown }) {
+  const record = asRecord(preview);
+  if (!record) {
+    return <p className="text-sm text-slate-500">No comparison preview available.</p>;
+  }
+
+  const rows = Array.isArray(record.rows)
+    ? record.rows
+        .filter(isRecord)
+        .map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, asTableCellValue(value)])) as MetricTableRow)
+    : [];
+
+  return (
+    <div className="space-y-3">
+      <DetailList items={[{ label: "Primary metric", value: record.primary_metric_name }]} />
+      <GenericTable rows={rows} />
+    </div>
+  );
+}
+
+function RunSummaryPanel({ summary }: { summary: unknown }) {
+  const record = asRecord(summary);
+  if (!record) {
+    return <p className="text-sm text-slate-500">No run summary available yet.</p>;
+  }
+
+  const datasetSummary = asRecord(record.dataset_summary) ?? {};
+  const warnings = asStringArray(record.main_warnings);
+  const selectedFeatures = asStringArray(record.selected_features);
+  const quantumFeatures = asStringArray(record.quantum_features);
+
+  return (
+    <div className="space-y-4">
+      <InfoGrid
+        items={[
+          { label: "Status", value: record.status },
+          { label: "Generated at", value: record.generated_at },
+          { label: "Dataset file", value: datasetSummary.dataset_file },
+          { label: "Label column", value: record.label_column },
+          { label: "Classification mode", value: record.classification_mode },
+          { label: "Number of classes", value: record.number_of_classes },
+          { label: "Train rows", value: record.train_rows },
+          { label: "Validation rows", value: record.validation_rows },
+          { label: "Test rows", value: record.test_rows },
+          { label: "Qubits", value: record.n_qubits },
+          { label: "Feature map", value: record.feature_map_type },
+          { label: "Ansatz", value: record.ansatz_type },
+          { label: "Ansatz reps", value: record.ansatz_reps },
+          { label: "Backend", value: record.backend },
+          { label: "Best baseline", value: record.best_baseline_model },
+          { label: "Baselines complete", value: record.mandatory_baselines_complete },
+          { label: "VQC complete", value: record.vqc_complete },
+        ]}
+      />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selected features</div>
+          <div className="mt-3">
+            <TagList values={selectedFeatures} />
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Quantum features</div>
+          <div className="mt-3">
+            <TagList values={quantumFeatures} />
+          </div>
+        </div>
+      </div>
+
+      {warnings.length ? (
+        <div className="rounded-xl border border-amber-900/70 bg-amber-950/40 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-300">Main warnings</div>
+          <ul className="mt-3 space-y-2 text-sm text-amber-100">
+            {warnings.map((warning, index) => (
+              <li key={`${warning}-${index}`}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function VqcClassifierPage() {
   const [workbookFile, setWorkbookFile] = useState<File | null>(null);
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
@@ -997,7 +1139,6 @@ export default function VqcClassifierPage() {
   const configurationSummary = useMemo(() => {
     const dataset = isRecord(effectiveSettings?.dataset) ? effectiveSettings?.dataset : {};
     const model = isRecord(effectiveSettings?.model) ? effectiveSettings?.model : {};
-    const baselines = isRecord(effectiveSettings?.baselines) ? effectiveSettings?.baselines : {};
 
     return [
       { label: "Dataset file", value: prepareResponse?.dataset_file ?? dataset.dataset_file },
@@ -1024,16 +1165,7 @@ export default function VqcClassifierPage() {
       { label: "Ansatz reps", value: model.ansatz_reps },
       { label: "Backend", value: model.backend },
       { label: "Shots mode", value: model.shots_mode },
-      {
-        label: "Mandatory baselines",
-        value:
-          inspectResponse?.mandatory_baseline_status ??
-          {
-            logistic_regression: baselines.logistic_regression,
-            random_forest: baselines.random_forest,
-            gradient_boosting: baselines.gradient_boosting,
-          },
-      },
+      { label: "Mandatory baselines", value: summarizeMandatoryBaselines(inspectResponse?.mandatory_baseline_status) },
     ];
   }, [effectiveSettings, prepareResponse, inspectResponse, reportResponse, vqcResponse, baselinesResponse]);
 
@@ -1242,6 +1374,13 @@ export default function VqcClassifierPage() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Mandatory baseline status</div>
+              <div className="mt-3">
+                <MandatoryBaselineStatusPanel status={inspectResponse?.mandatory_baseline_status} />
+              </div>
+            </div>
           </Card>
 
           <Card title="Warnings" subtitle="Warnings are merged across inspect, prepare, planning, baselines, VQC, and reporting so nothing gets lost.">
@@ -1300,7 +1439,13 @@ export default function VqcClassifierPage() {
           <Card title="Run Plan" subtitle="Feasibility and workload estimates produced by /plan-run. These are especially useful before we commit to baseline or VQC execution.">
             <InfoGrid
               items={[
-                { label: "Runtime class", value: planResponse?.runtime_estimate && isRecord(planResponse.runtime_estimate) ? planResponse.runtime_estimate.runtime_class : null },
+                {
+                  label: "Runtime class",
+                  value:
+                    planResponse?.runtime_estimate && isRecord(planResponse.runtime_estimate)
+                      ? planResponse.runtime_estimate.overall_runtime_class ?? planResponse.runtime_estimate.runtime_class
+                      : null,
+                },
                 { label: "Memory class", value: planResponse?.memory_estimate && isRecord(planResponse.memory_estimate) ? planResponse.memory_estimate.memory_class : null },
                 {
                   label: "Est. circuit evaluations",
@@ -1431,18 +1576,7 @@ export default function VqcClassifierPage() {
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Training history summary</div>
                 <div className="mt-3">
-                  <DetailList
-                    items={[
-                      { label: "Iterations completed", value: asRecord(vqcResponse?.training_history_summary)?.iterations_completed },
-                      { label: "Best iteration", value: asRecord(vqcResponse?.training_history_summary)?.best_iteration },
-                      { label: "Best train loss", value: asRecord(vqcResponse?.training_history_summary)?.best_train_loss },
-                      { label: "Best validation loss", value: asRecord(vqcResponse?.training_history_summary)?.best_validation_loss },
-                      { label: "Best validation metric", value: asRecord(vqcResponse?.training_history_summary)?.best_validation_metric },
-                      { label: "Primary metric", value: asRecord(vqcResponse?.vqc_metrics)?.primary_metric_name },
-                      { label: "Primary metric (val)", value: asRecord(vqcResponse?.vqc_metrics)?.primary_metric_validation },
-                      { label: "Primary metric (test)", value: asRecord(vqcResponse?.vqc_metrics)?.primary_metric_test },
-                    ]}
-                  />
+                  <TrainingHistorySummaryPanel summary={vqcResponse?.training_history_summary} vqcMetrics={vqcResponse?.vqc_metrics} />
                 </div>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
@@ -1473,7 +1607,7 @@ export default function VqcClassifierPage() {
               <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Baseline comparison preview</div>
                 <div className="mt-3">
-                  <KeyValueBlock title="Comparison" value={vqcResponse.baseline_comparison_preview} />
+                  <BaselineComparisonPreviewPanel preview={vqcResponse.baseline_comparison_preview} />
                 </div>
               </div>
             ) : (
@@ -1514,7 +1648,12 @@ export default function VqcClassifierPage() {
             />
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <KeyValueBlock title="Run summary" value={reportResponse?.run_summary} />
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Run summary</div>
+                <div className="mt-3">
+                  <RunSummaryPanel summary={reportResponse?.run_summary} />
+                </div>
+              </div>
               <KeyValueBlock title="Highlighted report artifacts" value={highlightedArtifacts} />
             </div>
 
