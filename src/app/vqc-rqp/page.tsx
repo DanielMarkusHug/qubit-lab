@@ -219,7 +219,7 @@ function extractErrorMessage(payload: unknown): string {
   return "The request failed.";
 }
 
-export async function getJson<T>(endpoint: string): Promise<T> {
+async function getJson<T>(endpoint: string): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "GET",
   });
@@ -230,7 +230,7 @@ export async function getJson<T>(endpoint: string): Promise<T> {
   return payload as T;
 }
 
-export async function postJson<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
+async function postJson<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     headers: {
@@ -245,7 +245,7 @@ export async function postJson<T>(endpoint: string, body: Record<string, unknown
   return payload as T;
 }
 
-export async function postMultipart<T>(endpoint: string, formData: FormData): Promise<T> {
+async function postMultipart<T>(endpoint: string, formData: FormData): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     body: formData,
