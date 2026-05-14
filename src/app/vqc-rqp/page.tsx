@@ -1139,6 +1139,7 @@ export default function VqcClassifierPage() {
   const configurationSummary = useMemo(() => {
     const dataset = isRecord(effectiveSettings?.dataset) ? effectiveSettings?.dataset : {};
     const model = isRecord(effectiveSettings?.model) ? effectiveSettings?.model : {};
+    const training = isRecord(effectiveSettings?.training) ? effectiveSettings?.training : {};
 
     return [
       { label: "Dataset file", value: prepareResponse?.dataset_file ?? dataset.dataset_file },
@@ -1163,6 +1164,8 @@ export default function VqcClassifierPage() {
       { label: "Feature map", value: inspectResponse?.feature_map_type ?? model.feature_map_type },
       { label: "Ansatz", value: inspectResponse?.ansatz_type ?? model.ansatz_type },
       { label: "Ansatz reps", value: model.ansatz_reps },
+      { label: "Iterations", value: training.iterations },
+      { label: "Early stopping", value: training.early_stopping },
       { label: "Backend", value: model.backend },
       { label: "Shots mode", value: model.shots_mode },
       { label: "Mandatory baselines", value: summarizeMandatoryBaselines(inspectResponse?.mandatory_baseline_status) },
