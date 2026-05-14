@@ -952,6 +952,12 @@ function rawJsonFilename(workbookName: string | null) {
   return `qaoa-rqp-v9-raw-json_${safeFileStem(workbookName)}_${timestampForFilename()}.json`;
 }
 
+function pdfReportFilename(workbookName: string | null, mode: string) {
+  return `qaoa-rqp-v9-report_${safeFileStem(workbookName)}_${normalizeRunMode(
+    mode
+  )}_${timestampForFilename()}.pdf`;
+}
+
 function codeExportFilename(target: CodeExportTargetValue, workbookName?: string | null) {
   const option = CODE_EXPORT_TARGET_OPTIONS.find((item) => item.value === target);
   const extension = option?.filename.endsWith(".py") ? "py" : "ipynb";
@@ -2984,6 +2990,7 @@ export default function QaoaRqpV9Page() {
   const [jobError, setJobError] = useState<AsyncSubmitResponse["error"] | null>(null);
   const [reviewFileMessage, setReviewFileMessage] = useState<string | null>(null);
   const [reviewFileError, setReviewFileError] = useState<string | null>(null);
+  const [pdfReportLoading, setPdfReportLoading] = useState(false);
   const [codeExportLoading, setCodeExportLoading] =
     useState<CodeExportTargetValue | null>(null);
 
@@ -3360,6 +3367,10 @@ export default function QaoaRqpV9Page() {
     return Boolean(result || inspectResult || jobStatus);
   }, [result, inspectResult, jobStatus]);
 
+  const canDownloadPdfReport = useMemo(() => {
+    return Boolean(result?.status === "completed");
+  }, [result]);
+
   const canRequestCodeExport = useMemo(() => {
     return Boolean(
       codeExportPackage &&
@@ -3640,11 +3651,8 @@ export default function QaoaRqpV9Page() {
     setIbmBackendsError(null);
   }, [ibmHardwareModeChosen]);
 
-  function saveReviewFile() {
-    setReviewFileError(null);
-    setReviewFileMessage(null);
-
-    const snapshot: SavedQaoaSnapshot = {
+  function buildReviewSnapshot(): SavedQaoaSnapshot {
+    return {
       schema: "qaoa-rqp-review-snapshot",
       schema_version: 1,
       saved_at: new Date().toISOString(),
@@ -3681,6 +3689,13 @@ export default function QaoaRqpV9Page() {
       backend_job_logs: backendJobLogs,
       client_logs: logs,
     };
+  }
+
+  function saveReviewFile() {
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+
+    const snapshot = buildReviewSnapshot();
 
     const filename = reviewFilename(snapshot.original_filename ?? null, mode);
     const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
@@ -3699,6 +3714,65 @@ export default function QaoaRqpV9Page() {
 
     setReviewFileMessage(`Saved ${filename}`);
     addLog(`Review file saved: ${filename}`);
+  }
+
+  async function downloadPdfReport() {
+    if (!result || result.status !== "completed") {
+      setReviewFileError("A completed optimization result is required for PDF export.");
+      return;
+    }
+
+    setReviewFileError(null);
+    setReviewFileMessage(null);
+    setPdfReportLoading(true);
+
+    try {
+      const snapshot = buildReviewSnapshot();
+      const res = await fetch(`${API_URL}/exports/report-pdf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { "X-API-Key": apiKey } : {}),
+        },
+        body: JSON.stringify(snapshot),
+      });
+
+      if (!res.ok) {
+        let message = res.statusText;
+        try {
+          const payload = await res.json();
+          message = payload?.error?.message ?? message;
+        } catch {
+          // Keep HTTP status text.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const filename =
+        getFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        pdfReportFilename(
+          workbookFilename ?? file?.name ?? inspectResult?.filename ?? null,
+          mode
+        );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      setReviewFileMessage(`Saved ${filename}`);
+      addLog(`PDF report downloaded: ${filename}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown PDF export error.";
+      setReviewFileError(`Could not build PDF report: ${message}`);
+    } finally {
+      setPdfReportLoading(false);
+    }
   }
 
   function downloadRawJsonData() {
@@ -5657,6 +5731,14 @@ export default function QaoaRqpV9Page() {
                 className="mt-2 w-full rounded-lg bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
               >
                 Download Raw JSON Data
+              </button>
+
+              <button
+                onClick={downloadPdfReport}
+                disabled={!canDownloadPdfReport || pdfReportLoading}
+                className="mt-2 w-full rounded-lg bg-rose-500 hover:bg-rose-400 disabled:bg-slate-700 text-slate-950 font-semibold py-2 text-sm"
+              >
+                {pdfReportLoading ? "Preparing PDF..." : "Download PDF Report"}
               </button>
 
               <div className="mt-3 border-t border-slate-800 pt-3">
