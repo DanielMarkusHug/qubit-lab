@@ -159,6 +159,90 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+function asRecord(value: unknown): JsonRecord | null {
+  return isRecord(value) ? value : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item)).filter(Boolean);
+}
+
+function formatPercent(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return formatValue(value);
+  }
+  return `${(value * 100).toFixed(0)}%`;
+}
+
+function parseShape(value: unknown): { rows: number | null; columns: number | null } {
+  if (!Array.isArray(value) || value.length < 2) {
+    return { rows: null, columns: null };
+  }
+  const rows = typeof value[0] === "number" ? value[0] : Number(value[0]);
+  const columns = typeof value[1] === "number" ? value[1] : Number(value[1]);
+  return {
+    rows: Number.isFinite(rows) ? rows : null,
+    columns: Number.isFinite(columns) ? columns : null,
+  };
+}
+
+function orderedKeys(record: JsonRecord, preferred: string[]): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+
+  preferred.forEach((key) => {
+    if (key in record) {
+      seen.add(key);
+      keys.push(key);
+    }
+  });
+
+  Object.keys(record)
+    .filter((key) => !seen.has(key))
+    .forEach((key) => keys.push(key));
+
+  return keys;
+}
+
+function metricEntries(metrics: JsonRecord): Array<{ key: string; value: unknown }> {
+  const preferred = [
+    "primary_metric_name",
+    "primary_metric_validation",
+    "primary_metric_test",
+    "accuracy",
+    "precision",
+    "recall",
+    "f1",
+    "f1_weighted",
+    "precision_macro",
+    "recall_macro",
+    "f1_macro",
+    "roc_auc",
+    "roc_auc_ovr",
+    "pr_auc",
+    "positive_class_ratio",
+    "false_positives",
+    "false_negatives",
+    "true_positives",
+    "true_negatives",
+  ];
+  const excluded = new Set([
+    "confusion_matrix",
+    "class_distribution",
+    "per_class_precision",
+    "per_class_recall",
+    "per_class_f1",
+    "warnings",
+  ]);
+
+  return orderedKeys(metrics, preferred)
+    .filter((key) => !excluded.has(key))
+    .map((key) => ({ key, value: metrics[key] }));
+}
+
 function mergeWarnings(existing: string[], incoming: string[]): string[] {
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -392,13 +476,241 @@ function ArtifactList({ artifactPaths }: { artifactPaths: ArtifactPathMap | unde
   }
 
   return (
-    <div className="space-y-2">
+    <div className="overflow-hidden rounded-xl border border-slate-800">
       {Object.entries(artifactPaths).map(([key, value]) => (
-        <div key={key} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+        <div
+          key={key}
+          className="grid gap-2 border-b border-slate-800 bg-slate-950/60 p-3 last:border-b-0 md:grid-cols-[170px_1fr]"
+        >
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{formatLabel(key)}</div>
-          <div className="mt-2 break-all font-mono text-xs text-cyan-200">{value}</div>
+          <div className="break-all font-mono text-xs text-cyan-200">{value}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function DetailList({ items }: { items: Array<{ label: string; value: unknown }> }) {
+  const visibleItems = items.filter(({ value }) => value !== null && value !== undefined && value !== "");
+
+  if (!visibleItems.length) {
+    return <p className="text-sm text-slate-500">No details available yet.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {visibleItems.map((item) => (
+        <div key={item.label} className="flex items-start justify-between gap-4 text-sm">
+          <span className="text-slate-400">{item.label}</span>
+          <span className="max-w-[65%] text-right text-slate-100">{formatValue(item.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MetricSummaryTable({ metrics }: { metrics: unknown }) {
+  const record = asRecord(metrics);
+  if (!record) {
+    return <p className="text-sm text-slate-500">No metrics available yet.</p>;
+  }
+
+  const entries = metricEntries(record);
+  if (!entries.length) {
+    return <p className="text-sm text-slate-500">No summary metrics available.</p>;
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-800">
+      <table className="min-w-full text-sm">
+        <thead className="bg-slate-950/70">
+          <tr>
+            <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Metric</th>
+            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Value</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-800 bg-slate-900/50">
+          {entries.map(({ key, value }) => (
+            <tr key={key}>
+              <td className="px-3 py-2 text-slate-300">{formatLabel(key)}</td>
+              <td className="px-3 py-2 text-right text-slate-100">{formatValue(value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ConfusionMatrixTable({ matrix, title }: { matrix: unknown; title: string }) {
+  if (!Array.isArray(matrix) || !matrix.length || !Array.isArray(matrix[0])) {
+    return null;
+  }
+
+  const matrixRows = matrix as unknown[][];
+  const size = matrixRows.length;
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr>
+              <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Actual \ Pred</th>
+              {Array.from({ length: size }).map((_, index) => (
+                <th key={index} className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {index}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {matrixRows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                <td className="px-3 py-2 text-slate-300">{rowIndex}</td>
+                {row.map((value, columnIndex) => (
+                  <td key={columnIndex} className="px-3 py-2 text-right text-slate-100">
+                    {formatValue(value)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ClassDistributionTable({ distribution }: { distribution: unknown }) {
+  const record = asRecord(distribution);
+  if (!record) {
+    return <p className="text-sm text-slate-500">No class distribution available yet.</p>;
+  }
+
+  const nestedKeys = ["total", "train", "validation", "test"].filter((key) => asRecord(record[key]));
+  if (nestedKeys.length) {
+    const rows: MetricTableRow[] = [];
+    nestedKeys.forEach((split) => {
+      const splitRecord = asRecord(record[split]);
+      if (!splitRecord) {
+        return;
+      }
+      Object.entries(splitRecord).forEach(([label, count]) => {
+        rows.push({ split: formatLabel(split), class: label, count });
+      });
+    });
+    return <GenericTable rows={rows} />;
+  }
+
+  const rows = Object.entries(record).map(([label, count]) => ({ class: label, count }));
+  return <GenericTable rows={rows} />;
+}
+
+function PreprocessingSummaryPanel({ summary }: { summary: unknown }) {
+  const record = asRecord(summary);
+  if (!record) {
+    return <p className="text-sm text-slate-500">No preprocessing summary available yet.</p>;
+  }
+
+  const featureResolution = asRecord(record.feature_resolution) ?? {};
+  const sampling = asRecord(record.sampling) ?? {};
+  const split = asRecord(record.split) ?? {};
+  const balancing = asRecord(record.balancing) ?? {};
+  const encoding = asRecord(record.encoding) ?? {};
+  const featureSelection = asRecord(record.feature_selection) ?? {};
+  const reduction = asRecord(record.quantum_feature_reduction) ?? {};
+  const inputShape = parseShape(record.input_shape);
+  const sampledShape = parseShape(record.sampled_shape);
+
+  return (
+    <div className="space-y-4">
+      <InfoGrid
+        items={[
+          { label: "Dataset", value: record.dataset_name },
+          { label: "Input rows", value: inputShape.rows },
+          { label: "Input columns", value: inputShape.columns },
+          { label: "Sampled rows", value: sampledShape.rows },
+          { label: "Sampled columns", value: sampledShape.columns },
+          { label: "Mode", value: record.classification_mode },
+          { label: "Label classes", value: record.label_classes },
+          { label: "Sampling applied", value: sampling.applied },
+        ]}
+      />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Features used</div>
+          <div className="mt-3">
+            <TagList values={asStringArray(featureResolution.feature_columns)} />
+          </div>
+          <div className="mt-4">
+            <DetailList
+              items={[
+                { label: "Requested", value: asStringArray(featureResolution.requested_input_features) },
+                { label: "Missing requested", value: asStringArray(featureResolution.missing_requested_features) },
+                { label: "Excluded by role", value: asStringArray(featureResolution.excluded_by_role) },
+                { label: "Inference fallback", value: featureResolution.used_inference },
+              ]}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Split & sampling</div>
+          <div className="mt-3">
+            <DetailList
+              items={[
+                { label: "Sampling", value: sampling.applied ? `${sampling.strategy_requested ?? "applied"} (${sampling.rows_before} -> ${sampling.rows_after})` : "Not applied" },
+                { label: "Split strategy", value: split.strategy_effective ?? split.strategy_requested },
+                {
+                  label: "Split sizes",
+                  value:
+                    split.train_size !== undefined || split.validation_size !== undefined || split.test_size !== undefined
+                      ? `${formatPercent(split.train_size)} / ${formatPercent(split.validation_size)} / ${formatPercent(split.test_size)}`
+                      : null,
+                },
+                { label: "Time column used", value: split.time_column_used },
+                { label: "Fallback reason", value: split.fallback_reason },
+              ]}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Encoding & balancing</div>
+          <div className="mt-3">
+            <DetailList
+              items={[
+                { label: "Numeric columns", value: asStringArray(encoding.numeric_columns) },
+                { label: "Categorical columns", value: asStringArray(encoding.categorical_columns) },
+                { label: "Numeric scaling", value: encoding.numeric_scaling },
+                { label: "Categorical encoding", value: encoding.categorical_encoding },
+                { label: "Missing numeric", value: encoding.missing_numeric },
+                { label: "Missing categorical", value: encoding.missing_categorical },
+                { label: "Balancing", value: balancing.applied ? balancing.strategy : `${balancing.strategy ?? "none"} (not applied)` },
+              ]}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Feature reduction</div>
+          <div className="mt-3">
+            <DetailList
+              items={[
+                { label: "Feature selection", value: featureSelection.method },
+                { label: "Selected feature count", value: featureSelection.selected_feature_count },
+                { label: "Selected feature names", value: asStringArray(featureSelection.selected_feature_names) },
+                { label: "Quantum reduction", value: reduction.method },
+                { label: "Quantum target dim", value: reduction.target_dim },
+                { label: "Quantum feature names", value: asStringArray(reduction.selected_feature_names) },
+              ]}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -954,8 +1266,18 @@ export default function VqcClassifierPage() {
             />
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <KeyValueBlock title="Class distribution" value={prepareResponse?.class_distribution} />
-              <KeyValueBlock title="Preprocessing summary" value={prepareResponse?.preprocessing_summary} />
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Class distribution</div>
+                <div className="mt-3">
+                  <ClassDistributionTable distribution={prepareResponse?.class_distribution} />
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Preprocessing summary</div>
+                <div className="mt-3">
+                  <PreprocessingSummaryPanel summary={prepareResponse?.preprocessing_summary} />
+                </div>
+              </div>
             </div>
 
             <div className="mt-4">
@@ -1040,9 +1362,31 @@ export default function VqcClassifierPage() {
           <Card title="Baseline Results" subtitle="Mandatory classical baselines. This card stays generic so it can handle both binary and multiclass metric sets without fuss.">
             {baselinesResponse?.baseline_metrics && isRecord(baselinesResponse.baseline_metrics) ? (
               <div className="space-y-4">
-                {Object.entries(baselinesResponse.baseline_metrics).map(([modelName, metrics]) => (
-                  <KeyValueBlock key={modelName} title={formatLabel(modelName)} value={metrics} />
-                ))}
+                {Object.entries(baselinesResponse.baseline_metrics).map(([modelName, metrics]) => {
+                  const metricRecord = asRecord(metrics);
+                  const validationRecord = asRecord(metricRecord?.validation);
+                  const testRecord = asRecord(metricRecord?.test);
+
+                  return (
+                    <div key={modelName} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{formatLabel(modelName)}</div>
+                      <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                        <div>
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Validation</div>
+                          <MetricSummaryTable metrics={validationRecord} />
+                        </div>
+                        <div>
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Test</div>
+                          <MetricSummaryTable metrics={testRecord} />
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        <ConfusionMatrixTable matrix={validationRecord?.confusion_matrix} title="Validation confusion matrix" />
+                        <ConfusionMatrixTable matrix={testRecord?.confusion_matrix} title="Test confusion matrix" />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-slate-500">Run baselines to see logistic regression, random forest, and gradient boosting results here.</p>
@@ -1061,10 +1405,57 @@ export default function VqcClassifierPage() {
 
           <Card title="VQC Results" subtitle="Validation and test metrics from the PennyLane classifier, along with training summary, circuit summary, and any classical comparison preview already available.">
             <div className="grid gap-4 lg:grid-cols-2">
-              <KeyValueBlock title="Validation metrics" value={vqcResponse?.validation_metrics} />
-              <KeyValueBlock title="Test metrics" value={vqcResponse?.test_metrics} />
-              <KeyValueBlock title="Training history summary" value={vqcResponse?.training_history_summary} />
-              <KeyValueBlock title="Circuit summary" value={vqcResponse?.circuit_summary} />
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Validation metrics</div>
+                <div className="mt-3">
+                  <MetricSummaryTable metrics={vqcResponse?.validation_metrics} />
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Test metrics</div>
+                <div className="mt-3">
+                  <MetricSummaryTable metrics={vqcResponse?.test_metrics} />
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Training history summary</div>
+                <div className="mt-3">
+                  <DetailList
+                    items={[
+                      { label: "Iterations completed", value: asRecord(vqcResponse?.training_history_summary)?.iterations_completed },
+                      { label: "Best iteration", value: asRecord(vqcResponse?.training_history_summary)?.best_iteration },
+                      { label: "Best train loss", value: asRecord(vqcResponse?.training_history_summary)?.best_train_loss },
+                      { label: "Best validation loss", value: asRecord(vqcResponse?.training_history_summary)?.best_validation_loss },
+                      { label: "Best validation metric", value: asRecord(vqcResponse?.training_history_summary)?.best_validation_metric },
+                      { label: "Primary metric", value: asRecord(vqcResponse?.vqc_metrics)?.primary_metric_name },
+                      { label: "Primary metric (val)", value: asRecord(vqcResponse?.vqc_metrics)?.primary_metric_validation },
+                      { label: "Primary metric (test)", value: asRecord(vqcResponse?.vqc_metrics)?.primary_metric_test },
+                    ]}
+                  />
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Circuit summary</div>
+                <div className="mt-3">
+                  <DetailList
+                    items={[
+                      { label: "Feature map", value: asRecord(vqcResponse?.circuit_summary)?.feature_map_type },
+                      { label: "Ansatz", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_type },
+                      { label: "Ansatz reps", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_reps },
+                      { label: "Qubits", value: asRecord(vqcResponse?.circuit_summary)?.n_qubits },
+                      { label: "Backend", value: asRecord(vqcResponse?.circuit_summary)?.backend },
+                      { label: "Device", value: asRecord(vqcResponse?.circuit_summary)?.device },
+                      { label: "Shots mode", value: asRecord(vqcResponse?.circuit_summary)?.shots_mode },
+                      { label: "Trainable parameters", value: asRecord(vqcResponse?.circuit_summary)?.trainable_parameters },
+                    ]}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <ConfusionMatrixTable matrix={asRecord(vqcResponse?.validation_metrics)?.confusion_matrix} title="Validation confusion matrix" />
+              <ConfusionMatrixTable matrix={asRecord(vqcResponse?.test_metrics)?.confusion_matrix} title="Test confusion matrix" />
             </div>
 
             {vqcResponse?.baseline_comparison_preview ? (
