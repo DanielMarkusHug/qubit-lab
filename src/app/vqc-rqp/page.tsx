@@ -554,18 +554,6 @@ function buildConfigOverridesPayload(overrides: ParameterOverridesState): JsonRe
   };
 }
 
-function combineLogEntries(clientEntries: ClientLogEntry[], backendResponse: JobLogResponse | null): ClientLogEntry[] {
-  const backendEntries = (backendResponse?.log_entries ?? []).map((entry, index) => ({
-    id: `backend-${entry.timestamp ?? "t"}-${index}-${entry.message ?? "log"}`,
-    timestamp: entry.timestamp ?? new Date().toISOString(),
-    source: "backend" as const,
-    level: (entry.level === "warning" || entry.level === "error" ? entry.level : "info") as LogLevel,
-    stage: entry.stage ?? undefined,
-    message: entry.message ?? "Backend event",
-  }));
-  return [...clientEntries, ...backendEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
-}
-
 function summarizeMandatoryBaselines(status: unknown): string {
   const record = asRecord(status);
   if (!record) {
@@ -985,31 +973,18 @@ function RunSummaryPanel({ summary }: { summary: JsonRecord | null }) {
   );
 }
 
-function LogStreamPanel({ entries }: { entries: ClientLogEntry[] }) {
-  if (!entries.length) {
-    return <p className="text-sm text-slate-500">Client and backend events will appear here as the run progresses.</p>;
+function TextLogPanel({ lines, emptyText }: { lines: Array<{ id: string; text: string; tone?: string }>; emptyText: string }) {
+  if (!lines.length) {
+    return <p className="text-sm text-slate-500">{emptyText}</p>;
   }
   return (
     <div className="h-64 overflow-y-auto rounded-xl border border-slate-800 bg-black/30 p-3 font-mono text-xs text-slate-200">
       <div className="space-y-1.5">
-        {entries.slice(0, 120).map((entry) => {
-          const tone =
-            entry.level === "error"
-              ? "text-rose-300"
-              : entry.level === "warning"
-                ? "text-amber-300"
-                : entry.level === "success"
-                  ? "text-emerald-300"
-                  : "text-slate-200";
-          return (
-            <div key={entry.id} className="leading-5">
-              <span className="text-slate-500">{formatIsoTimestamp(entry.timestamp)}</span>{" "}
-              <span className="text-cyan-300">{entry.source === "backend" ? "backend" : "client"}</span>
-              {entry.stage ? <span className="text-slate-500"> [{entry.stage}]</span> : null}{" "}
-              <span className={tone}>{entry.message}</span>
-            </div>
-          );
-        })}
+        {lines.map((line) => (
+          <div key={line.id} className={line.tone ?? "text-slate-200"}>
+            {line.text}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1231,9 +1206,23 @@ export default function VqcClassifierPage() {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "License check failed.";
-      setLicense(null);
-      setLastError(message);
-      pushClientLog("error", `Access check failed: ${message}`);
+      if (message.includes("Not Found")) {
+        const fallbackLicense: LicenseStatusResponse = {
+          status: "active",
+          usage_level: "public_demo",
+          display_name: "Public Demo (fallback)",
+          valid_for: ["QAOA", "VQC"],
+          remaining_runs: "unlimited",
+          organization: "Local Demo",
+          features: ["inspect_workbook", "prepare_data", "async_execute_run"],
+        };
+        setLicense(fallbackLicense);
+        pushClientLog("warning", "Access endpoint missing on this backend revision. Falling back to local public demo access.");
+      } else {
+        setLicense(null);
+        setLastError(message);
+        pushClientLog("error", `Access check failed: ${message}`);
+      }
     } finally {
       setActiveRequest(null);
     }
@@ -1597,11 +1586,37 @@ export default function VqcClassifierPage() {
     vqcResponse,
   ]);
 
-  const combinedLogEntries = useMemo(
-    () => combineLogEntries(clientLogEntries, jobLogResponse),
-    [clientLogEntries, jobLogResponse],
-  );
   const hasAccess = license?.status === "active";
+  const clientLogLines = useMemo(
+    () =>
+      clientLogEntries.slice(0, 120).map((entry) => ({
+        id: entry.id,
+        tone:
+          entry.level === "error"
+            ? "text-rose-300"
+            : entry.level === "warning"
+              ? "text-amber-300"
+              : entry.level === "success"
+                ? "text-emerald-300"
+                : "text-slate-200",
+        text: `${formatIsoTimestamp(entry.timestamp)} ${entry.stage ? `[${entry.stage}] ` : ""}${entry.message}`,
+      })),
+    [clientLogEntries],
+  );
+  const backendLogLines = useMemo(
+    () =>
+      (jobLogResponse?.log_entries ?? []).map((entry, index) => ({
+        id: `backend-${entry.timestamp ?? "t"}-${index}`,
+        tone:
+          entry.level === "error"
+            ? "text-rose-300"
+            : entry.level === "warning"
+              ? "text-amber-300"
+              : "text-slate-200",
+        text: `${formatIsoTimestamp(entry.timestamp)} ${entry.stage ? `[${entry.stage}] ` : ""}${entry.message ?? "Backend event"}`,
+      })),
+    [jobLogResponse?.log_entries],
+  );
 
   const selectedWorkbookSnapshot = workbookFile
     ? [
@@ -2126,17 +2141,30 @@ export default function VqcClassifierPage() {
           </aside>
 
           <section className="space-y-6">
-            <div className="grid gap-6 2xl:grid-cols-2">
+            <div className="space-y-6">
               <Card
                 title="Client Log"
-                subtitle="A blended view of browser events and backend job log lines so we can see what the operator did and what the run is doing."
+                subtitle="Lean operator-side events from the browser workflow. This is the same kind of quick-read console rhythm the QAOA page uses."
               >
-                <LogStreamPanel entries={combinedLogEntries} />
+                <TextLogPanel
+                  lines={clientLogLines}
+                  emptyText="Client-side events will appear here as you check access, load files, queue runs, and reopen previous jobs."
+                />
+              </Card>
+
+              <Card
+                title="Backend Log"
+                subtitle="Backend-stage events from async polling. This is the place to watch the actual VQC job move across plan, baselines, VQC, and report."
+              >
+                <TextLogPanel
+                  lines={backendLogLines}
+                  emptyText="Backend log entries appear after a job has been queued or reloaded from the backlog."
+                />
               </Card>
 
               <Card
                 title="Backlog"
-                subtitle="Recent async jobs, ready to reopen or compare. This is the first step toward the same backlog mindset the QAOA flow already has."
+                subtitle="Recent async jobs, ready to reopen or compare. This keeps the same backlog mindset the QAOA flow already has."
               >
                 <BacklogPanel jobs={backlogJobs} currentJobId={jobId} onSelect={(selectedJobId) => void loadJob(selectedJobId)} />
               </Card>
