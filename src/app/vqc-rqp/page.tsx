@@ -3,7 +3,10 @@
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_VQC_API_BASE ?? "http://localhost:8000";
+const API_BASE =
+  process.env.NEXT_PUBLIC_VQC_API_BASE?.trim() ||
+  process.env.NEXT_PUBLIC_QAOA_RQP_API_URL?.trim() ||
+  "http://localhost:8000";
 
 const ENDPOINTS = {
   health: "/health",
@@ -408,7 +411,6 @@ export default function VqcClassifierPage() {
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
   const [currentStage, setCurrentStage] = useState("Idle");
   const [lastError, setLastError] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
   const [stepStatus, setStepStatus] = useState<Record<PipelineStepKey, PipelineStepStatus>>(INITIAL_STEPS);
 
   const [healthResponse, setHealthResponse] = useState<HealthResponse | null>(null);
@@ -420,6 +422,82 @@ export default function VqcClassifierPage() {
   const [reportResponse, setReportResponse] = useState<GenerateReportResponse | null>(null);
 
   const requestInFlight = activeRequest !== null;
+
+  function resetPipelineFrom(step: PipelineStepKey) {
+    if (step === "inspect") {
+      setInspectResponse(null);
+      setPrepareResponse(null);
+      setPlanResponse(null);
+      setBaselinesResponse(null);
+      setVqcResponse(null);
+      setReportResponse(null);
+      setJobId("");
+      setStepStatus(INITIAL_STEPS);
+      return;
+    }
+
+    if (step === "prepare") {
+      setPrepareResponse(null);
+      setPlanResponse(null);
+      setBaselinesResponse(null);
+      setVqcResponse(null);
+      setReportResponse(null);
+      setStepStatus((previous) => ({
+        ...previous,
+        prepare: "pending",
+        plan: "pending",
+        baselines: "pending",
+        vqc: "pending",
+        report: "pending",
+      }));
+      return;
+    }
+
+    if (step === "plan") {
+      setPlanResponse(null);
+      setBaselinesResponse(null);
+      setVqcResponse(null);
+      setReportResponse(null);
+      setStepStatus((previous) => ({
+        ...previous,
+        plan: "pending",
+        baselines: "pending",
+        vqc: "pending",
+        report: "pending",
+      }));
+      return;
+    }
+
+    if (step === "baselines") {
+      setBaselinesResponse(null);
+      setVqcResponse(null);
+      setReportResponse(null);
+      setStepStatus((previous) => ({
+        ...previous,
+        baselines: "pending",
+        vqc: "pending",
+        report: "pending",
+      }));
+      return;
+    }
+
+    if (step === "vqc") {
+      setVqcResponse(null);
+      setReportResponse(null);
+      setStepStatus((previous) => ({
+        ...previous,
+        vqc: "pending",
+        report: "pending",
+      }));
+      return;
+    }
+
+    setReportResponse(null);
+    setStepStatus((previous) => ({
+      ...previous,
+      report: "pending",
+    }));
+  }
 
   const effectiveSettings = useMemo<JsonRecord | undefined>(() => {
     const candidates = [
@@ -443,8 +521,8 @@ export default function VqcClassifierPage() {
         baselinesResponse,
         vqcResponse,
         reportResponse,
-      ].reduce((collected, response) => mergeWarnings(collected, extractWarnings(response)), warnings),
-    [inspectResponse, prepareResponse, planResponse, baselinesResponse, vqcResponse, reportResponse, warnings],
+      ].reduce((collected, response) => mergeWarnings(collected, extractWarnings(response)), [] as string[]),
+    [inspectResponse, prepareResponse, planResponse, baselinesResponse, vqcResponse, reportResponse],
   );
 
   async function runStep<T>(
@@ -462,7 +540,6 @@ export default function VqcClassifierPage() {
       if (step) {
         setStepStatus((previous) => ({ ...previous, [step]: "done" }));
       }
-      setWarnings((previous) => mergeWarnings(previous, extractWarnings(response)));
       onSuccess?.(response);
       setCurrentStage(`${label} complete`);
     } catch (error) {
@@ -470,7 +547,6 @@ export default function VqcClassifierPage() {
       if (step) {
         setStepStatus((previous) => ({ ...previous, [step]: "error" }));
       }
-      setWarnings((previous) => mergeWarnings(previous, [message]));
       setLastError(message);
       setCurrentStage(`${label} failed`);
     } finally {
@@ -490,6 +566,7 @@ export default function VqcClassifierPage() {
       return;
     }
 
+    resetPipelineFrom("inspect");
     const formData = new FormData();
     formData.append("file", workbookFile);
 
@@ -504,6 +581,7 @@ export default function VqcClassifierPage() {
       return;
     }
 
+    resetPipelineFrom("prepare");
     const formData = new FormData();
     formData.append("workbook", workbookFile);
     if (datasetFile) {
@@ -524,6 +602,7 @@ export default function VqcClassifierPage() {
       return;
     }
 
+    resetPipelineFrom("plan");
     const formData = new FormData();
     formData.append("workbook", workbookFile);
     if (jobId) {
@@ -544,6 +623,7 @@ export default function VqcClassifierPage() {
       return;
     }
 
+    resetPipelineFrom("baselines");
     const formData = new FormData();
     formData.append("job_id", jobId.trim());
     if (workbookFile) {
@@ -561,6 +641,7 @@ export default function VqcClassifierPage() {
       return;
     }
 
+    resetPipelineFrom("vqc");
     const formData = new FormData();
     formData.append("job_id", jobId.trim());
     if (workbookFile) {
@@ -578,6 +659,7 @@ export default function VqcClassifierPage() {
       return;
     }
 
+    resetPipelineFrom("report");
     const formData = new FormData();
     formData.append("job_id", jobId.trim());
     if (workbookFile) {
