@@ -210,8 +210,6 @@ interface JobListResponse extends BaseApiResponse {
   }>;
 }
 
-type JobListEntry = NonNullable<JobListResponse["jobs"]>[number];
-
 const INITIAL_STEPS: Record<PipelineStepKey, PipelineStepStatus> = {
   inspect: "pending",
   prepare: "pending",
@@ -1638,10 +1636,10 @@ export default function VqcClassifierPage() {
   const currentVqcLimits = asRecord(license?.vqc_limits) ?? null;
   const prepareArtifacts = prepareResponse?.artifact_paths;
   const reportArtifacts = reportResponse?.artifact_paths;
-  const backlogJobs = jobListResponse?.jobs ?? [];
   const reconnectCandidate = useMemo(() => {
+    const jobs = jobListResponse?.jobs ?? [];
     return (
-      backlogJobs.find((job) => {
+      jobs.find((job) => {
         const status = (job.job_status ?? "").toLowerCase();
         return (
           job.job_id &&
@@ -1651,7 +1649,7 @@ export default function VqcClassifierPage() {
         );
       }) ?? null
     );
-  }, [backlogJobs, dismissedReconnectJobId, jobId]);
+  }, [dismissedReconnectJobId, jobId, jobListResponse?.jobs]);
   const currentDatasetSettings = asRecord(currentEffectiveSettings?.dataset);
   const currentStatusMessage = jobStatus?.message ?? "Ready for the next step.";
   const currentElapsedRuntime = asFiniteNumber(currentRuntimeTracking?.elapsed_seconds);
