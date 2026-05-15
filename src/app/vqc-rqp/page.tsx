@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_VQC_API_BASE?.trim() ||
@@ -282,20 +282,6 @@ function formatPercent(value: unknown): string {
     return formatValue(value);
   }
   return `${(value * 100).toFixed(0)}%`;
-}
-
-function formatBytes(value: unknown): string {
-  const size = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(size) || size < 0) {
-    return formatValue(value);
-  }
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function formatIsoTimestamp(value: unknown): string {
@@ -1071,7 +1057,7 @@ export default function VqcClassifierPage() {
   const [jobLogResponse, setJobLogResponse] = useState<JobLogResponse | null>(null);
   const [jobListResponse, setJobListResponse] = useState<JobListResponse | null>(null);
 
-  function pushClientLog(level: LogLevel, message: string, stage?: PipelineStepKey | string | null) {
+  const pushClientLog = useCallback((level: LogLevel, message: string, stage?: PipelineStepKey | string | null) => {
     setClientLogEntries((entries) => [
       {
         id: `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1083,7 +1069,7 @@ export default function VqcClassifierPage() {
       },
       ...entries,
     ]);
-  }
+  }, []);
 
   function resetForWorkbookChange() {
     setPrepareResponse(null);
@@ -1119,17 +1105,17 @@ export default function VqcClassifierPage() {
     }));
   }
 
-  function applySettingsToOverrides(settings: JsonRecord | null) {
+  const applySettingsToOverrides = useCallback((settings: JsonRecord | null) => {
     setParameterOverrides(hydrateOverridesFromSettings(settings));
     setParameterOverridesDirty(false);
-  }
+  }, []);
 
   function updateOverride<K extends keyof ParameterOverridesState>(key: K, value: ParameterOverridesState[K]) {
     setParameterOverrides((previous) => ({ ...previous, [key]: value }));
     setParameterOverridesDirty(true);
   }
 
-  function syncResultSummaries(status: JobStatusResponse) {
+  const syncResultSummaries = useCallback((status: JobStatusResponse) => {
     const summaries = asRecord(status.result_summaries) ?? {};
     const effectiveSettings = asRecord(status.effective_settings) ?? {};
     const commonPayload = {
@@ -1178,18 +1164,18 @@ export default function VqcClassifierPage() {
         ...reportSummary,
       }));
     }
-  }
+  }, []);
 
-  async function refreshRecentJobs() {
+  const refreshRecentJobs = useCallback(async () => {
     try {
       const response = await getJson<JobListResponse>(`${ENDPOINTS.jobs}?limit=8`, apiKey);
       setJobListResponse(response);
     } catch {
       // keep the page quiet if recent job polling fails
     }
-  }
+  }, [apiKey]);
 
-  async function checkBackend() {
+  const checkBackend = useCallback(async () => {
     setActiveRequest("Checking backend");
     setLastError(null);
     try {
@@ -1204,7 +1190,7 @@ export default function VqcClassifierPage() {
     } finally {
       setActiveRequest(null);
     }
-  }
+  }, [apiKey, pushClientLog]);
 
   async function checkLicense() {
     setActiveRequest("Checking access");
@@ -1275,7 +1261,7 @@ export default function VqcClassifierPage() {
     }
   }
 
-  async function runPlan(targetJobId: string, workbookOverride?: File | null) {
+  const runPlan = useCallback(async (targetJobId: string, workbookOverride?: File | null) => {
     if (!targetJobId) {
       return null;
     }
@@ -1305,7 +1291,7 @@ export default function VqcClassifierPage() {
       pushClientLog("error", `Run planning failed: ${message}`, "plan");
       return null;
     }
-  }
+  }, [apiKey, parameterOverrides, parameterOverridesDirty, pushClientLog, workbookFile]);
 
   async function prepareData(options?: {
     workbookOverride?: File | null;
@@ -1366,7 +1352,7 @@ export default function VqcClassifierPage() {
     }
   }
 
-  async function refreshJobState(targetJobId: string, silent = true) {
+  const refreshJobState = useCallback(async (targetJobId: string, silent = true) => {
     try {
       const [statusResponse, logResponse] = await Promise.all([
         getJson<JobStatusResponse>(`${ENDPOINTS.jobs}/${encodeURIComponent(targetJobId)}`, apiKey),
@@ -1407,7 +1393,7 @@ export default function VqcClassifierPage() {
         pushClientLog("error", `Could not refresh job ${targetJobId}: ${message}`);
       }
     }
-  }
+  }, [apiKey, applySettingsToOverrides, parameterOverridesDirty, pushClientLog, refreshRecentJobs, syncResultSummaries]);
 
   async function executeRun() {
     let ensuredJobId = jobId.trim();
@@ -1513,7 +1499,7 @@ export default function VqcClassifierPage() {
   useEffect(() => {
     void checkBackend();
     void refreshRecentJobs();
-  }, []);
+  }, [checkBackend, refreshRecentJobs]);
 
   const isJobActive = useMemo(() => {
     const status = (jobStatus?.job_status ?? executeResponse?.job_status ?? "").toLowerCase();
@@ -1528,14 +1514,14 @@ export default function VqcClassifierPage() {
       void refreshJobState(jobId, true);
     }, 3000);
     return () => window.clearInterval(interval);
-  }, [isJobActive, jobId]);
+  }, [isJobActive, jobId, refreshJobState]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
       void refreshRecentJobs();
     }, 15000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [refreshRecentJobs]);
 
   useEffect(() => {
     if (!jobId || !workbookFile || stepStatus.prepare !== "done" || !parameterOverridesDirty) {
@@ -1545,7 +1531,7 @@ export default function VqcClassifierPage() {
       void runPlan(jobId);
     }, 450);
     return () => window.clearTimeout(timeout);
-  }, [jobId, parameterOverrides, parameterOverridesDirty, stepStatus.prepare, workbookFile]);
+  }, [jobId, parameterOverrides, parameterOverridesDirty, runPlan, stepStatus.prepare, workbookFile]);
 
   const currentEffectiveSettings = useMemo(() => {
     return (
