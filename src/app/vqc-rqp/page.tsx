@@ -140,6 +140,7 @@ interface RunBaselinesResponse extends BaseApiResponse {
   classification_mode?: string;
   number_of_classes?: number;
   baseline_metrics?: JsonRecord;
+  benchmark_method_specs?: JsonRecord;
   model_comparison?: MetricTableRow[];
   runtime_summary?: JsonRecord;
 }
@@ -611,11 +612,13 @@ function Card({
   title,
   subtitle,
   accent = false,
+  className = "",
   children,
 }: {
   title: string;
   subtitle?: string;
   accent?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
@@ -623,6 +626,7 @@ function Card({
       className={[
         "rounded-2xl border p-5 shadow-sm",
         accent ? "border-cyan-900/70 bg-slate-950/80" : "border-slate-800 bg-slate-900/70",
+        className,
       ].join(" ")}
     >
       <div className="mb-4">
@@ -632,6 +636,40 @@ function Card({
       {children}
     </section>
   );
+}
+
+function benchmarkModeLabel(mode: unknown): string {
+  return String(mode ?? "").trim().toLowerCase() === "best_reference" ? "Best Reference" : "Strict Parity";
+}
+
+function benchmarkModeDescription(mode: unknown): string {
+  return String(mode ?? "").trim().toLowerCase() === "best_reference"
+    ? "Stronger practical classical reference using the selected pre-quantum feature matrix and a larger row budget."
+    : "Matched fairness mode using the same reduced feature matrix and VQC-style row budget.";
+}
+
+function sortBenchmarkMethodEntries(entries: Array<[string, JsonRecord]>): Array<[string, JsonRecord]> {
+  const modeOrder = { parity: 0, best_reference: 1 } as const;
+  const modelOrder = { logistic_regression: 0, random_forest: 1, gradient_boosting: 2 } as const;
+  return [...entries].sort((a, b) => {
+    const aRecord = a[1];
+    const bRecord = b[1];
+    const aMode = typeof aRecord.mode === "string" ? aRecord.mode : "";
+    const bMode = typeof bRecord.mode === "string" ? bRecord.mode : "";
+    const aBase = typeof aRecord.base_model === "string" ? aRecord.base_model : "";
+    const bBase = typeof bRecord.base_model === "string" ? bRecord.base_model : "";
+    const aModeRank = aMode in modeOrder ? modeOrder[aMode as keyof typeof modeOrder] : 99;
+    const bModeRank = bMode in modeOrder ? modeOrder[bMode as keyof typeof modeOrder] : 99;
+    if (aModeRank !== bModeRank) {
+      return aModeRank - bModeRank;
+    }
+    const aModelRank = aBase in modelOrder ? modelOrder[aBase as keyof typeof modelOrder] : 99;
+    const bModelRank = bBase in modelOrder ? modelOrder[bBase as keyof typeof modelOrder] : 99;
+    if (aModelRank !== bModelRank) {
+      return aModelRank - bModelRank;
+    }
+    return a[0].localeCompare(b[0]);
+  });
 }
 
 function InfoGrid({ items }: { items: Array<{ label: string; value: unknown }> }) {
@@ -715,21 +753,6 @@ function GenericTable({ rows }: { rows: MetricTableRow[] }) {
           ))}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function ArtifactSummaryList({ artifacts }: { artifacts?: ArtifactPathMap }) {
-  if (!artifacts || !Object.keys(artifacts).length) {
-    return <p className="text-sm text-slate-500">No generated outputs available yet.</p>;
-  }
-  return (
-    <div className="flex flex-wrap gap-2">
-      {Object.keys(artifacts).map((name) => (
-        <span key={name} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-200">
-          {formatLabel(name)}
-        </span>
-      ))}
     </div>
   );
 }
@@ -880,6 +903,50 @@ function ConfusionMatrixTable({ title, matrix }: { title: string; matrix: unknow
     <div className="space-y-3">
       <p className="text-sm font-medium text-slate-200">{title}</p>
       <GenericTable rows={rows} />
+    </div>
+  );
+}
+
+function ConfusionMatrixHeatmap({ title, matrix }: { title: string; matrix: unknown }) {
+  if (!Array.isArray(matrix) || !matrix.length || !matrix.every((row) => Array.isArray(row))) {
+    return null;
+  }
+  const numericMatrix = matrix.map((row) =>
+    (row as unknown[]).map((value) => (typeof value === "number" && Number.isFinite(value) ? value : Number(value))),
+  );
+  const maxValue = Math.max(
+    1,
+    ...numericMatrix.flat().filter((value) => Number.isFinite(value)),
+  );
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-slate-200">{title}</p>
+      <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${numericMatrix[0]?.length ?? 0}, minmax(54px, 1fr))` }}
+        >
+          {numericMatrix.flatMap((row, rowIndex) =>
+            row.map((cell, columnIndex) => {
+              const intensity = Math.max(0, Math.min(1, cell / maxValue));
+              const background = `rgba(34, 211, 238, ${0.12 + intensity * 0.55})`;
+              return (
+                <div
+                  key={`${title}-${rowIndex}-${columnIndex}`}
+                  className="rounded-lg border border-slate-800 px-2 py-3 text-center"
+                  style={{ background }}
+                >
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                    A{rowIndex} / P{columnIndex}
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-slate-100">{formatValue(cell)}</div>
+                </div>
+              );
+            }),
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1045,6 +1112,86 @@ function BaselineComparisonPreviewPanel({ preview }: { preview: JsonRecord | nul
   );
 }
 
+function BenchmarkMethodCatalogPanel({ specs }: { specs: JsonRecord | null }) {
+  if (!specs) {
+    return <p className="text-sm text-slate-500">Benchmark method details appear after the classical stage finishes.</p>;
+  }
+
+  const entries = sortBenchmarkMethodEntries(
+    Object.entries(specs).filter((entry): entry is [string, JsonRecord] => isRecord(entry[1])),
+  );
+
+  if (!entries.length) {
+    return <p className="text-sm text-slate-500">No benchmark method details available yet.</p>;
+  }
+
+  const parityEntries = entries.filter(([, spec]) => String(spec.mode ?? "").toLowerCase() === "parity");
+  const referenceEntries = entries.filter(([, spec]) => String(spec.mode ?? "").toLowerCase() === "best_reference");
+
+  function renderGroup(title: string, entriesForGroup: Array<[string, JsonRecord]>) {
+    if (!entriesForGroup.length) {
+      return null;
+    }
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-medium text-slate-200">{title}</p>
+          <p className="mt-1 text-xs text-slate-400">{benchmarkModeDescription(entriesForGroup[0][1].mode)}</p>
+        </div>
+        <div className="grid gap-4 xl:grid-cols-3">
+          {entriesForGroup.map(([methodName, spec]) => (
+            <div key={methodName} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+              <p className="text-sm font-medium text-slate-100">{formatLabel(methodName)}</p>
+              <p className="mt-1 text-xs text-slate-400">{formatValue(spec.description)}</p>
+              <div className="mt-4 space-y-2 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Base model</span>
+                  <span className="max-w-[60%] text-right text-slate-100">{formatValue(spec.base_model)}</span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Mode</span>
+                  <span className="max-w-[60%] text-right text-slate-100">{benchmarkModeLabel(spec.mode)}</span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Rows used</span>
+                  <span className="max-w-[60%] text-right text-slate-100">{formatValue(spec.train_rows_used)}</span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Features used</span>
+                  <span className="max-w-[60%] text-right text-slate-100">{formatValue(spec.feature_count_used)}</span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Feature space</span>
+                  <span className="max-w-[60%] text-right text-slate-100">{formatValue(spec.feature_space)}</span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Scaling</span>
+                  <span className="max-w-[60%] text-right text-slate-100">{formatValue(spec.scaler_strategy)}</span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-slate-400">Class weighting</span>
+                  <span className="max-w-[60%] text-right text-slate-100">{formatValue(spec.class_weight_mode)}</span>
+                </div>
+              </div>
+              <div className="mt-4">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Limitations</p>
+                <TagList values={toStringArray(spec.limitations)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {renderGroup("Strict Parity Benchmarks", parityEntries)}
+      {renderGroup("Best Reference Benchmarks", referenceEntries)}
+    </div>
+  );
+}
+
 function RunSummaryPanel({ summary }: { summary: JsonRecord | null }) {
   if (!summary) {
     return <p className="text-sm text-slate-500">Run summary becomes available after report generation.</p>;
@@ -1073,14 +1220,9 @@ function RunSummaryPanel({ summary }: { summary: JsonRecord | null }) {
           { label: "VQC complete", value: summary.vqc_complete },
         ]}
       />
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card title="Main Warnings">
-          <TagList values={toStringArray(summary.main_warnings)} />
-        </Card>
-        <Card title="Report Artifacts">
-          <TagList values={toStringArray(summary.artifact_list)} />
-        </Card>
-      </div>
+      <Card title="Main Warnings">
+        <TagList values={toStringArray(summary.main_warnings)} />
+      </Card>
     </div>
   );
 }
@@ -1506,16 +1648,18 @@ export default function VqcClassifierPage() {
     }
   }
 
-  async function cancelJob() {
-    if (!jobId.trim()) {
+  async function cancelJob(targetJobId?: string) {
+    const resolvedJobId = (targetJobId ?? jobId).trim();
+    if (!resolvedJobId) {
       return;
     }
     setActiveRequest("Requesting cancel");
     setLastError(null);
     try {
-      await postEmpty(`${ENDPOINTS.jobs}/${encodeURIComponent(jobId.trim())}/cancel`, apiKey);
-      pushClientLog("warning", `Cancellation requested for ${jobId.trim()}.`, "vqc");
-      await refreshJobState(jobId.trim(), false);
+      await postEmpty(`${ENDPOINTS.jobs}/${encodeURIComponent(resolvedJobId)}/cancel`, apiKey);
+      setJobId(resolvedJobId);
+      pushClientLog("warning", `Cancellation requested for ${resolvedJobId}.`, "vqc");
+      await refreshJobState(resolvedJobId, false);
       setActiveRequest(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cancel request failed.";
@@ -1608,6 +1752,7 @@ export default function VqcClassifierPage() {
     const status = (jobStatus?.job_status ?? executeResponse?.job_status ?? "").toLowerCase();
     return status === "queued" || status === "running";
   }, [executeResponse?.job_status, jobStatus?.job_status]);
+  const isCancelRequested = Boolean(jobStatus?.cancel_requested);
 
   useEffect(() => {
     if (!jobId || !isJobActive) {
@@ -1738,7 +1883,19 @@ export default function VqcClassifierPage() {
     const allowed = asStringArray(license?.allowed_worker_profiles);
     return allowed.length ? allowed : ["small", "medium", "large"];
   }, [license?.allowed_worker_profiles]);
-  const reportArtifacts = reportResponse?.artifact_paths;
+  const currentBenchmarkMethodSpecs = useMemo(
+    () => asRecord(baselinesResponse?.benchmark_method_specs),
+    [baselinesResponse?.benchmark_method_specs],
+  );
+  const sortedBaselineMetricEntries = useMemo(
+    () =>
+      sortBenchmarkMethodEntries(
+        Object.entries(asRecord(baselinesResponse?.baseline_metrics) ?? {}).filter(
+          (entry): entry is [string, JsonRecord] => isRecord(entry[1]),
+        ),
+      ),
+    [baselinesResponse?.baseline_metrics],
+  );
   const reconnectCandidate = useMemo(() => {
     const jobs = jobListResponse?.jobs ?? [];
     return (
@@ -1754,7 +1911,9 @@ export default function VqcClassifierPage() {
     );
   }, [dismissedReconnectJobId, jobId, jobListResponse?.jobs]);
   const currentDatasetSettings = asRecord(currentEffectiveSettings?.dataset);
-  const currentStatusMessage = jobStatus?.message ?? "Ready for the next step.";
+  const currentStatusMessage = isCancelRequested
+    ? "Cancellation requested. Waiting for the backend to stop the active run at the next safe checkpoint."
+    : (jobStatus?.message ?? "Ready for the next step.");
   const currentElapsedRuntime = asFiniteNumber(currentRuntimeTracking?.elapsed_seconds);
   const currentRemainingRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_remaining_seconds);
   const currentEstimatedTotalRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_total_seconds);
@@ -1782,11 +1941,15 @@ export default function VqcClassifierPage() {
         ? "Public demo access is active. Heavier VQC settings may be capped."
         : "Check access to load the VQC limits for this key.";
   const runtimeFeedback =
-    currentJobStatus === "running" && currentElapsedRuntime !== null
+    isCancelRequested
+      ? `Cancellation requested while ${formatLabel(currentJobStatus)}. The active stage will stop as soon as the backend reaches a safe cancellation checkpoint.`
+      : currentJobStatus === "running" && currentElapsedRuntime !== null
       ? `Elapsed ${formatDurationSeconds(currentElapsedRuntime)}${currentRemainingRuntime !== null ? ` · est. remaining ${formatDurationSeconds(currentRemainingRuntime)}` : ""}${currentEstimatedTotalRuntime !== null ? ` · est. total ${formatDurationSeconds(currentEstimatedTotalRuntime)}` : ""}`
       : plannedTotalMinutes !== null
         ? `Planned nominal runtime ${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min (${formatLabel(plannedRuntimeClass ?? "unknown")})${maxLicenseRuntimeMinutes !== null ? ` · access cap ${maxLicenseRuntimeMinutes} min` : ""}${recommendedWorkerProfile ? ` · recommended worker ${formatLabel(recommendedWorkerProfile)}` : ""}.`
         : "Load data and plan the run to get a backend runtime estimate.";
+  const reportComparisonRows = Array.isArray(reportResponse?.model_comparison) ? reportResponse.model_comparison : [];
+  const baselineComparisonRows = Array.isArray(baselinesResponse?.model_comparison) ? baselinesResponse.model_comparison : [];
 
   useEffect(() => {
     if (!currentAllowedWorkerProfiles.length) {
@@ -1857,6 +2020,7 @@ export default function VqcClassifierPage() {
                 { label: "Current job", value: jobId || "Waiting for prepared data" },
                 { label: "Current stage", value: currentStageLabel },
                 { label: "Job status", value: currentJobStatus },
+                { label: "Cancel requested", value: isCancelRequested },
                 { label: "Runtime class", value: plannedRuntimeClass },
                 { label: "Worker profile", value: selectedWorkerProfile },
                 { label: "Elapsed", value: currentElapsedRuntime !== null ? formatDurationSeconds(currentElapsedRuntime) : "-" },
@@ -2035,6 +2199,14 @@ export default function VqcClassifierPage() {
                       className="flex-1 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Reconnect
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => reconnectCandidate.job_id && void cancelJob(reconnectCandidate.job_id)}
+                      disabled={activeRequest !== null || !reconnectCandidate.job_id}
+                      className="rounded-xl border border-amber-800/70 bg-amber-950/40 px-4 py-3 text-sm text-amber-200 transition hover:bg-amber-950/60 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Cancel run job
                     </button>
                     <button
                       type="button"
@@ -2309,10 +2481,10 @@ export default function VqcClassifierPage() {
                 <button
                   type="button"
                   onClick={() => void cancelJob()}
-                  disabled={activeRequest !== null || !isJobActive || !jobId.trim()}
+                  disabled={activeRequest !== null || !isJobActive || !jobId.trim() || isCancelRequested}
                   className="w-full rounded-xl border border-amber-800/70 bg-amber-950/40 px-4 py-3 text-sm font-medium text-amber-200 transition hover:bg-amber-950/60 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Cancel job
+                  {isCancelRequested ? "Cancel requested" : "Cancel run job"}
                 </button>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
                   <p>
@@ -2327,7 +2499,7 @@ export default function VqcClassifierPage() {
           </aside>
 
           <section className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-2">
+            <div className="space-y-6">
               <Card
                 title="Client Log"
                 subtitle="Lean operator-side events from the browser workflow. This is the same kind of quick-read console rhythm the QAOA page uses."
@@ -2349,7 +2521,7 @@ export default function VqcClassifierPage() {
               </Card>
             </div>
 
-            <div className="grid gap-6 2xl:grid-cols-2">
+            <div className="grid gap-6 xl:grid-cols-2">
               <Card
                 title="Configuration Summary"
                 subtitle="The current dataset, task framing, and effective model settings flowing through the backend."
@@ -2491,14 +2663,25 @@ export default function VqcClassifierPage() {
               <Card
                 title="Baseline Results"
                 subtitle="Mandatory classical baselines now arrive through the async pipeline and remain the reference frame for any VQC claim."
+                className="xl:col-span-2"
               >
                 <div className="space-y-5">
-                  {Array.isArray(baselinesResponse?.model_comparison) && baselinesResponse?.model_comparison.length ? (
+                  <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950/30 p-4">
+                    <div>
+                      <p className="text-sm font-medium text-slate-100">Benchmark methods</p>
+                      <p className="mt-1 text-sm text-slate-400">
+                        Each classical method is reported twice: once in strict parity mode against the VQC feature and row budget, and once as a stronger practical classical reference.
+                      </p>
+                    </div>
+                    <BenchmarkMethodCatalogPanel specs={currentBenchmarkMethodSpecs} />
+                  </div>
+
+                  {baselineComparisonRows.length ? (
                     <div className="space-y-4">
-                      <p className="text-sm font-medium text-slate-200">Model comparison</p>
-                      <GenericTable rows={baselinesResponse.model_comparison} />
+                      <p className="text-sm font-medium text-slate-200">Six-method classical comparison</p>
+                      <GenericTable rows={baselineComparisonRows} />
                       <ComparisonBarChart
-                        rows={baselinesResponse.model_comparison}
+                        rows={baselineComparisonRows}
                         preferredMetricKeys={["f1_macro", "accuracy", "f1_weighted", "roc_auc_ovr", "roc_auc", "pr_auc"]}
                       />
                     </div>
@@ -2506,16 +2689,40 @@ export default function VqcClassifierPage() {
                     <p className="text-sm text-slate-500">Baseline comparison will appear after the async baseline stage completes.</p>
                   )}
 
-                  {Object.entries(asRecord(baselinesResponse?.baseline_metrics) ?? {}).map(([modelName, rawBundle]) => {
-                    const bundle = asRecord(rawBundle);
+                  {isRecord(asRecord(baselinesResponse?.runtime_summary)?.models) ? (
+                    <div className="space-y-4">
+                      <p className="text-sm font-medium text-slate-200">Runtime comparison</p>
+                      <GenericTable
+                        rows={Object.entries(asRecord(asRecord(baselinesResponse?.runtime_summary)?.models) ?? {}).map(([modelName, rawValue]) => {
+                          const runtime = asRecord(rawValue);
+                          return {
+                            method: formatLabel(modelName),
+                            base_model: runtime?.base_model ? formatLabel(String(runtime.base_model)) : "-",
+                            benchmark_mode: runtime?.mode ? benchmarkModeLabel(runtime.mode) : "-",
+                            fit_seconds: asTableCellValue(runtime?.fit_seconds),
+                            status: asTableCellValue(runtime?.status ?? "ok"),
+                          };
+                        })}
+                      />
+                    </div>
+                  ) : null}
+
+                  {sortedBaselineMetricEntries.map(([modelName, bundle]) => {
                     const validationMetrics = asRecord(bundle?.validation);
                     const testMetrics = asRecord(bundle?.test);
                     return (
                       <div key={modelName} className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                        <p className="text-sm font-medium text-slate-100">{formatLabel(modelName)}</p>
-                        <div className="grid gap-4 xl:grid-cols-2">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm font-medium text-slate-100">{formatLabel(modelName)}</p>
+                          <p className="text-xs text-slate-400">
+                            {benchmarkModeLabel(bundle?.mode)} · {formatValue(bundle?.feature_space)} · {formatValue(bundle?.train_rows_used)} rows
+                          </p>
+                        </div>
+                        <div className="grid gap-4 2xl:grid-cols-2">
                           <MetricSummaryTable title="Validation metrics" metrics={validationMetrics} />
                           <MetricSummaryTable title="Test metrics" metrics={testMetrics} />
+                          <ConfusionMatrixHeatmap title="Validation confusion heatmap" matrix={validationMetrics?.confusion_matrix} />
+                          <ConfusionMatrixHeatmap title="Test confusion heatmap" matrix={testMetrics?.confusion_matrix} />
                           <ConfusionMatrixTable title="Validation confusion matrix" matrix={validationMetrics?.confusion_matrix} />
                           <ConfusionMatrixTable title="Test confusion matrix" matrix={testMetrics?.confusion_matrix} />
                         </div>
@@ -2528,11 +2735,14 @@ export default function VqcClassifierPage() {
               <Card
                 title="VQC Results"
                 subtitle="Validation and test metrics, circuit summary, training trace summary, and the baseline comparison preview all come together here."
+                className="xl:col-span-2"
               >
                 <div className="space-y-5">
-                  <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="grid gap-4 2xl:grid-cols-2">
                     <MetricSummaryTable title="Validation metrics" metrics={asRecord(vqcResponse?.validation_metrics)} />
                     <MetricSummaryTable title="Test metrics" metrics={asRecord(vqcResponse?.test_metrics)} />
+                    <ConfusionMatrixHeatmap title="Validation confusion heatmap" matrix={asRecord(vqcResponse?.validation_metrics)?.confusion_matrix} />
+                    <ConfusionMatrixHeatmap title="Test confusion heatmap" matrix={asRecord(vqcResponse?.test_metrics)?.confusion_matrix} />
                     <ConfusionMatrixTable title="Validation confusion matrix" matrix={asRecord(vqcResponse?.validation_metrics)?.confusion_matrix} />
                     <ConfusionMatrixTable title="Test confusion matrix" matrix={asRecord(vqcResponse?.test_metrics)?.confusion_matrix} />
                   </div>
@@ -2574,7 +2784,8 @@ export default function VqcClassifierPage() {
 
               <Card
                 title="Final Report"
-                subtitle="Reporting stays local for now. We surface the run summary, final model comparison, and the generated outputs without flooding the page with internal storage paths."
+                subtitle="Reporting stays local for now. We surface the run summary and final seven-method comparison without flooding the page with internal storage paths."
+                className="xl:col-span-2"
               >
                 <div className="space-y-5">
                   <InfoGrid
@@ -2586,20 +2797,16 @@ export default function VqcClassifierPage() {
                     ]}
                   />
                   <RunSummaryPanel summary={currentRunSummary} />
-                  {Array.isArray(reportResponse?.model_comparison) && reportResponse?.model_comparison.length ? (
+                  {reportComparisonRows.length ? (
                     <div className="space-y-4">
-                      <p className="text-sm font-medium text-slate-200">Final model comparison</p>
-                      <GenericTable rows={reportResponse.model_comparison} />
+                      <p className="text-sm font-medium text-slate-200">Final seven-method comparison</p>
+                      <GenericTable rows={reportComparisonRows} />
                       <ComparisonBarChart
-                        rows={reportResponse.model_comparison}
+                        rows={reportComparisonRows}
                         preferredMetricKeys={["f1_macro", "accuracy", "f1_weighted", "roc_auc_ovr", "roc_auc", "pr_auc"]}
                       />
                     </div>
                   ) : null}
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium text-slate-200">Generated outputs</p>
-                    <ArtifactSummaryList artifacts={reportArtifacts} />
-                  </div>
                 </div>
               </Card>
             </div>
