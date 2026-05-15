@@ -1719,25 +1719,6 @@ export default function VqcClassifierPage() {
     [jobLogResponse?.log_entries],
   );
 
-  const backendWorkbookSnapshot = useMemo(() => {
-    return (
-      asRecord(jobStatus?.workbook_metadata) ??
-      asRecord(reportResponse?.workbook_metadata) ??
-      asRecord(vqcResponse?.workbook_metadata) ??
-      asRecord(planResponse?.workbook_metadata) ??
-      asRecord(prepareResponse?.workbook_metadata) ??
-      asRecord(inspectResponse?.workbook_metadata) ??
-      null
-    );
-  }, [
-    inspectResponse?.workbook_metadata,
-    jobStatus?.workbook_metadata,
-    planResponse?.workbook_metadata,
-    prepareResponse?.workbook_metadata,
-    reportResponse?.workbook_metadata,
-    vqcResponse?.workbook_metadata,
-  ]);
-
   const currentPlanSummary = useMemo(() => asRecord(asRecord(jobStatus?.result_summaries)?.plan), [jobStatus?.result_summaries]);
   const currentRuntimeEstimate = asRecord(planResponse?.runtime_estimate) ?? asRecord(currentPlanSummary?.runtime_estimate);
   const currentMemoryEstimate = asRecord(planResponse?.memory_estimate) ?? asRecord(currentPlanSummary?.memory_estimate);
