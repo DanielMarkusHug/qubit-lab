@@ -49,12 +49,16 @@ interface LicenseStatusResponse {
   status: string;
   usage_level: string;
   display_name: string;
+  authenticated?: boolean;
+  usage_level_id?: number;
   valid_for?: string[];
   key_id?: string | null;
   name?: string | null;
   organization?: string | null;
   expires_at?: string | null;
   remaining_runs?: string | number | null;
+  allowed_modes?: string[];
+  allowed_worker_profiles?: string[];
   features?: string[];
 }
 
@@ -437,6 +441,12 @@ async function parseResponseJson(response: Response): Promise<unknown> {
 
 function extractErrorMessage(payload: unknown): string {
   if (isRecord(payload)) {
+    if (isRecord(payload.error)) {
+      const nestedMessage = payload.error.message;
+      if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+        return nestedMessage;
+      }
+    }
     if (typeof payload.message === "string" && payload.message.trim()) {
       return payload.message;
     }
@@ -1586,7 +1596,7 @@ export default function VqcClassifierPage() {
     vqcResponse,
   ]);
 
-  const hasAccess = license?.status === "active";
+  const hasAccess = license?.status === "active" || license?.status === "public";
   const clientLogLines = useMemo(
     () =>
       clientLogEntries.slice(0, 120).map((entry) => ({
