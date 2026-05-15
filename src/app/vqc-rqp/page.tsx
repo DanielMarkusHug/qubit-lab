@@ -29,6 +29,8 @@ type MetricTableRow = Record<string, TableCellValue>;
 type OptimizerOption = "adam" | "cobyla" | "spsa";
 type FeatureMapOption = "angle" | "zz_like" | "iqp" | "amplitude" | "basis";
 type AnsatzOption = "hardware_efficient" | "custom_rx_ry_cz" | "strongly_entangling" | "real_amplitudes_like" | "basic_entangler";
+type WorkerProfileOption = "small" | "medium" | "large";
+type SimulatorBackendOption = "pennylane_default_qubit" | "pennylane_lightning";
 
 interface ClientLogEntry {
   id: string;
@@ -69,6 +71,8 @@ interface ParameterOverridesState {
   ansatzType: AnsatzOption;
   ansatzReps: number;
   nQubits: number;
+  backend: SimulatorBackendOption;
+  workerProfile: WorkerProfileOption;
   iterations: number;
   learningRate: number;
   repeats: number;
@@ -507,6 +511,23 @@ async function postEmpty<T>(endpoint: string, apiKey = ""): Promise<T> {
   return payload as T;
 }
 
+function normalizeWorkerProfile(value: unknown): WorkerProfileOption {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "medium" || normalized === "standard") {
+    return "medium";
+  }
+  if (normalized === "large" || normalized === "power") {
+    return "large";
+  }
+  return "small";
+}
+
+function normalizeSimulatorBackend(value: unknown): SimulatorBackendOption {
+  return String(value ?? "").trim().toLowerCase() === "pennylane_lightning"
+    ? "pennylane_lightning"
+    : "pennylane_default_qubit";
+}
+
 function defaultParameterOverrides(): ParameterOverridesState {
   return {
     featureMapType: "angle",
@@ -514,6 +535,8 @@ function defaultParameterOverrides(): ParameterOverridesState {
     ansatzType: "hardware_efficient",
     ansatzReps: 1,
     nQubits: 4,
+    backend: "pennylane_default_qubit",
+    workerProfile: "small",
     iterations: 50,
     learningRate: 0.01,
     repeats: 1,
@@ -534,6 +557,8 @@ function hydrateOverridesFromSettings(settings: JsonRecord | null): ParameterOve
     ansatzType: (typeof model?.ansatz_type === "string" ? model.ansatz_type : defaults.ansatzType) as AnsatzOption,
     ansatzReps: Number(model?.ansatz_reps ?? defaults.ansatzReps),
     nQubits: Number(model?.n_qubits ?? defaults.nQubits),
+    backend: normalizeSimulatorBackend(model?.backend),
+    workerProfile: normalizeWorkerProfile(asRecord(settings?.execution)?.worker_profile),
     iterations: Number(training?.iterations ?? defaults.iterations),
     learningRate: Number(training?.learning_rate ?? defaults.learningRate),
     repeats: Number(training?.repeats ?? defaults.repeats),
@@ -553,6 +578,7 @@ function buildConfigOverridesPayload(overrides: ParameterOverridesState): JsonRe
       ansatz_reps: overrides.ansatzReps,
       n_qubits: overrides.nQubits,
       n_quantum_features: overrides.nQubits,
+      backend: overrides.backend,
     },
     training: {
       optimizer: overrides.optimizer,
@@ -562,6 +588,9 @@ function buildConfigOverridesPayload(overrides: ParameterOverridesState): JsonRe
       batch_size: overrides.batchSize,
       early_stopping: overrides.earlyStopping,
       patience: overrides.patience,
+    },
+    execution: {
+      worker_profile: overrides.workerProfile,
     },
   };
 }
@@ -602,27 +631,6 @@ function Card({
       </div>
       {children}
     </section>
-  );
-}
-
-function StatusBadge({ value }: { value: string | undefined | null }) {
-  const normalized = (value ?? "").toLowerCase();
-  const classes =
-    normalized === "completed" || normalized === "done" || normalized === "ok" || normalized === "active"
-      ? "border-emerald-800/70 bg-emerald-950/50 text-emerald-300"
-      : normalized === "public"
-        ? "border-cyan-800/70 bg-cyan-950/50 text-cyan-300"
-      : normalized === "running" || normalized === "queued"
-        ? "border-cyan-800/70 bg-cyan-950/50 text-cyan-300"
-        : normalized === "failed" || normalized === "error"
-          ? "border-rose-800/70 bg-rose-950/50 text-rose-300"
-          : normalized === "cancelled"
-            ? "border-amber-800/70 bg-amber-950/50 text-amber-300"
-            : "border-slate-700 bg-slate-900 text-slate-300";
-  return (
-    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${classes}`}>
-      {formatLabel(normalized || "idle")}
-    </span>
   );
 }
 
@@ -711,16 +719,124 @@ function GenericTable({ rows }: { rows: MetricTableRow[] }) {
   );
 }
 
-function ArtifactList({ artifacts }: { artifacts?: ArtifactPathMap }) {
+function ArtifactSummaryList({ artifacts }: { artifacts?: ArtifactPathMap }) {
   if (!artifacts || !Object.keys(artifacts).length) {
-    return <p className="text-sm text-slate-500">No artifact paths available yet.</p>;
+    return <p className="text-sm text-slate-500">No generated outputs available yet.</p>;
   }
   return (
-    <div className="space-y-2">
-      {Object.entries(artifacts).map(([name, path]) => (
-        <div key={name} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{formatLabel(name)}</div>
-          <div className="mt-2 break-all font-mono text-xs text-slate-200">{path}</div>
+    <div className="flex flex-wrap gap-2">
+      {Object.keys(artifacts).map((name) => (
+        <span key={name} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-200">
+          {formatLabel(name)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ComparisonBarChart({
+  rows,
+  preferredMetricKeys,
+}: {
+  rows: MetricTableRow[];
+  preferredMetricKeys: string[];
+}) {
+  const metricKey = useMemo(
+    () =>
+      preferredMetricKeys.find((key) =>
+        rows.some((row) => typeof row[key] === "number" && Number.isFinite(row[key] as number)),
+      ) ?? null,
+    [preferredMetricKeys, rows],
+  );
+
+  const chartRows = useMemo(() => {
+    if (!metricKey) {
+      return [];
+    }
+    return rows
+      .map((row) => ({
+        model: formatValue(row.model),
+        value: typeof row[metricKey] === "number" ? (row[metricKey] as number) : null,
+      }))
+      .filter((row) => row.value !== null) as Array<{ model: string; value: number }>;
+  }, [metricKey, rows]);
+
+  if (!metricKey || !chartRows.length) {
+    return <p className="text-sm text-slate-500">No comparison plot available yet.</p>;
+  }
+
+  const maxValue = Math.max(...chartRows.map((row) => row.value), 1);
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-slate-200">Visual comparison · {formatLabel(metricKey)}</p>
+      <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        {chartRows.map((row) => (
+          <div key={row.model} className="space-y-1">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-slate-200">{row.model}</span>
+              <span className="text-slate-400">{formatValue(row.value)}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+              <div className="h-full rounded-full bg-cyan-500" style={{ width: `${(row.value / maxValue) * 100}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ClassDistributionBars({ distribution }: { distribution: JsonRecord | null }) {
+  if (!distribution) {
+    return <p className="text-sm text-slate-500">No class distribution plot available yet.</p>;
+  }
+
+  const rows = Object.entries(distribution)
+    .map(([split, rawValue]) => {
+      const splitRecord = asRecord(rawValue);
+      if (!splitRecord) {
+        return null;
+      }
+      const entries = Object.entries(splitRecord).map(([label, value]) => ({
+        label,
+        value: typeof value === "number" ? value : Number(value),
+      }));
+      const total = entries.reduce((sum, entry) => sum + (Number.isFinite(entry.value) ? entry.value : 0), 0);
+      return { split: formatLabel(split), entries, total };
+    })
+    .filter((row): row is { split: string; entries: Array<{ label: string; value: number }>; total: number } => Boolean(row));
+
+  if (!rows.length) {
+    return <p className="text-sm text-slate-500">No class distribution plot available yet.</p>;
+  }
+
+  const colors = ["bg-cyan-500", "bg-emerald-500", "bg-amber-400", "bg-fuchsia-500", "bg-sky-400"];
+
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+      {rows.map((row) => (
+        <div key={row.split} className="space-y-2">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-slate-200">{row.split}</span>
+            <span className="text-slate-400">{row.total} rows</span>
+          </div>
+          <div className="flex h-3 overflow-hidden rounded-full bg-slate-800">
+            {row.entries.map((entry, index) => (
+              <div
+                key={`${row.split}-${entry.label}`}
+                className={colors[index % colors.length]}
+                style={{ width: `${row.total > 0 ? (entry.value / row.total) * 100 : 0}%` }}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {row.entries.map((entry, index) => (
+              <span key={`${row.split}-${entry.label}-tag`} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300">
+                <span className={`mr-2 inline-block h-2 w-2 rounded-full ${colors[index % colors.length]}`} />
+                Class {entry.label}: {formatValue(entry.value)}
+              </span>
+            ))}
+          </div>
         </div>
       ))}
     </div>
@@ -1511,14 +1627,14 @@ export default function VqcClassifierPage() {
   }, [refreshRecentJobs]);
 
   useEffect(() => {
-    if (!jobId || !workbookFile || stepStatus.prepare !== "done" || !parameterOverridesDirty) {
+    if (!jobId || stepStatus.prepare !== "done" || !parameterOverridesDirty) {
       return;
     }
     const timeout = window.setTimeout(() => {
       void runPlan(jobId);
     }, 450);
     return () => window.clearTimeout(timeout);
-  }, [jobId, parameterOverrides, parameterOverridesDirty, runPlan, stepStatus.prepare, workbookFile]);
+  }, [jobId, parameterOverrides, parameterOverridesDirty, runPlan, stepStatus.prepare]);
 
   const currentEffectiveSettings = useMemo(() => {
     return (
@@ -1622,19 +1738,25 @@ export default function VqcClassifierPage() {
     vqcResponse?.workbook_metadata,
   ]);
 
-  const currentRuntimeEstimate = asRecord(planResponse?.runtime_estimate);
-  const currentMemoryEstimate = asRecord(planResponse?.memory_estimate);
-  const currentCircuitEstimate = asRecord(planResponse?.circuit_estimate);
-  const currentVqcWorkload = asRecord(planResponse?.vqc_workload_estimate);
-  const currentHardwareFeasibility = asRecord(planResponse?.hardware_feasibility);
-  const currentRecommendations = planResponse?.recommendations ?? [];
+  const currentPlanSummary = useMemo(() => asRecord(asRecord(jobStatus?.result_summaries)?.plan), [jobStatus?.result_summaries]);
+  const currentRuntimeEstimate = asRecord(planResponse?.runtime_estimate) ?? asRecord(currentPlanSummary?.runtime_estimate);
+  const currentMemoryEstimate = asRecord(planResponse?.memory_estimate) ?? asRecord(currentPlanSummary?.memory_estimate);
+  const currentCircuitEstimate = asRecord(planResponse?.circuit_estimate) ?? asRecord(currentPlanSummary?.circuit_estimate);
+  const currentVqcWorkload = asRecord(planResponse?.vqc_workload_estimate) ?? asRecord(currentPlanSummary?.vqc_workload_estimate);
+  const currentHardwareFeasibility = asRecord(planResponse?.hardware_feasibility) ?? asRecord(currentPlanSummary?.hardware_feasibility);
+  const currentRecommendations = Array.isArray(planResponse?.recommendations)
+    ? planResponse.recommendations
+    : (Array.isArray(currentPlanSummary?.recommendations) ? (currentPlanSummary.recommendations as string[]) : []);
   const currentRunSummary = asRecord(reportResponse?.run_summary);
   const currentStageLabel = jobStatus?.current_stage ?? executeResponse?.current_stage ?? activeRequest ?? "Ready";
   const currentJobStatus = jobStatus?.job_status ?? executeResponse?.job_status ?? "idle";
   const currentRuntimeTracking =
     asRecord(jobStatus?.runtime_tracking) ?? asRecord(executeResponse?.runtime_tracking) ?? null;
   const currentVqcLimits = asRecord(license?.vqc_limits) ?? null;
-  const prepareArtifacts = prepareResponse?.artifact_paths;
+  const currentAllowedWorkerProfiles = useMemo(() => {
+    const allowed = asStringArray(license?.allowed_worker_profiles);
+    return allowed.length ? allowed : ["small", "medium", "large"];
+  }, [license?.allowed_worker_profiles]);
   const reportArtifacts = reportResponse?.artifact_paths;
   const reconnectCandidate = useMemo(() => {
     const jobs = jobListResponse?.jobs ?? [];
@@ -1665,6 +1787,13 @@ export default function VqcClassifierPage() {
     (typeof currentRuntimeTracking?.planned_runtime_class === "string" ? currentRuntimeTracking?.planned_runtime_class : null) ??
     (typeof currentRuntimeEstimate?.overall_runtime_class === "string" ? currentRuntimeEstimate?.overall_runtime_class : null) ??
     (typeof currentRuntimeEstimate?.runtime_class === "string" ? currentRuntimeEstimate?.runtime_class : null);
+  const selectedWorkerProfile =
+    (typeof currentRuntimeTracking?.selected_worker_profile === "string" ? currentRuntimeTracking.selected_worker_profile : null) ??
+    (typeof currentRuntimeEstimate?.selected_worker_profile === "string" ? currentRuntimeEstimate.selected_worker_profile : null) ??
+    parameterOverrides.workerProfile;
+  const recommendedWorkerProfile =
+    (typeof currentRuntimeTracking?.recommended_worker_profile === "string" ? currentRuntimeTracking.recommended_worker_profile : null) ??
+    (typeof currentRuntimeEstimate?.recommended_worker_profile === "string" ? currentRuntimeEstimate.recommended_worker_profile : null);
   const accessFeedback =
     license?.status === "active"
       ? `${license.display_name} access is active for QAOA and VQC.`
@@ -1675,8 +1804,21 @@ export default function VqcClassifierPage() {
     currentJobStatus === "running" && currentElapsedRuntime !== null
       ? `Elapsed ${formatDurationSeconds(currentElapsedRuntime)}${currentRemainingRuntime !== null ? ` · est. remaining ${formatDurationSeconds(currentRemainingRuntime)}` : ""}${currentEstimatedTotalRuntime !== null ? ` · est. total ${formatDurationSeconds(currentEstimatedTotalRuntime)}` : ""}`
       : plannedTotalMinutes !== null
-        ? `Planned nominal runtime ${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min (${formatLabel(plannedRuntimeClass ?? "unknown")})${maxLicenseRuntimeMinutes !== null ? ` · access cap ${maxLicenseRuntimeMinutes} min` : ""}.`
+        ? `Planned nominal runtime ${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min (${formatLabel(plannedRuntimeClass ?? "unknown")})${maxLicenseRuntimeMinutes !== null ? ` · access cap ${maxLicenseRuntimeMinutes} min` : ""}${recommendedWorkerProfile ? ` · recommended worker ${formatLabel(recommendedWorkerProfile)}` : ""}.`
         : "Load data and plan the run to get a backend runtime estimate.";
+
+  useEffect(() => {
+    if (!currentAllowedWorkerProfiles.length) {
+      return;
+    }
+    if (currentAllowedWorkerProfiles.includes(parameterOverrides.workerProfile)) {
+      return;
+    }
+    setParameterOverrides((previous) => ({
+      ...previous,
+      workerProfile: normalizeWorkerProfile(currentAllowedWorkerProfiles[0]),
+    }));
+  }, [currentAllowedWorkerProfiles, parameterOverrides.workerProfile]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -1704,18 +1846,10 @@ export default function VqcClassifierPage() {
 
         <Card
           title="Status"
-          subtitle="A tighter operator view of health, access, runtime, and the currently active async job."
+          subtitle="A tighter operator view of access, runtime, and the currently active async job."
           accent
         >
           <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge value={healthResponse?.status ?? "unchecked"} />
-              <StatusBadge value={license?.status ?? "access pending"} />
-              <StatusBadge value={currentJobStatus} />
-              <StatusBadge value={currentStageLabel} />
-              {plannedRuntimeClass ? <StatusBadge value={plannedRuntimeClass} /> : null}
-            </div>
-
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3 text-sm text-slate-300">
                 <span>{currentStatusMessage}</span>
@@ -1737,12 +1871,13 @@ export default function VqcClassifierPage() {
 
             <InfoGrid
               items={[
+                { label: "Backend health", value: healthResponse?.status },
+                { label: "Access", value: license?.display_name ?? "Pending" },
                 { label: "Current job", value: jobId || "Waiting for prepared data" },
-                { label: "Workbook", value: workbookFile?.name ?? backendWorkbookSnapshot?.filename ?? "No workbook selected" },
                 { label: "Current stage", value: currentStageLabel },
                 { label: "Job status", value: currentJobStatus },
-                { label: "Config source", value: jobStatus?.config_source ?? reportResponse?.config_source ?? prepareResponse?.config_source ?? inspectResponse?.config_source ?? "-" },
                 { label: "Runtime class", value: plannedRuntimeClass },
+                { label: "Worker profile", value: selectedWorkerProfile },
                 { label: "Elapsed", value: currentElapsedRuntime !== null ? formatDurationSeconds(currentElapsedRuntime) : "-" },
                 { label: "Remaining", value: currentRemainingRuntime !== null ? formatDurationSeconds(currentRemainingRuntime) : "-" },
               ]}
@@ -1799,6 +1934,7 @@ export default function VqcClassifierPage() {
                         { label: "Valid for", value: license.valid_for },
                         { label: "Remaining runs", value: license.remaining_runs },
                         { label: "Organization", value: license.organization },
+                        { label: "Worker profiles", value: license.allowed_worker_profiles },
                         { label: "Max qubits", value: license.vqc_limits?.max_qubits },
                         { label: "Max iterations", value: license.vqc_limits?.max_iterations },
                         { label: "Max repeats", value: license.vqc_limits?.max_repeats },
@@ -1930,6 +2066,52 @@ export default function VqcClassifierPage() {
                 </div>
               </Card>
             ) : null}
+
+            <Card
+              title="Execution Profile"
+              subtitle="Choose the simulator backend and the cloud-side execution profile. Worker profile is validated against both your access tier and the current qubit/runtime plan."
+            >
+              <div className="grid gap-3">
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Worker profile</span>
+                  <select
+                    value={parameterOverrides.workerProfile}
+                    onChange={(event) => updateOverride("workerProfile", event.target.value as WorkerProfileOption)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                  >
+                    {currentAllowedWorkerProfiles.includes("small") ? <option value="small">Small</option> : null}
+                    {currentAllowedWorkerProfiles.includes("medium") ? <option value="medium">Medium</option> : null}
+                    {currentAllowedWorkerProfiles.includes("large") ? <option value="large">Large</option> : null}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Simulator backend</span>
+                  <select
+                    value={parameterOverrides.backend}
+                    onChange={(event) => updateOverride("backend", event.target.value as SimulatorBackendOption)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                  >
+                    <option value="pennylane_default_qubit">Standard simulator</option>
+                    <option value="pennylane_lightning">Lightning simulator</option>
+                  </select>
+                </label>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
+                  <p>
+                    Selected worker: <span className="text-slate-100">{formatLabel(parameterOverrides.workerProfile)}</span>
+                    {recommendedWorkerProfile ? (
+                      <>
+                        {" "}· Recommended from plan: <span className="text-slate-100">{formatLabel(recommendedWorkerProfile)}</span>
+                      </>
+                    ) : null}
+                  </p>
+                  <p className="mt-2">
+                    Tensor-style simulation is still not wired in this version. Standard and Lightning are the real choices today.
+                  </p>
+                </div>
+              </div>
+            </Card>
 
             <Card
               title="VQC Parameters"
@@ -2106,6 +2288,8 @@ export default function VqcClassifierPage() {
                       value: currentRuntimeEstimate?.overall_runtime_class ?? currentRuntimeEstimate?.runtime_class,
                     },
                     { label: "Nominal runtime", value: plannedTotalMinutes !== null ? `${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min` : "-" },
+                    { label: "Selected worker", value: currentRuntimeEstimate?.selected_worker_profile ?? parameterOverrides.workerProfile },
+                    { label: "Recommended worker", value: currentRuntimeEstimate?.recommended_worker_profile },
                     { label: "Memory class", value: currentMemoryEstimate?.memory_class },
                     {
                       label: "Circuit evaluations",
@@ -2114,6 +2298,7 @@ export default function VqcClassifierPage() {
                     { label: "Trainable parameters", value: currentCircuitEstimate?.estimated_trainable_parameters },
                     { label: "Baseline runtime", value: asRecord(planResponse?.baseline_workload_estimate)?.baseline_runtime_class },
                     { label: "Hardware mode", value: currentHardwareFeasibility?.recommended_hardware_mode },
+                    { label: "Simulator backend", value: parameterOverrides.backend },
                   ]}
                 />
                 {currentRecommendations.length ? (
@@ -2135,7 +2320,7 @@ export default function VqcClassifierPage() {
                 <button
                   type="button"
                   onClick={() => void executeRun()}
-                  disabled={activeRequest !== null || isJobActive || !workbookFile || !hasAccess}
+                  disabled={activeRequest !== null || isJobActive || (!workbookFile && !jobId.trim()) || !hasAccess}
                   className="w-full rounded-xl bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Execute run
@@ -2214,6 +2399,7 @@ export default function VqcClassifierPage() {
                       { label: "Ansatz", value: asRecord(currentEffectiveSettings?.model)?.ansatz_type },
                       { label: "Ansatz reps", value: asRecord(currentEffectiveSettings?.model)?.ansatz_reps },
                       { label: "Backend", value: asRecord(currentEffectiveSettings?.model)?.backend },
+                      { label: "Worker profile", value: asRecord(currentEffectiveSettings?.execution)?.worker_profile },
                       { label: "Shots mode", value: asRecord(currentEffectiveSettings?.model)?.shots_mode },
                       {
                         label: "Mandatory baselines",
@@ -2278,11 +2464,11 @@ export default function VqcClassifierPage() {
                     <p className="text-sm font-medium text-slate-200">Class distribution</p>
                     <ClassDistributionTable distribution={asRecord(prepareResponse?.class_distribution)} />
                   </div>
-                  <PreprocessingSummaryPanel summary={asRecord(prepareResponse?.preprocessing_summary)} />
                   <div className="space-y-3">
-                    <p className="text-sm font-medium text-slate-200">Artifact paths</p>
-                    <ArtifactList artifacts={prepareArtifacts} />
+                    <p className="text-sm font-medium text-slate-200">Class distribution plot</p>
+                    <ClassDistributionBars distribution={asRecord(prepareResponse?.class_distribution)} />
                   </div>
+                  <PreprocessingSummaryPanel summary={asRecord(prepareResponse?.preprocessing_summary)} />
                 </div>
               </Card>
 
@@ -2318,7 +2504,6 @@ export default function VqcClassifierPage() {
                       <TagList values={currentRecommendations} />
                     </Card>
                   </div>
-                  <ArtifactList artifacts={planResponse?.artifact_paths} />
                 </div>
               </Card>
 
@@ -2328,9 +2513,13 @@ export default function VqcClassifierPage() {
               >
                 <div className="space-y-5">
                   {Array.isArray(baselinesResponse?.model_comparison) && baselinesResponse?.model_comparison.length ? (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       <p className="text-sm font-medium text-slate-200">Model comparison</p>
                       <GenericTable rows={baselinesResponse.model_comparison} />
+                      <ComparisonBarChart
+                        rows={baselinesResponse.model_comparison}
+                        preferredMetricKeys={["f1_macro", "accuracy", "f1_weighted", "roc_auc_ovr", "roc_auc", "pr_auc"]}
+                      />
                     </div>
                   ) : (
                     <p className="text-sm text-slate-500">Baseline comparison will appear after the async baseline stage completes.</p>
@@ -2352,8 +2541,6 @@ export default function VqcClassifierPage() {
                       </div>
                     );
                   })}
-
-                  <ArtifactList artifacts={baselinesResponse?.artifact_paths} />
                 </div>
               </Card>
 
@@ -2401,14 +2588,12 @@ export default function VqcClassifierPage() {
                   <Card title="Baseline Comparison Preview">
                     <BaselineComparisonPreviewPanel preview={asRecord(vqcResponse?.baseline_comparison_preview)} />
                   </Card>
-
-                  <ArtifactList artifacts={vqcResponse?.artifact_paths} />
                 </div>
               </Card>
 
               <Card
                 title="Final Report"
-                subtitle="Reporting stays local for now. We surface the run summary, final model comparison, and the artifact paths the backend generated."
+                subtitle="Reporting stays local for now. We surface the run summary, final model comparison, and the generated outputs without flooding the page with internal storage paths."
               >
                 <div className="space-y-5">
                   <InfoGrid
@@ -2421,14 +2606,18 @@ export default function VqcClassifierPage() {
                   />
                   <RunSummaryPanel summary={currentRunSummary} />
                   {Array.isArray(reportResponse?.model_comparison) && reportResponse?.model_comparison.length ? (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       <p className="text-sm font-medium text-slate-200">Final model comparison</p>
                       <GenericTable rows={reportResponse.model_comparison} />
+                      <ComparisonBarChart
+                        rows={reportResponse.model_comparison}
+                        preferredMetricKeys={["f1_macro", "accuracy", "f1_weighted", "roc_auc_ovr", "roc_auc", "pr_auc"]}
+                      />
                     </div>
                   ) : null}
                   <div className="space-y-3">
-                    <p className="text-sm font-medium text-slate-200">Artifact paths</p>
-                    <ArtifactList artifacts={reportArtifacts} />
+                    <p className="text-sm font-medium text-slate-200">Generated outputs</p>
+                    <ArtifactSummaryList artifacts={reportArtifacts} />
                   </div>
                 </div>
               </Card>
