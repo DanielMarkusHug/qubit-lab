@@ -988,49 +988,6 @@ function TextLogPanel({ lines, emptyText }: { lines: Array<{ id: string; text: s
   );
 }
 
-function BacklogPanel({
-  jobs,
-  currentJobId,
-  onSelect,
-}: {
-  jobs: JobListEntry[];
-  currentJobId: string;
-  onSelect: (jobId: string) => void;
-}) {
-  if (!jobs.length) {
-    return <p className="text-sm text-slate-500">Recent async jobs will show up here once a run has been queued.</p>;
-  }
-  return (
-    <div className="h-64 overflow-y-auto space-y-3 pr-1">
-      {jobs.map((job) => {
-        const isCurrent = job.job_id === currentJobId;
-        return (
-          <button
-            key={job.job_id}
-            type="button"
-            onClick={() => job.job_id && onSelect(job.job_id)}
-            className={[
-              "w-full rounded-xl border p-3 text-left transition",
-              isCurrent ? "border-cyan-700 bg-cyan-950/30" : "border-slate-800 bg-slate-950/40 hover:border-slate-700",
-            ].join(" ")}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate font-mono text-xs text-slate-200">{job.job_id}</div>
-                <div className="mt-1 text-xs text-slate-400">
-                  {formatLabel(job.current_stage ?? "idle")} · {formatIsoTimestamp(job.updated_at ?? job.created_at)}
-                </div>
-              </div>
-              <StatusBadge value={job.job_status} />
-            </div>
-            {job.message ? <p className="mt-2 text-sm text-slate-300">{job.message}</p> : null}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function VqcClassifierPage() {
   const [apiKey, setApiKey] = useState("");
   const [license, setLicense] = useState<LicenseStatusResponse | null>(null);
@@ -1038,6 +995,7 @@ export default function VqcClassifierPage() {
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
   const [datasetPathInput, setDatasetPathInput] = useState("");
   const [jobId, setJobId] = useState("");
+  const [dismissedReconnectJobId, setDismissedReconnectJobId] = useState<string | null>(null);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [stepStatus, setStepStatus] = useState<Record<PipelineStepKey, PipelineStepStatus>>(() => cloneInitialSteps());
@@ -1083,6 +1041,7 @@ export default function VqcClassifierPage() {
     setJobId("");
     setStepStatus(cloneInitialSteps());
     setParameterOverridesDirty(false);
+    setDismissedReconnectJobId(null);
   }
 
   function resetForDataChange() {
@@ -1103,6 +1062,7 @@ export default function VqcClassifierPage() {
       vqc: "pending",
       report: "pending",
     }));
+    setDismissedReconnectJobId(null);
   }
 
   const applySettingsToOverrides = useCallback((settings: JsonRecord | null) => {
@@ -1471,6 +1431,7 @@ export default function VqcClassifierPage() {
     setWorkbookFile(file);
     resetForWorkbookChange();
     pushClientLog("info", `Selected workbook snapshot: ${file.name}.`, "inspect");
+    event.target.value = "";
     void inspectWorkbook(file, { chainPrepare: Boolean(datasetFile || datasetPathInput.trim()) });
   }
 
@@ -1483,6 +1444,7 @@ export default function VqcClassifierPage() {
     setDatasetPathInput("");
     resetForDataChange();
     pushClientLog("info", `Selected dataset snapshot: ${file.name}.`, "prepare");
+    event.target.value = "";
     void prepareData({ datasetOverride: file, datasetPathOverride: "" });
   }
 
@@ -1497,9 +1459,36 @@ export default function VqcClassifierPage() {
   }
 
   useEffect(() => {
-    void checkBackend();
-    void refreshRecentJobs();
-  }, [checkBackend, refreshRecentJobs]);
+    let mounted = true;
+
+    async function bootstrap() {
+      try {
+        const response = await getJson<HealthResponse>(ENDPOINTS.health);
+        if (mounted) {
+          setHealthResponse(response);
+        }
+      } catch {
+        if (mounted) {
+          setHealthResponse(null);
+        }
+      }
+
+      try {
+        const response = await getJson<JobListResponse>(`${ENDPOINTS.jobs}?limit=8`);
+        if (mounted) {
+          setJobListResponse(response);
+        }
+      } catch {
+        // stay quiet on mount if the async jobs endpoint is unavailable
+      }
+    }
+
+    void bootstrap();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const isJobActive = useMemo(() => {
     const status = (jobStatus?.job_status ?? executeResponse?.job_status ?? "").toLowerCase();
@@ -1650,12 +1639,24 @@ export default function VqcClassifierPage() {
   const prepareArtifacts = prepareResponse?.artifact_paths;
   const reportArtifacts = reportResponse?.artifact_paths;
   const backlogJobs = jobListResponse?.jobs ?? [];
+  const reconnectCandidate = useMemo(() => {
+    return (
+      backlogJobs.find((job) => {
+        const status = (job.job_status ?? "").toLowerCase();
+        return (
+          job.job_id &&
+          job.job_id !== dismissedReconnectJobId &&
+          job.job_id !== jobId &&
+          (status === "queued" || status === "running")
+        );
+      }) ?? null
+    );
+  }, [backlogJobs, dismissedReconnectJobId, jobId]);
   const currentDatasetSettings = asRecord(currentEffectiveSettings?.dataset);
   const currentStatusMessage = jobStatus?.message ?? "Ready for the next step.";
   const currentElapsedRuntime = asFiniteNumber(currentRuntimeTracking?.elapsed_seconds);
   const currentRemainingRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_remaining_seconds);
   const currentEstimatedTotalRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_total_seconds);
-  const maxLicenseQubits = asFiniteNumber(currentVqcLimits?.max_qubits);
   const maxLicenseIterations = asFiniteNumber(currentVqcLimits?.max_iterations);
   const maxLicenseRepeats = asFiniteNumber(currentVqcLimits?.max_repeats);
   const maxLicenseRuntimeMinutes = asFiniteNumber(currentVqcLimits?.max_runtime_minutes);
@@ -1682,15 +1683,24 @@ export default function VqcClassifierPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm">
-          <div className="max-w-4xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">VQC Classifier RQP</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-50">
-              Configure, prepare, benchmark, and report quantum classification workflows for labeled tabular datasets.
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-              Excel-configured VQC experiments with mandatory classical baselines, async run orchestration, and local report artifacts.
-            </p>
+        <section className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 shadow-sm">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.16),transparent_34%),radial-gradient(circle_at_80%_10%,rgba(250,204,21,0.12),transparent_24%),linear-gradient(135deg,rgba(2,6,23,0.96),rgba(15,23,42,0.92))]" />
+          <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:24px_24px]" />
+          <div className="relative p-6">
+            <div className="max-w-6xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300">Rapid Quantum Prototyping (RQP)</p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-cyan-300 sm:text-4xl">
+                VQC RQP Pro
+              </h1>
+              <p className="mt-4 max-w-6xl text-sm font-medium leading-7 text-slate-100 sm:text-[1.05rem]">
+                Advanced variational quantum classification with workbook-driven configuration, async orchestration,
+                mandatory classical baselines, live backend logs, runtime estimation, and consolidated local reporting.
+              </p>
+              <div className="mt-5 max-w-6xl rounded-2xl border border-slate-700/80 bg-slate-950/45 px-4 py-3 text-sm text-slate-300">
+                Best used on a desktop or laptop screen. The quick interface is tuned for loading a workbook, loading data,
+                adjusting the most important VQC parameters, and then letting the backend carry the rest of the run.
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1888,38 +1898,40 @@ export default function VqcClassifierPage() {
               </div>
             </Card>
 
-            <Card
-              title="Job Selection"
-              subtitle="Track the current job, revisit a previous async run, or inspect the active job before executing again."
-            >
-              <div className="space-y-4">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={jobId}
-                    onChange={(event) => setJobId(event.target.value)}
-                    placeholder="Enter an existing async job ID"
-                    className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-600"
+            {reconnectCandidate ? (
+              <Card
+                title="Reconnect Run"
+                subtitle="The backend still has an active async job. Reconnect if you want to watch or manage it before starting something new."
+              >
+                <div className="space-y-4">
+                  <DetailList
+                    items={[
+                      { label: "Job ID", value: reconnectCandidate.job_id },
+                      { label: "Status", value: reconnectCandidate.job_status },
+                      { label: "Current stage", value: reconnectCandidate.current_stage },
+                      { label: "Updated", value: formatIsoTimestamp(reconnectCandidate.updated_at ?? reconnectCandidate.created_at) },
+                    ]}
                   />
-                  <button
-                    type="button"
-                    onClick={() => void loadJob(jobId)}
-                    disabled={activeRequest !== null || !jobId.trim()}
-                    className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Load
-                  </button>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => reconnectCandidate.job_id && void loadJob(reconnectCandidate.job_id)}
+                      disabled={activeRequest !== null || !reconnectCandidate.job_id}
+                      className="flex-1 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Reconnect
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedReconnectJobId(reconnectCandidate.job_id ?? null)}
+                      className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-200 transition hover:border-slate-500"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
-                <DetailList
-                  items={[
-                    { label: "Current job ID", value: jobId || "-" },
-                    { label: "Status", value: currentJobStatus },
-                    { label: "Current stage", value: currentStageLabel },
-                    { label: "Updated", value: formatIsoTimestamp(jobStatus?.updated_at ?? jobStatus?.created_at) },
-                  ]}
-                />
-              </div>
-            </Card>
+              </Card>
+            ) : null}
 
             <Card
               title="VQC Parameters"
@@ -1956,17 +1968,6 @@ export default function VqcClassifierPage() {
                 </label>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block">
-                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Qubits</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={maxLicenseQubits ?? 32}
-                      value={parameterOverrides.nQubits}
-                      onChange={(event) => updateOverride("nQubits", Number(event.target.value))}
-                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
-                    />
-                  </label>
-                  <label className="block">
                     <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Ansatz reps</span>
                     <input
                       type="number"
@@ -1977,6 +1978,10 @@ export default function VqcClassifierPage() {
                       className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
                     />
                   </label>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-3 text-sm text-slate-300">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Qubits</div>
+                    <div className="mt-2 text-slate-100">{formatValue(parameterOverrides.nQubits)}</div>
+                  </div>
                 </div>
                 <label className="block">
                   <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Feature-map repeats</span>
@@ -1990,7 +1995,7 @@ export default function VqcClassifierPage() {
                   />
                 </label>
                 <p className="text-xs leading-relaxed text-slate-500">
-                  These overrides flow into planning and async execution. The workbook remains the base config, and the override delta is layered on top.
+                  These overrides flow into planning and async execution. Qubits stay fixed to the prepared data and workbook so we do not accidentally desynchronize feature selection from the quick interface.
                 </p>
                 {currentVqcLimits ? (
                   <p className="text-xs leading-relaxed text-amber-200">
@@ -2158,7 +2163,7 @@ export default function VqcClassifierPage() {
           </aside>
 
           <section className="space-y-6">
-            <div className="space-y-6">
+            <div className="grid gap-6 xl:grid-cols-2">
               <Card
                 title="Client Log"
                 subtitle="Lean operator-side events from the browser workflow. This is the same kind of quick-read console rhythm the QAOA page uses."
@@ -2175,15 +2180,8 @@ export default function VqcClassifierPage() {
               >
                 <TextLogPanel
                   lines={backendLogLines}
-                  emptyText="Backend log entries appear after a job has been queued or reloaded from the backlog."
+                  emptyText="Backend log entries appear after a job has been queued or reloaded from the backend."
                 />
-              </Card>
-
-              <Card
-                title="Backlog"
-                subtitle="Recent async jobs, ready to reopen or compare. This keeps the same backlog mindset the QAOA flow already has."
-              >
-                <BacklogPanel jobs={backlogJobs} currentJobId={jobId} onSelect={(selectedJobId) => void loadJob(selectedJobId)} />
               </Card>
             </div>
 
