@@ -60,6 +60,7 @@ interface LicenseStatusResponse {
   allowed_modes?: string[];
   allowed_worker_profiles?: string[];
   features?: string[];
+  vqc_limits?: JsonRecord;
 }
 
 interface ParameterOverridesState {
@@ -166,6 +167,7 @@ interface ExecuteRunResponse extends BaseApiResponse {
   stage_status?: Record<string, string>;
   result_summaries?: Record<string, JsonRecord>;
   message?: string;
+  runtime_tracking?: JsonRecord;
 }
 
 interface JobStatusResponse extends BaseApiResponse {
@@ -181,6 +183,7 @@ interface JobStatusResponse extends BaseApiResponse {
   started_at?: string | null;
   updated_at?: string | null;
   completed_at?: string | null;
+  runtime_tracking?: JsonRecord;
 }
 
 interface JobLogResponse extends BaseApiResponse {
@@ -295,19 +298,34 @@ function formatBytes(value: unknown): string {
   return `${(size / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function formatTimestamp(value: unknown): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return formatValue(value);
-  }
-  return new Date(value).toLocaleString();
-}
-
 function formatIsoTimestamp(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
     return "-";
   }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatDurationSeconds(value: unknown): string {
+  const seconds = asFiniteNumber(value);
+  if (seconds === null || seconds < 0) {
+    return formatValue(value);
+  }
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  if (minutes < 60) {
+    return `${minutes}m ${remainder}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
 }
 
 function asTableCellValue(value: unknown): TableCellValue {
@@ -603,31 +621,13 @@ function Card({
   );
 }
 
-function StepPill({ label, status }: { label: string; status: PipelineStepStatus }) {
-  const styles =
-    status === "done"
-      ? "border-emerald-800/70 bg-emerald-950/60 text-emerald-300"
-      : status === "running"
-        ? "border-cyan-800/70 bg-cyan-950/60 text-cyan-300"
-        : status === "error"
-          ? "border-rose-800/70 bg-rose-950/60 text-rose-300"
-          : status === "cancelled"
-            ? "border-amber-800/70 bg-amber-950/60 text-amber-300"
-            : "border-slate-700 bg-slate-900 text-slate-300";
-
-  return (
-    <div className={`rounded-xl border px-3 py-2 ${styles}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.2em]">{label}</div>
-      <div className="mt-1 text-sm">{formatLabel(status)}</div>
-    </div>
-  );
-}
-
 function StatusBadge({ value }: { value: string | undefined | null }) {
   const normalized = (value ?? "").toLowerCase();
   const classes =
-    normalized === "completed" || normalized === "done"
+    normalized === "completed" || normalized === "done" || normalized === "ok" || normalized === "active"
       ? "border-emerald-800/70 bg-emerald-950/50 text-emerald-300"
+      : normalized === "public"
+        ? "border-cyan-800/70 bg-cyan-950/50 text-cyan-300"
       : normalized === "running" || normalized === "queued"
         ? "border-cyan-800/70 bg-cyan-950/50 text-cyan-300"
         : normalized === "failed" || normalized === "error"
@@ -921,8 +921,10 @@ function TrainingHistorySummaryPanel({ summary }: { summary: JsonRecord | null }
         { label: "Repeats requested", value: summary.repeats_requested },
         { label: "Optimization trace points", value: summary.history_points },
         { label: "Best validation metric", value: summary.best_validation_primary_metric },
-        { label: "Best validation metric name", value: summary.primary_metric_name },
-        { label: "Stopped early", value: summary.early_stopped },
+        { label: "Best validation metric name", value: summary.validation_primary_metric_name },
+        { label: "Early-stopped repeats", value: summary.early_stopped_repeats },
+        { label: "Average stop iteration", value: summary.average_stop_iteration },
+        { label: "Max stop iteration", value: summary.max_stop_iteration },
       ]}
     />
   );
@@ -1615,7 +1617,7 @@ export default function VqcClassifierPage() {
   );
   const backendLogLines = useMemo(
     () =>
-      (jobLogResponse?.log_entries ?? []).map((entry, index) => ({
+      [...(jobLogResponse?.log_entries ?? [])].reverse().map((entry, index) => ({
         id: `backend-${entry.timestamp ?? "t"}-${index}`,
         tone:
           entry.level === "error"
@@ -1627,14 +1629,6 @@ export default function VqcClassifierPage() {
       })),
     [jobLogResponse?.log_entries],
   );
-
-  const selectedWorkbookSnapshot = workbookFile
-    ? [
-        { label: "Filename", value: workbookFile.name },
-        { label: "Size", value: formatBytes(workbookFile.size) },
-        { label: "Last modified", value: formatTimestamp(workbookFile.lastModified) },
-      ]
-    : [];
 
   const backendWorkbookSnapshot = useMemo(() => {
     return (
@@ -1664,11 +1658,40 @@ export default function VqcClassifierPage() {
   const currentRunSummary = asRecord(reportResponse?.run_summary);
   const currentStageLabel = jobStatus?.current_stage ?? executeResponse?.current_stage ?? activeRequest ?? "Ready";
   const currentJobStatus = jobStatus?.job_status ?? executeResponse?.job_status ?? "idle";
+  const currentRuntimeTracking =
+    asRecord(jobStatus?.runtime_tracking) ?? asRecord(executeResponse?.runtime_tracking) ?? null;
+  const currentVqcLimits = asRecord(license?.vqc_limits) ?? null;
   const prepareArtifacts = prepareResponse?.artifact_paths;
   const reportArtifacts = reportResponse?.artifact_paths;
   const backlogJobs = jobListResponse?.jobs ?? [];
   const currentDatasetSettings = asRecord(currentEffectiveSettings?.dataset);
   const currentStatusMessage = jobStatus?.message ?? "Ready for the next step.";
+  const currentElapsedRuntime = asFiniteNumber(currentRuntimeTracking?.elapsed_seconds);
+  const currentRemainingRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_remaining_seconds);
+  const currentEstimatedTotalRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_total_seconds);
+  const maxLicenseQubits = asFiniteNumber(currentVqcLimits?.max_qubits);
+  const maxLicenseIterations = asFiniteNumber(currentVqcLimits?.max_iterations);
+  const maxLicenseRepeats = asFiniteNumber(currentVqcLimits?.max_repeats);
+  const maxLicenseRuntimeMinutes = asFiniteNumber(currentVqcLimits?.max_runtime_minutes);
+  const plannedTotalMinutes =
+    asFiniteNumber(currentRuntimeTracking?.planned_total_minutes_nominal) ??
+    asFiniteNumber(currentRuntimeEstimate?.estimated_total_minutes_nominal);
+  const plannedRuntimeClass =
+    (typeof currentRuntimeTracking?.planned_runtime_class === "string" ? currentRuntimeTracking?.planned_runtime_class : null) ??
+    (typeof currentRuntimeEstimate?.overall_runtime_class === "string" ? currentRuntimeEstimate?.overall_runtime_class : null) ??
+    (typeof currentRuntimeEstimate?.runtime_class === "string" ? currentRuntimeEstimate?.runtime_class : null);
+  const accessFeedback =
+    license?.status === "active"
+      ? `${license.display_name} access is active for QAOA and VQC.`
+      : license?.status === "public"
+        ? "Public demo access is active. Heavier VQC settings may be capped."
+        : "Check access to load the VQC limits for this key.";
+  const runtimeFeedback =
+    currentJobStatus === "running" && currentElapsedRuntime !== null
+      ? `Elapsed ${formatDurationSeconds(currentElapsedRuntime)}${currentRemainingRuntime !== null ? ` · est. remaining ${formatDurationSeconds(currentRemainingRuntime)}` : ""}${currentEstimatedTotalRuntime !== null ? ` · est. total ${formatDurationSeconds(currentEstimatedTotalRuntime)}` : ""}`
+      : plannedTotalMinutes !== null
+        ? `Planned nominal runtime ${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min (${formatLabel(plannedRuntimeClass ?? "unknown")})${maxLicenseRuntimeMinutes !== null ? ` · access cap ${maxLicenseRuntimeMinutes} min` : ""}.`
+        : "Load data and plan the run to get a backend runtime estimate.";
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -1687,76 +1710,64 @@ export default function VqcClassifierPage() {
 
         <Card
           title="Status"
-          subtitle="Keep an eye on backend health, the active job context, and the stage we are currently moving through."
+          subtitle="A tighter operator view of health, access, runtime, and the currently active async job."
           accent
         >
-          <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-            <div className="space-y-4">
-              <InfoGrid
-                items={[
-                  { label: "Backend health", value: healthResponse?.status ?? "Unchecked" },
-                  { label: "API base URL", value: API_BASE },
-                  { label: "Current stage", value: currentStageLabel },
-                  { label: "Job status", value: currentJobStatus },
-                  { label: "Current job ID", value: jobId || "Auto-filled after data preparation or async load" },
-                  { label: "Progress", value: typeof jobStatus?.progress === "number" ? formatPercent(jobStatus.progress) : "-" },
-                  { label: "Config source", value: jobStatus?.config_source ?? reportResponse?.config_source ?? prepareResponse?.config_source ?? inspectResponse?.config_source ?? "-" },
-                  { label: "Status message", value: currentStatusMessage },
-                ]}
-              />
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge value={healthResponse?.status ?? "unchecked"} />
+              <StatusBadge value={license?.status ?? "access pending"} />
+              <StatusBadge value={currentJobStatus} />
+              <StatusBadge value={currentStageLabel} />
+              {plannedRuntimeClass ? <StatusBadge value={plannedRuntimeClass} /> : null}
+            </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <StepPill label="Inspect" status={stepStatus.inspect} />
-                <StepPill label="Prepare" status={stepStatus.prepare} />
-                <StepPill label="Plan" status={stepStatus.plan} />
-                <StepPill label="Baselines" status={stepStatus.baselines} />
-                <StepPill label="VQC" status={stepStatus.vqc} />
-                <StepPill label="Report" status={stepStatus.report} />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 text-sm text-slate-300">
+                <span>{currentStatusMessage}</span>
+                <span>{typeof jobStatus?.progress === "number" ? formatPercent(jobStatus.progress) : "-"}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className="h-full rounded-full bg-cyan-500 transition-all"
+                  style={{ width: `${Math.max(0, Math.min(100, (jobStatus?.progress ?? executeResponse?.progress ?? 0) * 100))}%` }}
+                />
               </div>
             </div>
 
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Selected Workbook Snapshot</p>
-                {selectedWorkbookSnapshot.length ? (
-                  <div className="mt-3">
-                    <DetailList items={selectedWorkbookSnapshot} />
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-500">No workbook selected yet.</p>
-                )}
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Backend Workbook Snapshot</p>
-                {backendWorkbookSnapshot ? (
-                  <div className="mt-3">
-                    <DetailList
-                      items={[
-                        { label: "Filename", value: backendWorkbookSnapshot.filename },
-                        { label: "Size", value: formatBytes(backendWorkbookSnapshot.size_bytes) },
-                        { label: "SHA-256", value: backendWorkbookSnapshot.sha256 },
-                      ]}
-                    />
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-500">The backend snapshot appears after inspect, prepare, or async execution.</p>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => void checkBackend()}
-                  disabled={activeRequest !== null}
-                  className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Check backend
-                </button>
-                {activeRequest ? <span className="self-center text-sm text-slate-400">{activeRequest}…</span> : null}
-              </div>
-              {lastError ? (
-                <div className="rounded-2xl border border-rose-900/70 bg-rose-950/40 p-4 text-sm text-rose-200">{lastError}</div>
-              ) : null}
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Feedback</p>
+              <p className="mt-2 text-sm text-slate-200">{runtimeFeedback}</p>
+              <p className="mt-2 text-sm text-slate-400">{accessFeedback}</p>
             </div>
+
+            <InfoGrid
+              items={[
+                { label: "Current job", value: jobId || "Waiting for prepared data" },
+                { label: "Workbook", value: workbookFile?.name ?? backendWorkbookSnapshot?.filename ?? "No workbook selected" },
+                { label: "Current stage", value: currentStageLabel },
+                { label: "Job status", value: currentJobStatus },
+                { label: "Config source", value: jobStatus?.config_source ?? reportResponse?.config_source ?? prepareResponse?.config_source ?? inspectResponse?.config_source ?? "-" },
+                { label: "Runtime class", value: plannedRuntimeClass },
+                { label: "Elapsed", value: currentElapsedRuntime !== null ? formatDurationSeconds(currentElapsedRuntime) : "-" },
+                { label: "Remaining", value: currentRemainingRuntime !== null ? formatDurationSeconds(currentRemainingRuntime) : "-" },
+              ]}
+            />
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => void checkBackend()}
+                disabled={activeRequest !== null}
+                className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Check backend
+              </button>
+              {activeRequest ? <span className="self-center text-sm text-slate-400">{activeRequest}…</span> : null}
+            </div>
+            {lastError ? (
+              <div className="rounded-2xl border border-rose-900/70 bg-rose-950/40 p-4 text-sm text-rose-200">{lastError}</div>
+            ) : null}
           </div>
         </Card>
 
@@ -1794,6 +1805,10 @@ export default function VqcClassifierPage() {
                         { label: "Valid for", value: license.valid_for },
                         { label: "Remaining runs", value: license.remaining_runs },
                         { label: "Organization", value: license.organization },
+                        { label: "Max qubits", value: license.vqc_limits?.max_qubits },
+                        { label: "Max iterations", value: license.vqc_limits?.max_iterations },
+                        { label: "Max repeats", value: license.vqc_limits?.max_repeats },
+                        { label: "Max runtime (min)", value: license.vqc_limits?.max_runtime_minutes },
                       ]}
                     />
                   </div>
@@ -1959,7 +1974,7 @@ export default function VqcClassifierPage() {
                     <input
                       type="number"
                       min={1}
-                      max={32}
+                      max={maxLicenseQubits ?? 32}
                       value={parameterOverrides.nQubits}
                       onChange={(event) => updateOverride("nQubits", Number(event.target.value))}
                       className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
@@ -1991,6 +2006,11 @@ export default function VqcClassifierPage() {
                 <p className="text-xs leading-relaxed text-slate-500">
                   These overrides flow into planning and async execution. The workbook remains the base config, and the override delta is layered on top.
                 </p>
+                {currentVqcLimits ? (
+                  <p className="text-xs leading-relaxed text-amber-200">
+                    Access limits: up to {formatValue(currentVqcLimits.max_qubits)} qubits, {formatValue(currentVqcLimits.max_iterations)} iterations, {formatValue(currentVqcLimits.max_repeats)} repeats, and {formatValue(currentVqcLimits.max_runtime_minutes)} min nominal runtime.
+                  </p>
+                ) : null}
               </div>
             </Card>
 
@@ -2017,7 +2037,7 @@ export default function VqcClassifierPage() {
                     <input
                       type="number"
                       min={1}
-                      max={5000}
+                      max={maxLicenseIterations ?? 5000}
                       value={parameterOverrides.iterations}
                       onChange={(event) => updateOverride("iterations", Number(event.target.value))}
                       className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
@@ -2042,7 +2062,7 @@ export default function VqcClassifierPage() {
                     <input
                       type="number"
                       min={1}
-                      max={20}
+                      max={maxLicenseRepeats ?? 20}
                       value={parameterOverrides.repeats}
                       onChange={(event) => updateOverride("repeats", Number(event.target.value))}
                       className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
@@ -2096,6 +2116,7 @@ export default function VqcClassifierPage() {
                       label: "Runtime class",
                       value: currentRuntimeEstimate?.overall_runtime_class ?? currentRuntimeEstimate?.runtime_class,
                     },
+                    { label: "Nominal runtime", value: plannedTotalMinutes !== null ? `${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min` : "-" },
                     { label: "Memory class", value: currentMemoryEstimate?.memory_class },
                     {
                       label: "Circuit evaluations",
