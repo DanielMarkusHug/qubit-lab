@@ -152,6 +152,7 @@ interface RunVqcResponse extends BaseApiResponse {
   vqc_metrics?: JsonRecord;
   validation_metrics?: JsonRecord;
   test_metrics?: JsonRecord;
+  training_history?: Array<Record<string, unknown>>;
   training_history_summary?: JsonRecord;
   circuit_summary?: JsonRecord;
   baseline_comparison_preview?: JsonRecord;
@@ -200,6 +201,7 @@ interface JobLogResponse extends BaseApiResponse {
     level?: string;
     stage?: string | null;
     message?: string;
+    extra?: JsonRecord;
   }>;
 }
 
@@ -672,6 +674,112 @@ function sortBenchmarkMethodEntries(entries: Array<[string, JsonRecord]>): Array
   });
 }
 
+function extractBenchmarkHyperparameterItems(spec: JsonRecord): Array<{ label: string; value: unknown }> {
+  const hyperparameters = asRecord(spec.hyperparameters);
+  const baseModel = typeof spec.base_model === "string" ? spec.base_model : "";
+  const nestedModel = asRecord(hyperparameters?.model);
+  const source = nestedModel ?? hyperparameters;
+
+  if (baseModel === "logistic_regression") {
+    return [
+      { label: "Scaler", value: hyperparameters?.scaler ?? spec.scaler_strategy },
+      { label: "Max iterations", value: source?.max_iter },
+      { label: "Solver", value: source?.solver },
+      { label: "Class weight", value: source?.class_weight ?? spec.class_weight_mode },
+      { label: "Random state", value: source?.random_state },
+    ];
+  }
+  if (baseModel === "random_forest") {
+    return [
+      { label: "Estimators", value: source?.n_estimators },
+      { label: "Max features", value: source?.max_features },
+      { label: "Class weight", value: source?.class_weight ?? spec.class_weight_mode },
+      { label: "Jobs", value: source?.n_jobs },
+      { label: "Random state", value: source?.random_state },
+    ];
+  }
+  if (baseModel === "gradient_boosting") {
+    return [
+      { label: "Estimators", value: source?.n_estimators },
+      { label: "Learning rate", value: source?.learning_rate },
+      { label: "Max depth", value: source?.max_depth },
+      { label: "Subsample", value: source?.subsample },
+      { label: "Random state", value: source?.random_state },
+    ];
+  }
+  return [];
+}
+
+function buildComparisonRowFromMetrics(modelName: string, classificationMode: string, metrics: JsonRecord | null): MetricTableRow {
+  if (classificationMode === "multiclass") {
+    return {
+      model: modelName,
+      accuracy: asTableCellValue(metrics?.accuracy),
+      precision_macro: asTableCellValue(metrics?.precision_macro),
+      recall_macro: asTableCellValue(metrics?.recall_macro),
+      f1_macro: asTableCellValue(metrics?.f1_macro),
+      f1_weighted: asTableCellValue(metrics?.f1_weighted),
+      roc_auc_ovr: asTableCellValue(metrics?.roc_auc_ovr),
+    };
+  }
+  return {
+    model: modelName,
+    accuracy: asTableCellValue(metrics?.accuracy),
+    precision: asTableCellValue(metrics?.precision),
+    recall: asTableCellValue(metrics?.recall),
+    f1: asTableCellValue(metrics?.f1),
+    f1_weighted: asTableCellValue(metrics?.f1_weighted),
+    roc_auc: asTableCellValue(metrics?.roc_auc),
+    pr_auc: asTableCellValue(metrics?.pr_auc),
+    false_positives: asTableCellValue(metrics?.false_positives),
+    false_negatives: asTableCellValue(metrics?.false_negatives),
+  };
+}
+
+function formatBackendLogLine(entry: {
+  timestamp?: string;
+  stage?: string | null;
+  message?: string;
+  extra?: JsonRecord;
+}): string {
+  const fragments = [
+    `${formatIsoTimestamp(entry.timestamp)} ${entry.stage ? `[${entry.stage}] ` : ""}${entry.message ?? "Backend event"}`,
+  ];
+  const extra = asRecord(entry.extra);
+  if (extra) {
+    const annotations: string[] = [];
+    if (asFiniteNumber(extra.current_stage_elapsed_seconds) !== null) {
+      annotations.push(`step ${formatDurationSeconds(extra.current_stage_elapsed_seconds)}`);
+    }
+    if (asFiniteNumber(extra.cumulative_elapsed_seconds) !== null) {
+      annotations.push(`total ${formatDurationSeconds(extra.cumulative_elapsed_seconds)}`);
+    }
+    if (asFiniteNumber(extra.estimated_remaining_seconds) !== null) {
+      annotations.push(`ETA ${formatDurationSeconds(extra.estimated_remaining_seconds)}`);
+    }
+    if (
+      asFiniteNumber(extra.current_repeat) !== null &&
+      asFiniteNumber(extra.repeats_requested) !== null &&
+      asFiniteNumber(extra.current_iteration) !== null &&
+      asFiniteNumber(extra.iterations_requested) !== null
+    ) {
+      annotations.push(
+        `repeat ${formatValue(extra.current_repeat)}/${formatValue(extra.repeats_requested)} · iter ${formatValue(extra.current_iteration)}/${formatValue(extra.iterations_requested)}`,
+      );
+    }
+    if (asFiniteNumber(extra.train_loss) !== null) {
+      annotations.push(`loss ${formatValue(extra.train_loss)}`);
+    }
+    if (typeof extra.validation_primary_metric_name === "string" && asFiniteNumber(extra.validation_primary_metric) !== null) {
+      annotations.push(`${formatLabel(extra.validation_primary_metric_name)} ${formatValue(extra.validation_primary_metric)}`);
+    }
+    if (annotations.length) {
+      fragments.push(`  ·  ${annotations.join("  ·  ")}`);
+    }
+  }
+  return fragments.join("");
+}
+
 function InfoGrid({ items }: { items: Array<{ label: string; value: unknown }> }) {
   const visibleItems = items.filter(({ value }) => value !== undefined);
   return (
@@ -778,7 +886,7 @@ function ComparisonBarChart({
     }
     return rows
       .map((row) => ({
-        model: formatValue(row.model),
+        model: formatValue(row.model ?? row.model_name),
         value: typeof row[metricKey] === "number" ? (row[metricKey] as number) : null,
       }))
       .filter((row) => row.value !== null) as Array<{ model: string; value: number }>;
@@ -804,6 +912,70 @@ function ComparisonBarChart({
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function TrainingLossChart({ history }: { history: Array<Record<string, unknown>> }) {
+  const points = history
+    .map((entry, index) => {
+      const loss = asFiniteNumber(entry.train_loss);
+      if (loss === null) {
+        return null;
+      }
+      const repeat = asFiniteNumber(entry.repeat) ?? 1;
+      const iteration = asFiniteNumber(entry.iteration) ?? index + 1;
+      return {
+        x: index + 1,
+        label: `R${repeat} · I${iteration}`,
+        loss,
+      };
+    })
+    .filter((point): point is { x: number; label: string; loss: number } => point !== null);
+
+  if (points.length < 2) {
+    return <p className="text-sm text-slate-500">Training loss plot appears after at least two optimization trace points.</p>;
+  }
+
+  const width = 920;
+  const height = 280;
+  const padLeft = 56;
+  const padRight = 24;
+  const padTop = 20;
+  const padBottom = 34;
+  const minLoss = Math.min(...points.map((point) => point.loss));
+  const maxLoss = Math.max(...points.map((point) => point.loss));
+  const lossRange = Math.max(maxLoss - minLoss, 1e-6);
+  const chartWidth = width - padLeft - padRight;
+  const chartHeight = height - padTop - padBottom;
+  const xFor = (value: number) => padLeft + ((value - 1) / Math.max(points.length - 1, 1)) * chartWidth;
+  const yFor = (loss: number) => padTop + chartHeight - ((loss - minLoss) / lossRange) * chartHeight;
+  const path = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(point.x).toFixed(1)} ${yFor(point.loss).toFixed(1)}`)
+    .join(" ");
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-slate-200">Cost function decrease during training</p>
+      <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[760px]">
+          <line x1={padLeft} y1={padTop} x2={padLeft} y2={height - padBottom} stroke="rgba(148,163,184,0.35)" />
+          <line x1={padLeft} y1={height - padBottom} x2={width - padRight} y2={height - padBottom} stroke="rgba(148,163,184,0.35)" />
+          <path d={path} fill="none" stroke="#22d3ee" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          {points.map((point) => (
+            <circle key={point.label} cx={xFor(point.x)} cy={yFor(point.loss)} r="3.5" fill="#facc15" />
+          ))}
+          <text x={padLeft - 10} y={padTop + 6} fill="#94a3b8" fontSize="11" textAnchor="end">
+            {formatValue(maxLoss)}
+          </text>
+          <text x={padLeft - 10} y={height - padBottom + 4} fill="#94a3b8" fontSize="11" textAnchor="end">
+            {formatValue(minLoss)}
+          </text>
+          <text x={width / 2} y={height - 8} fill="#94a3b8" fontSize="11" textAnchor="middle">
+            Optimization history points
+          </text>
+        </svg>
       </div>
     </div>
   );
@@ -877,28 +1049,6 @@ function MetricSummaryTable({ title, metrics }: { title: string; metrics: JsonRe
   if (!rows.length) {
     return null;
   }
-  return (
-    <div className="space-y-3">
-      <p className="text-sm font-medium text-slate-200">{title}</p>
-      <GenericTable rows={rows} />
-    </div>
-  );
-}
-
-function ConfusionMatrixTable({ title, matrix }: { title: string; matrix: unknown }) {
-  if (!Array.isArray(matrix) || !matrix.length) {
-    return null;
-  }
-  const rows = matrix.map((row, rowIndex) => {
-    if (!Array.isArray(row)) {
-      return { actual: rowIndex };
-    }
-    const record: MetricTableRow = { actual: rowIndex };
-    row.forEach((value, columnIndex) => {
-      record[`pred_${columnIndex}`] = asTableCellValue(value);
-    });
-    return record;
-  });
   return (
     <div className="space-y-3">
       <p className="text-sm font-medium text-slate-200">{title}</p>
@@ -1172,6 +1322,10 @@ function BenchmarkMethodCatalogPanel({ specs }: { specs: JsonRecord | null }) {
                   <span className="text-slate-400">Class weighting</span>
                   <span className="max-w-[60%] text-right text-slate-100">{formatValue(spec.class_weight_mode)}</span>
                 </div>
+              </div>
+              <div className="mt-4">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Hyperparameters</p>
+                <DetailList items={extractBenchmarkHyperparameterItems(spec)} />
               </div>
               <div className="mt-4">
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Limitations</p>
@@ -1859,7 +2013,7 @@ export default function VqcClassifierPage() {
             : entry.level === "warning"
               ? "text-amber-300"
               : "text-slate-200",
-        text: `${formatIsoTimestamp(entry.timestamp)} ${entry.stage ? `[${entry.stage}] ` : ""}${entry.message ?? "Backend event"}`,
+        text: formatBackendLogLine(entry),
       })),
     [jobLogResponse?.log_entries],
   );
@@ -1944,12 +2098,49 @@ export default function VqcClassifierPage() {
     isCancelRequested
       ? `Cancellation requested while ${formatLabel(currentJobStatus)}. The active stage will stop as soon as the backend reaches a safe cancellation checkpoint.`
       : currentJobStatus === "running" && currentElapsedRuntime !== null
-      ? `Elapsed ${formatDurationSeconds(currentElapsedRuntime)}${currentRemainingRuntime !== null ? ` · est. remaining ${formatDurationSeconds(currentRemainingRuntime)}` : ""}${currentEstimatedTotalRuntime !== null ? ` · est. total ${formatDurationSeconds(currentEstimatedTotalRuntime)}` : ""}`
+      ? `Elapsed ${formatDurationSeconds(currentElapsedRuntime)}${currentRemainingRuntime !== null ? ` · est. remaining ${formatDurationSeconds(currentRemainingRuntime)}` : ""}${currentEstimatedTotalRuntime !== null ? ` · est. total ${formatDurationSeconds(currentEstimatedTotalRuntime)}` : ""}${asFiniteNumber(currentRuntimeTracking?.current_repeat) !== null && asFiniteNumber(currentRuntimeTracking?.repeats_requested) !== null ? ` · repeat ${formatValue(currentRuntimeTracking?.current_repeat)}/${formatValue(currentRuntimeTracking?.repeats_requested)}` : ""}${asFiniteNumber(currentRuntimeTracking?.current_iteration) !== null && asFiniteNumber(currentRuntimeTracking?.iterations_requested) !== null ? ` · iteration ${formatValue(currentRuntimeTracking?.current_iteration)}/${formatValue(currentRuntimeTracking?.iterations_requested)}` : ""}`
       : plannedTotalMinutes !== null
         ? `Planned nominal runtime ${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min (${formatLabel(plannedRuntimeClass ?? "unknown")})${maxLicenseRuntimeMinutes !== null ? ` · access cap ${maxLicenseRuntimeMinutes} min` : ""}${recommendedWorkerProfile ? ` · recommended worker ${formatLabel(recommendedWorkerProfile)}` : ""}.`
         : "Load data and plan the run to get a backend runtime estimate.";
   const reportComparisonRows = Array.isArray(reportResponse?.model_comparison) ? reportResponse.model_comparison : [];
   const baselineComparisonRows = Array.isArray(baselinesResponse?.model_comparison) ? baselinesResponse.model_comparison : [];
+  const currentClassificationMode =
+    reportResponse?.run_summary && isRecord(reportResponse.run_summary) && typeof reportResponse.run_summary.classification_mode === "string"
+      ? reportResponse.run_summary.classification_mode
+      : vqcResponse?.classification_mode ?? baselinesResponse?.classification_mode ?? prepareResponse?.inferred_classification_mode ?? "binary";
+  const fallbackFinalComparisonRows = useMemo(() => {
+    const rows: MetricTableRow[] = [];
+    if (isRecord(vqcResponse?.test_metrics)) {
+      rows.push(buildComparisonRowFromMetrics("vqc", currentClassificationMode, asRecord(vqcResponse?.test_metrics)));
+    }
+    sortedBaselineMetricEntries.forEach(([methodName, bundle]) => {
+      rows.push(buildComparisonRowFromMetrics(methodName, currentClassificationMode, asRecord(bundle.test)));
+    });
+    return rows;
+  }, [currentClassificationMode, sortedBaselineMetricEntries, vqcResponse?.test_metrics]);
+  const effectiveReportComparisonRows = reportComparisonRows.length >= fallbackFinalComparisonRows.length && reportComparisonRows.length > 0
+    ? reportComparisonRows
+    : fallbackFinalComparisonRows;
+  const baselineGroups = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        parity?: { methodName: string; bundle: JsonRecord };
+        bestReference?: { methodName: string; bundle: JsonRecord };
+      }
+    >();
+    sortedBaselineMetricEntries.forEach(([methodName, bundle]) => {
+      const baseModel = typeof bundle.base_model === "string" ? bundle.base_model : methodName;
+      const existing = grouped.get(baseModel) ?? {};
+      if (String(bundle.mode ?? "").toLowerCase() === "best_reference") {
+        existing.bestReference = { methodName, bundle };
+      } else {
+        existing.parity = { methodName, bundle };
+      }
+      grouped.set(baseModel, existing);
+    });
+    return Array.from(grouped.entries());
+  }, [sortedBaselineMetricEntries]);
 
   useEffect(() => {
     if (!currentAllowedWorkerProfiles.length) {
@@ -2707,28 +2898,46 @@ export default function VqcClassifierPage() {
                     </div>
                   ) : null}
 
-                  {sortedBaselineMetricEntries.map(([modelName, bundle]) => {
-                    const validationMetrics = asRecord(bundle?.validation);
-                    const testMetrics = asRecord(bundle?.test);
-                    return (
-                      <div key={modelName} className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="text-sm font-medium text-slate-100">{formatLabel(modelName)}</p>
-                          <p className="text-xs text-slate-400">
-                            {benchmarkModeLabel(bundle?.mode)} · {formatValue(bundle?.feature_space)} · {formatValue(bundle?.train_rows_used)} rows
-                          </p>
-                        </div>
-                        <div className="grid gap-4 2xl:grid-cols-2">
-                          <MetricSummaryTable title="Validation metrics" metrics={validationMetrics} />
-                          <MetricSummaryTable title="Test metrics" metrics={testMetrics} />
-                          <ConfusionMatrixHeatmap title="Validation confusion heatmap" matrix={validationMetrics?.confusion_matrix} />
-                          <ConfusionMatrixHeatmap title="Test confusion heatmap" matrix={testMetrics?.confusion_matrix} />
-                          <ConfusionMatrixTable title="Validation confusion matrix" matrix={validationMetrics?.confusion_matrix} />
-                          <ConfusionMatrixTable title="Test confusion matrix" matrix={testMetrics?.confusion_matrix} />
-                        </div>
+                  {baselineGroups.map(([baseModel, group]) => (
+                    <div key={baseModel} className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm font-medium text-slate-100">{formatLabel(baseModel)}</p>
+                        <p className="text-xs text-slate-400">Test-set view, with strict parity on the left and best-reference on the right.</p>
                       </div>
-                    );
-                  })}
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        {[group.parity, group.bestReference].map((variant, index) => {
+                          if (!variant) {
+                            return (
+                              <div key={`${baseModel}-${index}`} className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 p-4 text-sm text-slate-500">
+                                This benchmark variant has not been returned yet.
+                              </div>
+                            );
+                          }
+                          const spec = asRecord(currentBenchmarkMethodSpecs?.[variant.methodName]);
+                          const testMetrics = asRecord(variant.bundle.test);
+                          return (
+                            <div key={variant.methodName} className="space-y-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium text-slate-100">{benchmarkModeLabel(variant.bundle.mode)}</p>
+                                <p className="text-xs text-slate-400">{formatValue(spec?.description ?? benchmarkModeDescription(variant.bundle.mode))}</p>
+                              </div>
+                              <DetailList
+                                items={[
+                                  { label: "Rows used", value: variant.bundle.train_rows_used },
+                                  { label: "Feature count", value: variant.bundle.feature_count_used },
+                                  { label: "Feature space", value: variant.bundle.feature_space },
+                                  { label: "Scaling", value: variant.bundle.scaler_strategy },
+                                  { label: "Class weighting", value: variant.bundle.class_weight_mode },
+                                ]}
+                              />
+                              <MetricSummaryTable title="Test metrics" metrics={testMetrics} />
+                              <ConfusionMatrixHeatmap title="Test confusion heatmap" matrix={testMetrics?.confusion_matrix} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </Card>
 
@@ -2743,8 +2952,6 @@ export default function VqcClassifierPage() {
                     <MetricSummaryTable title="Test metrics" metrics={asRecord(vqcResponse?.test_metrics)} />
                     <ConfusionMatrixHeatmap title="Validation confusion heatmap" matrix={asRecord(vqcResponse?.validation_metrics)?.confusion_matrix} />
                     <ConfusionMatrixHeatmap title="Test confusion heatmap" matrix={asRecord(vqcResponse?.test_metrics)?.confusion_matrix} />
-                    <ConfusionMatrixTable title="Validation confusion matrix" matrix={asRecord(vqcResponse?.validation_metrics)?.confusion_matrix} />
-                    <ConfusionMatrixTable title="Test confusion matrix" matrix={asRecord(vqcResponse?.test_metrics)?.confusion_matrix} />
                   </div>
 
                   <div className="grid gap-4 xl:grid-cols-2">
@@ -2776,6 +2983,10 @@ export default function VqcClassifierPage() {
                     </Card>
                   </div>
 
+                  <Card title="Training Loss">
+                    <TrainingLossChart history={Array.isArray(vqcResponse?.training_history) ? vqcResponse.training_history : []} />
+                  </Card>
+
                   <Card title="Baseline Comparison Preview">
                     <BaselineComparisonPreviewPanel preview={asRecord(vqcResponse?.baseline_comparison_preview)} />
                   </Card>
@@ -2797,12 +3008,12 @@ export default function VqcClassifierPage() {
                     ]}
                   />
                   <RunSummaryPanel summary={currentRunSummary} />
-                  {reportComparisonRows.length ? (
+                  {effectiveReportComparisonRows.length ? (
                     <div className="space-y-4">
                       <p className="text-sm font-medium text-slate-200">Final seven-method comparison</p>
-                      <GenericTable rows={reportComparisonRows} />
+                      <GenericTable rows={effectiveReportComparisonRows} />
                       <ComparisonBarChart
-                        rows={reportComparisonRows}
+                        rows={effectiveReportComparisonRows}
                         preferredMetricKeys={["f1_macro", "accuracy", "f1_weighted", "roc_auc_ovr", "roc_auc", "pr_auc"]}
                       />
                     </div>
