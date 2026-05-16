@@ -1263,9 +1263,11 @@ function ClassDistributionTable({ distribution }: { distribution: JsonRecord | n
 
 function deriveEffectiveTrainingDistribution(
   distribution: JsonRecord | null,
-  *,
-  balanceTrainingOnly: boolean,
+  options: {
+    balanceTrainingOnly: boolean;
+  },
 ): JsonRecord | null {
+  const { balanceTrainingOnly } = options;
   const trainDistribution = asRecord(distribution?.train);
   if (!trainDistribution) {
     return null;
