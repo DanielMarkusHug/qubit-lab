@@ -81,6 +81,32 @@ interface ParameterOverridesState {
   optimizer: OptimizerOption;
   earlyStopping: boolean;
   patience: number;
+  balanceTrainingOnly: boolean;
+}
+
+interface SavedVqcReviewSnapshot {
+  schema: "vqc-rqp-review-snapshot";
+  schema_version: 1;
+  saved_at: string;
+  api_base: string;
+  original_workbook_filename: string | null;
+  dataset_reference_uri: string | null;
+  dataset_path_input: string | null;
+  job_id: string | null;
+  parameter_overrides: ParameterOverridesState;
+  step_status: Record<PipelineStepKey, PipelineStepStatus>;
+  license: LicenseStatusResponse | null;
+  health_response: HealthResponse | null;
+  inspect_response: InspectWorkbookResponse | null;
+  prepare_response: PrepareDataResponse | null;
+  plan_response: PlanRunResponse | null;
+  baselines_response: RunBaselinesResponse | null;
+  vqc_response: RunVqcResponse | null;
+  report_response: GenerateReportResponse | null;
+  execute_response: ExecuteRunResponse | null;
+  job_status: JobStatusResponse | null;
+  job_log_response: JobLogResponse | null;
+  client_log_entries: ClientLogEntry[];
 }
 
 interface BaseApiResponse {
@@ -573,6 +599,7 @@ function defaultParameterOverrides(): ParameterOverridesState {
     optimizer: "adam",
     earlyStopping: true,
     patience: 8,
+    balanceTrainingOnly: false,
   };
 }
 
@@ -595,6 +622,7 @@ function hydrateOverridesFromSettings(settings: JsonRecord | null): ParameterOve
     optimizer: (typeof training?.optimizer === "string" ? training.optimizer : defaults.optimizer) as OptimizerOption,
     earlyStopping: Boolean(training?.early_stopping ?? defaults.earlyStopping),
     patience: Number(training?.patience ?? defaults.patience),
+    balanceTrainingOnly: Boolean(training?.balance_training_only ?? defaults.balanceTrainingOnly),
   };
 }
 
@@ -617,6 +645,7 @@ function buildConfigOverridesPayload(overrides: ParameterOverridesState): JsonRe
       batch_size: overrides.batchSize,
       early_stopping: overrides.earlyStopping,
       patience: overrides.patience,
+      balance_training_only: overrides.balanceTrainingOnly,
     },
     execution: {
       worker_profile: overrides.workerProfile,
@@ -668,6 +697,45 @@ function Card({
 
 function benchmarkModeLabel(mode: unknown): string {
   return String(mode ?? "").trim().toLowerCase() === "best_reference" ? "Best Reference" : "Strict Parity";
+}
+
+function sanitizeDownloadStem(value: string): string {
+  return value
+    .trim()
+    .replace(/\.[A-Za-z0-9]+$/, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "vqc_run";
+}
+
+function timestampForFilename(isoValue: string): string {
+  return isoValue.replace(/[:]/g, "-").replace(/\.\d+Z$/, "Z");
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getFilenameFromContentDisposition(headerValue: string | null): string | null {
+  if (!headerValue) {
+    return null;
+  }
+  const utf8Match = headerValue.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+  const basicMatch = headerValue.match(/filename="?([^"]+)"?/i);
+  return basicMatch?.[1] ?? null;
 }
 
 function benchmarkModeDescription(mode: unknown): string {
@@ -946,8 +1014,9 @@ function ComparisonBarChart({
 function TrainingLossChart({ history }: { history: Array<Record<string, unknown>> }) {
   const points = history
     .map((entry, index) => {
-      const loss = asFiniteNumber(entry.train_loss);
-      if (loss === null) {
+      const batchLoss = asFiniteNumber(entry.train_loss);
+      const stableEvalLoss = asFiniteNumber(entry.train_eval_loss);
+      if (batchLoss === null && stableEvalLoss === null) {
         return null;
       }
       const repeat = asFiniteNumber(entry.repeat) ?? 1;
@@ -955,10 +1024,13 @@ function TrainingLossChart({ history }: { history: Array<Record<string, unknown>
       return {
         x: index + 1,
         label: `R${repeat} · I${iteration}`,
-        loss,
+        batchLoss,
+        stableEvalLoss,
       };
     })
-    .filter((point): point is { x: number; label: string; loss: number } => point !== null);
+    .filter(
+      (point): point is { x: number; label: string; batchLoss: number | null; stableEvalLoss: number | null } => point !== null,
+    );
 
   if (points.length < 2) {
     return <p className="text-sm text-slate-500">Training loss plot appears after at least two optimization trace points.</p>;
@@ -970,28 +1042,69 @@ function TrainingLossChart({ history }: { history: Array<Record<string, unknown>
   const padRight = 24;
   const padTop = 20;
   const padBottom = 34;
-  const minLoss = Math.min(...points.map((point) => point.loss));
-  const maxLoss = Math.max(...points.map((point) => point.loss));
+  const lossValues = points.flatMap((point) =>
+    [point.batchLoss, point.stableEvalLoss].filter((value): value is number => value !== null),
+  );
+  const minLoss = Math.min(...lossValues);
+  const maxLoss = Math.max(...lossValues);
   const lossRange = Math.max(maxLoss - minLoss, 1e-6);
   const chartWidth = width - padLeft - padRight;
   const chartHeight = height - padTop - padBottom;
   const xFor = (value: number) => padLeft + ((value - 1) / Math.max(points.length - 1, 1)) * chartWidth;
   const yFor = (loss: number) => padTop + chartHeight - ((loss - minLoss) / lossRange) * chartHeight;
-  const path = points
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(point.x).toFixed(1)} ${yFor(point.loss).toFixed(1)}`)
+  const batchPath = points
+    .filter((point) => point.batchLoss !== null)
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"} ${xFor(point.x).toFixed(1)} ${yFor(point.batchLoss as number).toFixed(1)}`,
+    )
+    .join(" ");
+  const stablePath = points
+    .filter((point) => point.stableEvalLoss !== null)
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"} ${xFor(point.x).toFixed(1)} ${yFor(point.stableEvalLoss as number).toFixed(1)}`,
+    )
     .join(" ");
 
   return (
     <div className="space-y-3">
-      <p className="text-sm font-medium text-slate-200">Cost function decrease during training</p>
+      <div className="flex flex-wrap items-center gap-4 text-sm">
+        <p className="font-medium text-slate-200">Cost function during training</p>
+        <span className="inline-flex items-center gap-2 text-slate-400">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-cyan-400" />
+          Batch loss
+        </span>
+        <span className="inline-flex items-center gap-2 text-slate-400">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-300" />
+          Fixed train-slice loss
+        </span>
+      </div>
+      <p className="text-xs text-slate-500">
+        Batch loss is intentionally noisy. The amber line evaluates a fixed slice of the training split, so it is the steadier one to watch for convergence.
+      </p>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/40 p-4">
         <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[760px]">
           <line x1={padLeft} y1={padTop} x2={padLeft} y2={height - padBottom} stroke="rgba(148,163,184,0.35)" />
           <line x1={padLeft} y1={height - padBottom} x2={width - padRight} y2={height - padBottom} stroke="rgba(148,163,184,0.35)" />
-          <path d={path} fill="none" stroke="#22d3ee" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          {points.map((point) => (
-            <circle key={point.label} cx={xFor(point.x)} cy={yFor(point.loss)} r="3.5" fill="#facc15" />
-          ))}
+          {batchPath ? <path d={batchPath} fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /> : null}
+          {stablePath ? <path d={stablePath} fill="none" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /> : null}
+          {points
+            .filter((point) => point.batchLoss !== null)
+            .map((point) => (
+              <circle key={`${point.label}-batch`} cx={xFor(point.x)} cy={yFor(point.batchLoss as number)} r="2.5" fill="#22d3ee" />
+            ))}
+          {points
+            .filter((point) => point.stableEvalLoss !== null)
+            .map((point) => (
+              <circle
+                key={`${point.label}-stable`}
+                cx={xFor(point.x)}
+                cy={yFor(point.stableEvalLoss as number)}
+                r="3.5"
+                fill="#facc15"
+              />
+            ))}
           <text x={padLeft - 10} y={padTop + 6} fill="#94a3b8" fontSize="11" textAnchor="end">
             {formatValue(maxLoss)}
           </text>
@@ -1453,6 +1566,7 @@ export default function VqcClassifierPage() {
   const [jobListResponse, setJobListResponse] = useState<JobListResponse | null>(null);
   const workbookInputRef = useRef<HTMLInputElement | null>(null);
   const datasetInputRef = useRef<HTMLInputElement | null>(null);
+  const reviewJsonInputRef = useRef<HTMLInputElement | null>(null);
 
   const pushClientLog = useCallback((level: LogLevel, message: string, stage?: PipelineStepKey | string | null) => {
     setClientLogEntries((entries) => [
@@ -1889,6 +2003,121 @@ export default function VqcClassifierPage() {
     pushClientLog("info", `Loading async job ${targetJobId.trim()}.`);
     await refreshJobState(targetJobId.trim(), false);
     setActiveRequest(null);
+  }
+
+  async function downloadJobArtifact(artifactKey: string, fallbackFilename: string) {
+    const resolvedJobId = (reportResponse?.job_id ?? jobId).trim();
+    if (!resolvedJobId) {
+      setLastError("No completed run is selected for download yet.");
+      return;
+    }
+
+    setActiveRequest(`Downloading ${fallbackFilename}`);
+    setLastError(null);
+    try {
+      const response = await fetch(`${API_BASE}${ENDPOINTS.jobs}/${encodeURIComponent(resolvedJobId)}/artifact/${encodeURIComponent(artifactKey)}`, {
+        headers: apiKey ? { "X-API-Key": apiKey } : undefined,
+      });
+      if (!response.ok) {
+        const message = (await response.text()).trim() || `Download failed with status ${response.status}.`;
+        throw new Error(message);
+      }
+      const filename =
+        getFilenameFromContentDisposition(response.headers.get("Content-Disposition")) ??
+        fallbackFilename;
+      downloadBlob(await response.blob(), filename);
+      pushClientLog("success", `Downloaded ${filename}.`, "report");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Artifact download failed.";
+      setLastError(message);
+      pushClientLog("error", `Artifact download failed: ${message}`, "report");
+    } finally {
+      setActiveRequest(null);
+    }
+  }
+
+  function downloadJsonDataFile() {
+    const snapshot: SavedVqcReviewSnapshot = {
+      schema: "vqc-rqp-review-snapshot",
+      schema_version: 1,
+      saved_at: new Date().toISOString(),
+      api_base: API_BASE,
+      original_workbook_filename: workbookFile?.name ?? inspectResponse?.filename ?? null,
+      dataset_reference_uri: datasetReferenceUri.trim() || null,
+      dataset_path_input: datasetPathInput.trim() || null,
+      job_id: (reportResponse?.job_id ?? jobStatus?.job_id ?? executeResponse?.job_id ?? jobId) || null,
+      parameter_overrides: parameterOverrides,
+      step_status: stepStatus,
+      license,
+      health_response: healthResponse,
+      inspect_response: inspectResponse,
+      prepare_response: prepareResponse,
+      plan_response: planResponse,
+      baselines_response: baselinesResponse,
+      vqc_response: vqcResponse,
+      report_response: reportResponse,
+      execute_response: executeResponse,
+      job_status: jobStatus,
+      job_log_response: jobLogResponse,
+      client_log_entries: clientLogEntries,
+    };
+    const stem = sanitizeDownloadStem(
+      snapshot.job_id ?? snapshot.original_workbook_filename ?? prepareResponse?.dataset_file ?? "vqc_review",
+    );
+    const filename = `${stem}_${timestampForFilename(snapshot.saved_at)}.json`;
+    downloadBlob(
+      new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" }),
+      filename,
+    );
+    pushClientLog("success", `JSON data file downloaded: ${filename}.`, "report");
+  }
+
+  async function loadJsonDataFileFromInput(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = "";
+    if (!selectedFile) {
+      return;
+    }
+
+    setActiveRequest("Loading JSON data file");
+    setLastError(null);
+    try {
+      const parsed = JSON.parse(await selectedFile.text()) as SavedVqcReviewSnapshot;
+      if (parsed.schema !== "vqc-rqp-review-snapshot" || parsed.schema_version !== 1) {
+        throw new Error("Unsupported VQC review JSON format.");
+      }
+
+      setWorkbookFile(null);
+      setDatasetFile(null);
+      setDatasetReferenceUri(parsed.dataset_reference_uri ?? "");
+      setDatasetPathInput(parsed.dataset_path_input ?? "");
+      setJobId(parsed.job_id ?? "");
+      setDismissedReconnectJobId(null);
+      setParameterOverrides(parsed.parameter_overrides ?? defaultParameterOverrides());
+      setParameterOverridesDirty(false);
+      setStepStatus(parsed.step_status ?? cloneInitialSteps());
+      setLicense(parsed.license ?? null);
+      setHealthResponse(parsed.health_response ?? null);
+      setInspectResponse(parsed.inspect_response ?? null);
+      setPrepareResponse(parsed.prepare_response ?? null);
+      setPlanResponse(parsed.plan_response ?? null);
+      setBaselinesResponse(parsed.baselines_response ?? null);
+      setVqcResponse(parsed.vqc_response ?? null);
+      setReportResponse(parsed.report_response ?? null);
+      setExecuteResponse(parsed.execute_response ?? null);
+      setJobStatus(parsed.job_status ?? null);
+      setJobLogResponse(parsed.job_log_response ?? null);
+      setClientLogEntries(parsed.client_log_entries ?? []);
+      setJobListResponse(null);
+
+      pushClientLog("success", `Loaded JSON data file: ${selectedFile.name}.`, "report");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load JSON data file.";
+      setLastError(message);
+      pushClientLog("error", `JSON data file load failed: ${message}`, "report");
+    } finally {
+      setActiveRequest(null);
+    }
   }
 
   function handleWorkbookChange(event: ChangeEvent<HTMLInputElement>) {
@@ -2755,6 +2984,20 @@ export default function VqcClassifierPage() {
                     />
                     Early stopping
                   </label>
+                  <label className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-3 text-sm text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={parameterOverrides.balanceTrainingOnly}
+                      onChange={(event) => updateOverride("balanceTrainingOnly", event.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Balance train split only
+                  </label>
+                </div>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  When enabled, the training split is undersampled to balance classes for model fitting only. Validation and test stay untouched so the benchmark remains honest.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Patience</span>
                     <input
@@ -3149,6 +3392,56 @@ export default function VqcClassifierPage() {
                 className="xl:col-span-2"
               >
                 <div className="space-y-5">
+                  <input
+                    ref={reviewJsonInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={(event) => void loadJsonDataFileFromInput(event)}
+                    className="sr-only"
+                  />
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void downloadJobArtifact(
+                          "result_report_pdf",
+                          `${sanitizeDownloadStem((reportResponse?.job_id ?? jobId) || "vqc_report")}.pdf`,
+                        )
+                      }
+                      disabled={activeRequest !== null || !reportResponse?.report_generated}
+                      className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Download PDF Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadJsonDataFile()}
+                      disabled={
+                        !(
+                          inspectResponse ||
+                          prepareResponse ||
+                          planResponse ||
+                          baselinesResponse ||
+                          vqcResponse ||
+                          reportResponse ||
+                          jobStatus
+                        )
+                      }
+                      className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Download JSON Data File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => reviewJsonInputRef.current?.click()}
+                      className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-slate-200 transition hover:border-slate-500"
+                    >
+                      Reload JSON Data File
+                    </button>
+                  </div>
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    The JSON data file is self-contained for review. You can reload it later even if the original dataset object is no longer available in cloud storage.
+                  </p>
                   <InfoGrid
                     items={[
                       { label: "Report generated", value: reportResponse?.report_generated },
