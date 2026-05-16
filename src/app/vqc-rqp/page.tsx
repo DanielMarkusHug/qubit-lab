@@ -22,6 +22,7 @@ const ENDPOINTS = {
 type PipelineStepKey = "inspect" | "prepare" | "plan" | "baselines" | "vqc" | "report";
 type PipelineStepStatus = "pending" | "running" | "done" | "error" | "cancelled";
 type JobStatusValue = "idle" | "queued" | "running" | "completed" | "failed" | "cancelled";
+type DatasetLoadState = "idle" | "loading" | "loaded" | "error";
 type LogLevel = "info" | "success" | "warning" | "error";
 type ArtifactPathMap = Record<string, string>;
 type JsonRecord = Record<string, unknown>;
@@ -1260,6 +1261,43 @@ function ClassDistributionTable({ distribution }: { distribution: JsonRecord | n
   return <GenericTable rows={rows} />;
 }
 
+function deriveEffectiveTrainingDistribution(
+  distribution: JsonRecord | null,
+  *,
+  balanceTrainingOnly: boolean,
+): JsonRecord | null {
+  const trainDistribution = asRecord(distribution?.train);
+  if (!trainDistribution) {
+    return null;
+  }
+
+  const numericEntries = Object.entries(trainDistribution)
+    .map(([label, value]) => ({
+      label,
+      value: typeof value === "number" ? value : Number(value),
+    }))
+    .filter((entry) => Number.isFinite(entry.value));
+
+  if (!numericEntries.length) {
+    return null;
+  }
+
+  if (!balanceTrainingOnly) {
+    return {
+      effective_train: Object.fromEntries(
+        numericEntries.map((entry) => [entry.label, entry.value]),
+      ),
+    };
+  }
+
+  const targetCount = Math.min(...numericEntries.map((entry) => entry.value));
+  return {
+    effective_train: Object.fromEntries(
+      numericEntries.map((entry) => [entry.label, targetCount]),
+    ),
+  };
+}
+
 function PreprocessingSummaryPanel({ summary }: { summary: JsonRecord | null }) {
   if (!summary) {
     return <p className="text-sm text-slate-500">No preprocessing summary available yet.</p>;
@@ -1542,6 +1580,7 @@ export default function VqcClassifierPage() {
   const [license, setLicense] = useState<LicenseStatusResponse | null>(null);
   const [workbookFile, setWorkbookFile] = useState<File | null>(null);
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
+  const [datasetLoadState, setDatasetLoadState] = useState<DatasetLoadState>("idle");
   const [datasetPathInput, setDatasetPathInput] = useState("");
   const [datasetReferenceUri, setDatasetReferenceUri] = useState("");
   const [jobId, setJobId] = useState("");
@@ -1617,6 +1656,7 @@ export default function VqcClassifierPage() {
       report: "pending",
     }));
     setDismissedReconnectJobId(null);
+    setDatasetLoadState("idle");
   }
 
   const applySettingsToOverrides = useCallback((settings: JsonRecord | null) => {
@@ -1847,6 +1887,7 @@ export default function VqcClassifierPage() {
       const response = await postMultipart<PrepareDataResponse>(ENDPOINTS.prepareData, formData, apiKey);
       setPrepareResponse(response);
       setJobId(response.job_id ?? "");
+      setDatasetLoadState("loaded");
       setStepStatus((previous) => ({ ...previous, prepare: "done" }));
       pushClientLog("success", `Prepared data for ${response.dataset_file ?? "dataset"} as ${response.job_id}.`, "prepare");
 
@@ -1859,6 +1900,7 @@ export default function VqcClassifierPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Data preparation failed.";
       setStepStatus((previous) => ({ ...previous, prepare: "error" }));
+      setDatasetLoadState("error");
       setLastError(message);
       pushClientLog("error", `Data preparation failed: ${message}`, "prepare");
       return null;
@@ -2089,6 +2131,7 @@ export default function VqcClassifierPage() {
 
       setWorkbookFile(null);
       setDatasetFile(null);
+      setDatasetLoadState(parsed.prepare_response || parsed.dataset_reference_uri ? "loaded" : "idle");
       setDatasetReferenceUri(parsed.dataset_reference_uri ?? "");
       setDatasetPathInput(parsed.dataset_path_input ?? "");
       setJobId(parsed.job_id ?? "");
@@ -2140,6 +2183,7 @@ export default function VqcClassifierPage() {
     setDatasetFile(file);
     setDatasetPathInput("");
     resetForDataChange();
+    setDatasetLoadState("loading");
     pushClientLog("info", `Selected dataset snapshot: ${file.name}.`, "prepare");
     event.target.value = "";
     void (async () => {
@@ -2152,11 +2196,13 @@ export default function VqcClassifierPage() {
         if (workbookFile) {
           await prepareData({ datasetOverride: null, datasetPathOverride: uploadTarget.gs_uri });
         } else {
+          setDatasetLoadState("loaded");
           pushClientLog("info", "Dataset is uploaded and ready. Load a workbook to start preparation.", "prepare");
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Dataset upload failed.";
         setDatasetFile(null);
+        setDatasetLoadState("error");
         setLastError(message);
         pushClientLog("error", `Dataset upload failed: ${message}`, "prepare");
       } finally {
@@ -2171,6 +2217,7 @@ export default function VqcClassifierPage() {
     }
     setDatasetFile(null);
     resetForDataChange();
+    setDatasetLoadState("loading");
     setDatasetReferenceUri(datasetPathInput.trim());
     pushClientLog("info", `Preparing data from dataset path: ${datasetPathInput.trim()}.`, "prepare");
     await prepareData({ datasetOverride: null, datasetPathOverride: datasetPathInput.trim() });
@@ -2333,6 +2380,14 @@ export default function VqcClassifierPage() {
   const currentRecommendations = Array.isArray(planResponse?.recommendations)
     ? planResponse.recommendations
     : (Array.isArray(currentPlanSummary?.recommendations) ? (currentPlanSummary.recommendations as string[]) : []);
+  const preparedClassDistribution = asRecord(prepareResponse?.class_distribution);
+  const effectiveTrainingDistribution = useMemo(
+    () =>
+      deriveEffectiveTrainingDistribution(preparedClassDistribution, {
+        balanceTrainingOnly: parameterOverrides.balanceTrainingOnly,
+      }),
+    [parameterOverrides.balanceTrainingOnly, preparedClassDistribution],
+  );
   const currentRunSummary = asRecord(reportResponse?.run_summary);
   const currentStageLabel = jobStatus?.current_stage ?? executeResponse?.current_stage ?? activeRequest ?? "Ready";
   const currentJobStatus = jobStatus?.job_status ?? executeResponse?.job_status ?? "idle";
@@ -2692,12 +2747,22 @@ export default function VqcClassifierPage() {
                     </button>
                     <span
                       className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] ${
-                        datasetFile
-                          ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-200"
-                          : "border-slate-800 bg-slate-950/60 text-slate-400"
+                        datasetLoadState === "loading"
+                          ? "border-amber-800/70 bg-amber-950/40 text-amber-200"
+                          : datasetLoadState === "loaded"
+                            ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-200"
+                            : datasetLoadState === "error"
+                              ? "border-rose-800/70 bg-rose-950/40 text-rose-200"
+                              : "border-slate-800 bg-slate-950/60 text-slate-400"
                       }`}
                     >
-                      {datasetFile ? "File loaded" : "No file loaded"}
+                      {datasetLoadState === "loading"
+                        ? "Loading in progress..."
+                        : datasetLoadState === "loaded"
+                          ? "File loaded"
+                          : datasetLoadState === "error"
+                            ? "Load failed"
+                            : "No file loaded"}
                     </span>
                   </div>
                 </label>
@@ -2730,7 +2795,11 @@ export default function VqcClassifierPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
-                  {datasetReferenceUri.trim() ? (
+                  {datasetLoadState === "loading" ? (
+                    <p>
+                      Uploading the dataset to cloud storage and preparing the run context. This can take a little while on larger files.
+                    </p>
+                  ) : datasetReferenceUri.trim() ? (
                     <p>
                       Dataset is staged in cloud storage at <span className="font-medium text-slate-100">{datasetReferenceUri}</span>. Preparation will use that object reference instead of pushing the raw file through the backend.
                     </p>
@@ -3198,12 +3267,27 @@ export default function VqcClassifierPage() {
                     <TagList values={prepareResponse?.quantum_feature_names ?? []} />
                   </div>
                   <div className="space-y-3">
-                    <p className="text-sm font-medium text-slate-200">Class distribution</p>
-                    <ClassDistributionTable distribution={asRecord(prepareResponse?.class_distribution)} />
+                    <p className="text-sm font-medium text-slate-200">Prepared split distribution</p>
+                    <ClassDistributionTable distribution={preparedClassDistribution} />
                   </div>
                   <div className="space-y-3">
-                    <p className="text-sm font-medium text-slate-200">Class distribution plot</p>
-                    <ClassDistributionBars distribution={asRecord(prepareResponse?.class_distribution)} />
+                    <p className="text-sm font-medium text-slate-200">Prepared split distribution plot</p>
+                    <ClassDistributionBars distribution={preparedClassDistribution} />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-slate-200">Effective training distribution</p>
+                      <span className="text-xs text-slate-500">
+                        {parameterOverrides.balanceTrainingOnly
+                          ? "Undersample-majority view for train only"
+                          : "Mirrors prepared train split while balancing is off"}
+                      </span>
+                    </div>
+                    <ClassDistributionTable distribution={effectiveTrainingDistribution} />
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-200">Effective training distribution plot</p>
+                    <ClassDistributionBars distribution={effectiveTrainingDistribution} />
                   </div>
                   <PreprocessingSummaryPanel summary={asRecord(prepareResponse?.preprocessing_summary)} />
                 </div>
