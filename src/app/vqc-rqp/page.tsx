@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_VQC_API_BASE?.trim() ||
@@ -11,6 +11,7 @@ const API_BASE =
 const ENDPOINTS = {
   health: "/health",
   licenseStatus: "/license-status",
+  datasetUploadTarget: "/datasets/upload-target",
   inspectWorkbook: "/inspect-workbook",
   prepareData: "/prepare-data",
   planRun: "/plan-run",
@@ -119,6 +120,15 @@ interface PrepareDataResponse extends BaseApiResponse {
   selected_features?: string[];
   quantum_feature_names?: string[];
   preprocessing_summary?: JsonRecord;
+}
+
+interface DatasetUploadTargetResponse extends BaseApiResponse {
+  upload_url: string;
+  gs_uri: string;
+  object_name: string;
+  content_type?: string | null;
+  size_bytes?: number | null;
+  upload_transport: string;
 }
 
 interface PlanRunResponse extends BaseApiResponse {
@@ -494,6 +504,22 @@ async function postMultipart<T>(endpoint: string, formData: FormData, apiKey = "
     method: "POST",
     body: formData,
     headers: requestHeaders(apiKey),
+  });
+  const payload = await parseResponseJson(response);
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(payload));
+  }
+  return payload as T;
+}
+
+async function postJson<T>(endpoint: string, body: unknown, apiKey = ""): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: "POST",
+    headers: {
+      ...requestHeaders(apiKey),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
   });
   const payload = await parseResponseJson(response);
   if (!response.ok) {
@@ -1404,6 +1430,7 @@ export default function VqcClassifierPage() {
   const [workbookFile, setWorkbookFile] = useState<File | null>(null);
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
   const [datasetPathInput, setDatasetPathInput] = useState("");
+  const [datasetReferenceUri, setDatasetReferenceUri] = useState("");
   const [jobId, setJobId] = useState("");
   const [dismissedReconnectJobId, setDismissedReconnectJobId] = useState<string | null>(null);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -1424,6 +1451,8 @@ export default function VqcClassifierPage() {
   const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
   const [jobLogResponse, setJobLogResponse] = useState<JobLogResponse | null>(null);
   const [jobListResponse, setJobListResponse] = useState<JobListResponse | null>(null);
+  const workbookInputRef = useRef<HTMLInputElement | null>(null);
+  const datasetInputRef = useRef<HTMLInputElement | null>(null);
 
   const pushClientLog = useCallback((level: LogLevel, message: string, stage?: PipelineStepKey | string | null) => {
     setClientLogEntries((entries) => [
@@ -1464,6 +1493,7 @@ export default function VqcClassifierPage() {
     setJobStatus(null);
     setJobLogResponse(null);
     setJobId("");
+    setDatasetReferenceUri("");
     setStepStatus((previous) => ({
       inspect: previous.inspect,
       prepare: "pending",
@@ -1614,11 +1644,11 @@ export default function VqcClassifierPage() {
       setStepStatus((previous) => ({ ...previous, inspect: "done" }));
       pushClientLog("success", `Workbook inspected: ${file.name}`, "inspect");
 
-      if (options?.chainPrepare && (datasetFile || datasetPathInput.trim())) {
+      if (options?.chainPrepare && (datasetReferenceUri.trim() || datasetFile || datasetPathInput.trim())) {
         await prepareData({
           workbookOverride: file,
-          datasetOverride: datasetFile,
-          datasetPathOverride: datasetPathInput.trim(),
+          datasetOverride: datasetReferenceUri.trim() ? null : datasetFile,
+          datasetPathOverride: datasetReferenceUri.trim() || datasetPathInput.trim(),
         });
       }
     } catch (error) {
@@ -1669,8 +1699,9 @@ export default function VqcClassifierPage() {
     datasetPathOverride?: string;
   }) {
     const workbookToUse = options?.workbookOverride ?? workbookFile;
-    const datasetToUse = options?.datasetOverride ?? datasetFile;
-    const datasetPathToUse = (options?.datasetPathOverride ?? datasetPathInput).trim();
+    const explicitDatasetPath = options?.datasetPathOverride;
+    const datasetPathToUse = (explicitDatasetPath !== undefined ? explicitDatasetPath : (datasetReferenceUri || datasetPathInput)).trim();
+    const datasetToUse = datasetPathToUse ? null : (options?.datasetOverride ?? datasetFile);
 
     if (!workbookToUse) {
       const message = "Load a workbook first so we have a config to inspect and prepare against.";
@@ -1721,6 +1752,31 @@ export default function VqcClassifierPage() {
       setActiveRequest(null);
     }
   }
+
+  const uploadDatasetToCloud = useCallback(async (file: File) => {
+    const uploadTarget = await postJson<DatasetUploadTargetResponse>(
+      ENDPOINTS.datasetUploadTarget,
+      {
+        filename: file.name,
+        content_type: file.type || "application/octet-stream",
+        size_bytes: file.size,
+      },
+      apiKey,
+    );
+
+    const uploadResponse = await fetch(uploadTarget.upload_url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || uploadTarget.content_type || "application/octet-stream",
+      },
+      body: file,
+    });
+    if (!uploadResponse.ok) {
+      const text = await uploadResponse.text();
+      throw new Error(text.trim() || `Direct dataset upload failed with status ${uploadResponse.status}.`);
+    }
+    return uploadTarget;
+  }, [apiKey]);
 
   const refreshJobState = useCallback(async (targetJobId: string, silent = true) => {
     try {
@@ -1844,7 +1900,7 @@ export default function VqcClassifierPage() {
     resetForWorkbookChange();
     pushClientLog("info", `Selected workbook snapshot: ${file.name}.`, "inspect");
     event.target.value = "";
-    void inspectWorkbook(file, { chainPrepare: Boolean(datasetFile || datasetPathInput.trim()) });
+    void inspectWorkbook(file, { chainPrepare: Boolean(datasetReferenceUri.trim() || datasetFile || datasetPathInput.trim()) });
   }
 
   function handleDatasetFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -1857,7 +1913,27 @@ export default function VqcClassifierPage() {
     resetForDataChange();
     pushClientLog("info", `Selected dataset snapshot: ${file.name}.`, "prepare");
     event.target.value = "";
-    void prepareData({ datasetOverride: file, datasetPathOverride: "" });
+    void (async () => {
+      setActiveRequest("Uploading dataset");
+      setLastError(null);
+      try {
+        const uploadTarget = await uploadDatasetToCloud(file);
+        setDatasetReferenceUri(uploadTarget.gs_uri);
+        pushClientLog("success", `Uploaded dataset directly to bucket: ${uploadTarget.gs_uri}.`, "prepare");
+        if (workbookFile) {
+          await prepareData({ datasetOverride: null, datasetPathOverride: uploadTarget.gs_uri });
+        } else {
+          pushClientLog("info", "Dataset is uploaded and ready. Load a workbook to start preparation.", "prepare");
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Dataset upload failed.";
+        setDatasetFile(null);
+        setLastError(message);
+        pushClientLog("error", `Dataset upload failed: ${message}`, "prepare");
+      } finally {
+        setActiveRequest(null);
+      }
+    })();
   }
 
   async function handleDatasetPathSubmit() {
@@ -1866,6 +1942,7 @@ export default function VqcClassifierPage() {
     }
     setDatasetFile(null);
     resetForDataChange();
+    setDatasetReferenceUri(datasetPathInput.trim());
     pushClientLog("info", `Preparing data from dataset path: ${datasetPathInput.trim()}.`, "prepare");
     await prepareData({ datasetOverride: null, datasetPathOverride: datasetPathInput.trim() });
   }
@@ -2102,6 +2179,37 @@ export default function VqcClassifierPage() {
       : plannedTotalMinutes !== null
         ? `Planned nominal runtime ${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min (${formatLabel(plannedRuntimeClass ?? "unknown")})${maxLicenseRuntimeMinutes !== null ? ` · access cap ${maxLicenseRuntimeMinutes} min` : ""}${recommendedWorkerProfile ? ` · recommended worker ${formatLabel(recommendedWorkerProfile)}` : ""}.`
         : "Load data and plan the run to get a backend runtime estimate.";
+  const statusRowOneItems = [
+    { label: "Backend health", value: healthResponse?.status },
+    { label: "Access", value: license?.display_name ?? "Pending" },
+    { label: "Current job", value: jobId || "Waiting for prepared data" },
+    { label: "Current stage", value: currentStageLabel },
+    { label: "Job status", value: currentJobStatus },
+    { label: "Runtime class", value: plannedRuntimeClass },
+  ];
+  const statusRowTwoItems = [
+    { label: "Worker profile", value: selectedWorkerProfile },
+    { label: "Elapsed", value: currentElapsedRuntime !== null ? formatDurationSeconds(currentElapsedRuntime) : "-" },
+    {
+      label: "ETA",
+      value:
+        currentRemainingRuntime !== null
+          ? formatDurationSeconds(currentRemainingRuntime)
+          : plannedTotalMinutes !== null
+            ? `${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min nominal`
+            : "-",
+    },
+    {
+      label: "Total est.",
+      value:
+        currentEstimatedTotalRuntime !== null
+          ? formatDurationSeconds(currentEstimatedTotalRuntime)
+          : plannedTotalMinutes !== null
+            ? `${plannedTotalMinutes.toFixed(plannedTotalMinutes < 10 ? 1 : 0)} min`
+            : "-",
+    },
+    { label: "Cancel requested", value: isCancelRequested },
+  ];
   const reportComparisonRows = Array.isArray(reportResponse?.model_comparison) ? reportResponse.model_comparison : [];
   const baselineComparisonRows = Array.isArray(baselinesResponse?.model_comparison) ? baselinesResponse.model_comparison : [];
   const currentClassificationMode =
@@ -2184,7 +2292,7 @@ export default function VqcClassifierPage() {
           subtitle="A tighter operator view of access, runtime, and the currently active async job."
           accent
         >
-          <div className="space-y-5">
+          <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3 text-sm text-slate-300">
                 <span>{currentStatusMessage}</span>
@@ -2198,37 +2306,37 @@ export default function VqcClassifierPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Feedback</p>
-              <p className="mt-2 text-sm text-slate-200">{runtimeFeedback}</p>
-              <p className="mt-2 text-sm text-slate-400">{accessFeedback}</p>
+            <div className="space-y-1 text-sm">
+              <p className="text-slate-200">{runtimeFeedback}</p>
+              <p className="text-slate-400">{accessFeedback}</p>
             </div>
 
-            <InfoGrid
-              items={[
-                { label: "Backend health", value: healthResponse?.status },
-                { label: "Access", value: license?.display_name ?? "Pending" },
-                { label: "Current job", value: jobId || "Waiting for prepared data" },
-                { label: "Current stage", value: currentStageLabel },
-                { label: "Job status", value: currentJobStatus },
-                { label: "Cancel requested", value: isCancelRequested },
-                { label: "Runtime class", value: plannedRuntimeClass },
-                { label: "Worker profile", value: selectedWorkerProfile },
-                { label: "Elapsed", value: currentElapsedRuntime !== null ? formatDurationSeconds(currentElapsedRuntime) : "-" },
-                { label: "Remaining", value: currentRemainingRuntime !== null ? formatDurationSeconds(currentRemainingRuntime) : "-" },
-              ]}
-            />
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => void checkBackend()}
-                disabled={activeRequest !== null}
-                className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Check backend
-              </button>
-              {activeRequest ? <span className="self-center text-sm text-slate-400">{activeRequest}…</span> : null}
+            <div className="grid gap-3 xl:grid-cols-6">
+              {statusRowOneItems.map((item) => (
+                <div key={item.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
+                  <div className="mt-2 break-words text-sm text-slate-100">{formatValue(item.value)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-3 xl:grid-cols-6">
+              {statusRowTwoItems.map((item) => (
+                <div key={item.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
+                  <div className="mt-2 break-words text-sm text-slate-100">{formatValue(item.value)}</div>
+                </div>
+              ))}
+              <div className="flex min-h-[88px] flex-col items-stretch justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 xl:items-end">
+                <button
+                  type="button"
+                  onClick={() => void checkBackend()}
+                  disabled={activeRequest !== null}
+                  className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Check backend
+                </button>
+                {activeRequest ? <span className="text-xs text-slate-400">{activeRequest}…</span> : null}
+              </div>
             </div>
             {lastError ? (
               <div className="rounded-2xl border border-rose-900/70 bg-rose-950/40 p-4 text-sm text-rose-200">{lastError}</div>
@@ -2294,11 +2402,30 @@ export default function VqcClassifierPage() {
                 <label className="block">
                   <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Workbook</span>
                   <input
+                    ref={workbookInputRef}
                     type="file"
                     accept=".xlsx,.xlsm,.xls"
                     onChange={handleWorkbookChange}
-                    className="block w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3 text-sm text-slate-200 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-950 hover:file:bg-cyan-400"
+                    className="sr-only"
                   />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => workbookInputRef.current?.click()}
+                      className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400"
+                    >
+                      Choose workbook
+                    </button>
+                    <span
+                      className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] ${
+                        workbookFile
+                          ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-200"
+                          : "border-slate-800 bg-slate-950/60 text-slate-400"
+                      }`}
+                    >
+                      {workbookFile ? "File loaded" : "No file loaded"}
+                    </span>
+                  </div>
                 </label>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
                   {workbookFile ? (
@@ -2320,11 +2447,30 @@ export default function VqcClassifierPage() {
                 <label className="block">
                   <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dataset Upload</span>
                   <input
+                    ref={datasetInputRef}
                     type="file"
                     accept=".csv,.parquet"
                     onChange={handleDatasetFileChange}
-                    className="block w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3 text-sm text-slate-200 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-950 hover:file:bg-cyan-400"
+                    className="sr-only"
                   />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => datasetInputRef.current?.click()}
+                      className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400"
+                    >
+                      Choose dataset
+                    </button>
+                    <span
+                      className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] ${
+                        datasetFile
+                          ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-200"
+                          : "border-slate-800 bg-slate-950/60 text-slate-400"
+                      }`}
+                    >
+                      {datasetFile ? "File loaded" : "No file loaded"}
+                    </span>
+                  </div>
                 </label>
 
                 <div className="space-y-2">
@@ -2355,7 +2501,11 @@ export default function VqcClassifierPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm text-slate-300">
-                  {datasetFile ? (
+                  {datasetReferenceUri.trim() ? (
+                    <p>
+                      Dataset is staged in cloud storage at <span className="font-medium text-slate-100">{datasetReferenceUri}</span>. Preparation will use that object reference instead of pushing the raw file through the backend.
+                    </p>
+                  ) : datasetFile ? (
                     <p>
                       Loaded <span className="font-medium text-slate-100">{datasetFile.name}</span>. Preparation runs automatically and creates a new job context.
                     </p>
