@@ -31,6 +31,7 @@ type MetricTableRow = Record<string, TableCellValue>;
 type OptimizerOption = "adam" | "cobyla" | "spsa";
 type FeatureMapOption = "angle" | "zz_like" | "iqp" | "amplitude" | "basis";
 type AnsatzOption = "hardware_efficient" | "custom_rx_ry_cz" | "strongly_entangling" | "real_amplitudes_like" | "basic_entangler";
+type QuantumReductionOption = "pca" | "mutual_information" | "none";
 type WorkerProfileOption = "small" | "medium" | "large";
 type SimulatorBackendOption = "pennylane_default_qubit" | "pennylane_lightning";
 
@@ -73,6 +74,7 @@ interface ParameterOverridesState {
   ansatzType: AnsatzOption;
   ansatzReps: number;
   nQubits: number;
+  quantumReductionMethod: QuantumReductionOption;
   backend: SimulatorBackendOption;
   workerProfile: WorkerProfileOption;
   iterations: number;
@@ -591,6 +593,7 @@ function defaultParameterOverrides(): ParameterOverridesState {
     ansatzType: "hardware_efficient",
     ansatzReps: 1,
     nQubits: 4,
+    quantumReductionMethod: "pca",
     backend: "pennylane_default_qubit",
     workerProfile: "small",
     iterations: 50,
@@ -606,6 +609,7 @@ function defaultParameterOverrides(): ParameterOverridesState {
 
 function hydrateOverridesFromSettings(settings: JsonRecord | null): ParameterOverridesState {
   const model = asRecord(settings?.model);
+  const preprocessing = asRecord(settings?.preprocessing);
   const training = asRecord(settings?.training);
   const defaults = defaultParameterOverrides();
   return {
@@ -614,6 +618,10 @@ function hydrateOverridesFromSettings(settings: JsonRecord | null): ParameterOve
     ansatzType: (typeof model?.ansatz_type === "string" ? model.ansatz_type : defaults.ansatzType) as AnsatzOption,
     ansatzReps: Number(model?.ansatz_reps ?? defaults.ansatzReps),
     nQubits: Number(model?.n_qubits ?? defaults.nQubits),
+    quantumReductionMethod:
+      (typeof preprocessing?.quantum_feature_reduction === "string"
+        ? preprocessing.quantum_feature_reduction
+        : defaults.quantumReductionMethod) as QuantumReductionOption,
     backend: normalizeSimulatorBackend(model?.backend),
     workerProfile: normalizeWorkerProfile(asRecord(settings?.execution)?.worker_profile),
     iterations: Number(training?.iterations ?? defaults.iterations),
@@ -637,6 +645,10 @@ function buildConfigOverridesPayload(overrides: ParameterOverridesState): JsonRe
       n_qubits: overrides.nQubits,
       n_quantum_features: overrides.nQubits,
       backend: overrides.backend,
+    },
+    preprocessing: {
+      quantum_feature_reduction: overrides.quantumReductionMethod,
+      n_quantum_features: overrides.nQubits,
     },
     training: {
       optimizer: overrides.optimizer,
@@ -1300,6 +1312,20 @@ function deriveEffectiveTrainingDistribution(
   };
 }
 
+function formatQuantumReductionMethod(value: unknown): string {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "mutual_information") {
+    return "Mutual information";
+  }
+  if (normalized === "none") {
+    return "None";
+  }
+  if (normalized === "pca") {
+    return "PCA";
+  }
+  return formatValue(value);
+}
+
 function PreprocessingSummaryPanel({ summary }: { summary: JsonRecord | null }) {
   if (!summary) {
     return <p className="text-sm text-slate-500">No preprocessing summary available yet.</p>;
@@ -1525,7 +1551,13 @@ function BenchmarkMethodCatalogPanel({ specs }: { specs: JsonRecord | null }) {
   );
 }
 
-function RunSummaryPanel({ summary }: { summary: JsonRecord | null }) {
+function RunSummaryPanel({
+  summary,
+  quantumReductionMethod,
+}: {
+  summary: JsonRecord | null;
+  quantumReductionMethod?: unknown;
+}) {
   if (!summary) {
     return <p className="text-sm text-slate-500">Run summary becomes available after report generation.</p>;
   }
@@ -1544,6 +1576,7 @@ function RunSummaryPanel({ summary }: { summary: JsonRecord | null }) {
           { label: "Validation rows", value: summary.validation_rows },
           { label: "Test rows", value: summary.test_rows },
           { label: "Qubits", value: summary.n_qubits },
+          { label: "Features reduced using", value: formatQuantumReductionMethod(quantumReductionMethod) },
           { label: "Feature map", value: summary.feature_map_type },
           { label: "Ansatz", value: summary.ansatz_type },
           { label: "Ansatz reps", value: summary.ansatz_reps },
@@ -2134,7 +2167,7 @@ export default function VqcClassifierPage() {
       setDatasetPathInput(parsed.dataset_path_input ?? "");
       setJobId(parsed.job_id ?? "");
       setDismissedReconnectJobId(null);
-      setParameterOverrides(parsed.parameter_overrides ?? defaultParameterOverrides());
+      setParameterOverrides({ ...defaultParameterOverrides(), ...(parsed.parameter_overrides ?? {}) });
       setParameterOverridesDirty(false);
       setStepStatus(parsed.step_status ?? cloneInitialSteps());
       setLicense(parsed.license ?? null);
@@ -2306,6 +2339,9 @@ export default function VqcClassifierPage() {
     reportResponse?.effective_settings,
     vqcResponse?.effective_settings,
   ]);
+  const currentPreprocessingSettings = asRecord(currentEffectiveSettings?.preprocessing);
+  const currentQuantumReductionMethod =
+    currentPreprocessingSettings?.quantum_feature_reduction ?? parameterOverrides.quantumReductionMethod;
 
   const currentWarnings = useMemo(() => {
     let merged: string[] = [];
@@ -2439,6 +2475,7 @@ export default function VqcClassifierPage() {
   const currentElapsedRuntime = asFiniteNumber(currentRuntimeTracking?.elapsed_seconds);
   const currentRemainingRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_remaining_seconds);
   const currentEstimatedTotalRuntime = asFiniteNumber(currentRuntimeTracking?.estimated_total_seconds);
+  const maxLicenseQubits = asFiniteNumber(currentVqcLimits?.max_qubits);
   const maxLicenseIterations = asFiniteNumber(currentVqcLimits?.max_iterations);
   const maxLicenseRepeats = asFiniteNumber(currentVqcLimits?.max_repeats);
   const maxLicenseRuntimeMinutes = asFiniteNumber(currentVqcLimits?.max_runtime_minutes);
@@ -2957,10 +2994,17 @@ export default function VqcClassifierPage() {
                       className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
                     />
                   </label>
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-3 text-sm text-slate-300">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Qubits</div>
-                    <div className="mt-2 text-slate-100">{formatValue(parameterOverrides.nQubits)}</div>
-                  </div>
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Qubits</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={maxLicenseQubits ?? 32}
+                      value={parameterOverrides.nQubits}
+                      onChange={(event) => updateOverride("nQubits", Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                    />
+                  </label>
                 </div>
                 <label className="block">
                   <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Feature-map repeats</span>
@@ -2973,8 +3017,23 @@ export default function VqcClassifierPage() {
                     className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
                   />
                 </label>
+                <label className="block">
+                  <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Quantum reduction</span>
+                  <select
+                    value={parameterOverrides.quantumReductionMethod}
+                    onChange={(event) => updateOverride("quantumReductionMethod", event.target.value as QuantumReductionOption)}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-600"
+                  >
+                    <option value="pca">PCA</option>
+                    <option value="mutual_information">Mutual information</option>
+                    <option value="none">None</option>
+                  </select>
+                </label>
                 <p className="text-xs leading-relaxed text-slate-500">
-                  These overrides flow into planning and async execution. Qubits stay fixed to the prepared data and workbook so we do not accidentally desynchronize feature selection from the quick interface.
+                  These overrides flow into planning and async execution. Changing qubits also changes the quantum feature target, so the preprocessing pipeline can reduce the prepared feature view down to the chosen circuit width automatically.
+                </p>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  PCA compresses variance, mutual information keeps label-informative features, and none uses the selected feature view directly.
                 </p>
                 {currentVqcLimits ? (
                   <p className="text-xs leading-relaxed text-amber-200">
@@ -3496,6 +3555,7 @@ export default function VqcClassifierPage() {
                           { label: "Ansatz", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_type },
                           { label: "Ansatz reps", value: asRecord(vqcResponse?.circuit_summary)?.ansatz_reps },
                           { label: "Qubits", value: asRecord(vqcResponse?.circuit_summary)?.n_qubits },
+                          { label: "Features reduced using", value: formatQuantumReductionMethod(currentQuantumReductionMethod) },
                           { label: "Backend", value: asRecord(vqcResponse?.circuit_summary)?.backend },
                           { label: "Shots mode", value: asRecord(vqcResponse?.circuit_summary)?.shots_mode },
                           { label: "Measurement", value: asRecord(vqcResponse?.circuit_summary)?.measurement },
@@ -3537,7 +3597,10 @@ export default function VqcClassifierPage() {
                       { label: "Baselines complete", value: currentRunSummary?.mandatory_baselines_complete },
                     ]}
                   />
-                  <RunSummaryPanel summary={currentRunSummary} />
+                  <RunSummaryPanel
+                    summary={currentRunSummary}
+                    quantumReductionMethod={currentQuantumReductionMethod}
+                  />
                   {effectiveReportComparisonRows.length ? (
                     <div className="space-y-4">
                       <p className="text-sm font-medium text-slate-200">Final seven-method comparison</p>
