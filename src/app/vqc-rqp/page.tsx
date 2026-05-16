@@ -1832,9 +1832,7 @@ export default function VqcClassifierPage() {
       if (workbookToUse) {
         formData.append("workbook", workbookToUse);
       }
-      if (parameterOverridesDirty) {
-        formData.append("config_overrides", JSON.stringify(buildConfigOverridesPayload(parameterOverrides)));
-      }
+      formData.append("config_overrides", JSON.stringify(buildConfigOverridesPayload(parameterOverrides)));
       const response = await postMultipart<PlanRunResponse>(ENDPOINTS.planRun, formData, apiKey);
       setPlanResponse(response);
       setStepStatus((previous) => ({ ...previous, plan: "done" }));
@@ -1999,9 +1997,7 @@ export default function VqcClassifierPage() {
       if (workbookFile) {
         formData.append("workbook", workbookFile);
       }
-      if (parameterOverridesDirty) {
-        formData.append("config_overrides", JSON.stringify(buildConfigOverridesPayload(parameterOverrides)));
-      }
+      formData.append("config_overrides", JSON.stringify(buildConfigOverridesPayload(parameterOverrides)));
       const response = await postMultipart<ExecuteRunResponse>(ENDPOINTS.executeRun, formData, apiKey);
       setExecuteResponse(response);
       setJobId(response.job_id ?? ensuredJobId);
@@ -2400,6 +2396,15 @@ export default function VqcClassifierPage() {
     const allowed = asStringArray(license?.allowed_worker_profiles);
     return allowed.length ? allowed : ["small", "medium", "large"];
   }, [license?.allowed_worker_profiles]);
+  const hasAnyReviewData = Boolean(
+    inspectResponse ||
+      prepareResponse ||
+      planResponse ||
+      baselinesResponse ||
+      vqcResponse ||
+      reportResponse ||
+      jobStatus,
+  );
   const currentBenchmarkMethodSpecs = useMemo(
     () => asRecord(baselinesResponse?.benchmark_method_specs),
     [baselinesResponse?.benchmark_method_specs],
@@ -3151,6 +3156,52 @@ export default function VqcClassifierPage() {
                 </div>
               </div>
             </Card>
+
+            <Card
+              title="Review Files"
+              subtitle="QAOA-style export and reload controls. Reload stays available before a run so you can reopen a saved VQC review snapshot at any time."
+            >
+              <div className="space-y-4">
+                <input
+                  ref={reviewJsonInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={(event) => void loadJsonDataFileFromInput(event)}
+                  className="sr-only"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    void downloadJobArtifact(
+                      "result_report_pdf",
+                      `${sanitizeDownloadStem((reportResponse?.job_id ?? jobId) || "vqc_report")}.pdf`,
+                    )
+                  }
+                  disabled={activeRequest !== null || !reportResponse?.report_generated}
+                  className="w-full rounded-xl bg-cyan-500 px-4 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Download PDF Report
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadJsonDataFile()}
+                  disabled={!hasAnyReviewData}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Download JSON Data File
+                </button>
+                <button
+                  type="button"
+                  onClick={() => reviewJsonInputRef.current?.click()}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-200 transition hover:border-slate-500"
+                >
+                  Reload JSON Data File
+                </button>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  The JSON data file is self-contained for review. You can reload it later even if the original dataset object is no longer available in cloud storage.
+                </p>
+              </div>
+            </Card>
           </aside>
 
           <section className="space-y-6">
@@ -3478,56 +3529,6 @@ export default function VqcClassifierPage() {
                 className="xl:col-span-2"
               >
                 <div className="space-y-5">
-                  <input
-                    ref={reviewJsonInputRef}
-                    type="file"
-                    accept=".json,application/json"
-                    onChange={(event) => void loadJsonDataFileFromInput(event)}
-                    className="sr-only"
-                  />
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void downloadJobArtifact(
-                          "result_report_pdf",
-                          `${sanitizeDownloadStem((reportResponse?.job_id ?? jobId) || "vqc_report")}.pdf`,
-                        )
-                      }
-                      disabled={activeRequest !== null || !reportResponse?.report_generated}
-                      className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Download PDF Report
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => downloadJsonDataFile()}
-                      disabled={
-                        !(
-                          inspectResponse ||
-                          prepareResponse ||
-                          planResponse ||
-                          baselinesResponse ||
-                          vqcResponse ||
-                          reportResponse ||
-                          jobStatus
-                        )
-                      }
-                      className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Download JSON Data File
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => reviewJsonInputRef.current?.click()}
-                      className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-slate-200 transition hover:border-slate-500"
-                    >
-                      Reload JSON Data File
-                    </button>
-                  </div>
-                  <p className="text-xs leading-relaxed text-slate-500">
-                    The JSON data file is self-contained for review. You can reload it later even if the original dataset object is no longer available in cloud storage.
-                  </p>
                   <InfoGrid
                     items={[
                       { label: "Report generated", value: reportResponse?.report_generated },
